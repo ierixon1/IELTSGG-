@@ -1,18 +1,47 @@
 import { UserProfile, PlanTask, MockAttempt, ChecklistWeek, WritingGradingResult, SpeakingGradingResult } from '../types';
 
 export interface SyncDataPayload { profile?: UserProfile; tasks?: PlanTask[]; attempts?: MockAttempt[]; checklist?: ChecklistWeek; }
-const LOCAL_STORAGE_KEY = 'prepielts_app_data_v1';
-function authHeaders(extra: Record<string, string> = {}): Record<string, string> { const token = localStorage.getItem('prep_auth_token'); return token ? { ...extra, Authorization: `Bearer ${token}` } : extra; }
+
+function getLocalStorageKey(): string {
+  try {
+    const rawUser = localStorage.getItem('prep_auth_user');
+    const user = rawUser ? JSON.parse(rawUser) : null;
+    const userId = typeof user?.id === 'string' && user.id.length > 0 ? user.id : 'anonymous';
+    return `prepielts_app_data_v1_${userId}`;
+  } catch {
+    return 'prepielts_app_data_v1_anonymous';
+  }
+}
+
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = localStorage.getItem('prep_auth_token');
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+}
 
 export async function fetchInitialData(): Promise<{ profile: UserProfile; tasks: PlanTask[]; attempts: MockAttempt[]; checklist: ChecklistWeek }> {
   const fallback = { profile: { id: 'user_local', targetBand: 7.5, currentLevel: 6.0, hoursPerWeek: 12, weakSection: 'writing' as const, isOnboarded: false }, tasks: [] as PlanTask[], attempts: [] as MockAttempt[], checklist: { weekNumber: 1, weekStart: new Date().toISOString().split('T')[0], mocksDone: 0, mocksTarget: 2, essaysDone: 0, essaysTarget: 4, speakingDone: 0, speakingTarget: 5 } };
-  try { const res = await fetch('/api/data', { headers: authHeaders() }); if (res.ok) { const data = await res.json(); if (data?.profile) { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data)); return { profile: data.profile, tasks: data.tasks || [], attempts: data.attempts || [], checklist: data.checklist || fallback.checklist }; } } } catch (e) { console.warn('Backend sync unavailable, using local cache:', e); }
-  try { const cached = localStorage.getItem(LOCAL_STORAGE_KEY); if (cached) return JSON.parse(cached); } catch (e) { console.error('LocalStorage parse error:', e); }
+  const localStorageKey = getLocalStorageKey();
+  try {
+    const res = await fetch('/api/data', { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.profile) {
+        localStorage.setItem(localStorageKey, JSON.stringify(data));
+        return { profile: data.profile, tasks: data.tasks || [], attempts: data.attempts || [], checklist: data.checklist || fallback.checklist };
+      }
+    }
+    if (res.status === 401) {
+      localStorage.removeItem('prep_auth_token');
+      localStorage.removeItem('prep_auth_user');
+    }
+  } catch (e) { console.warn('Backend sync unavailable, using local cache:', e); }
+  try { const cached = localStorage.getItem(localStorageKey); if (cached) return JSON.parse(cached); } catch (e) { console.error('LocalStorage parse error:', e); }
   return fallback;
 }
 
 export async function syncDataToServer(payload: SyncDataPayload) {
-  try { const current = localStorage.getItem(LOCAL_STORAGE_KEY); const parsed = current ? JSON.parse(current) : {}; localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ ...parsed, ...payload })); } catch (e) { console.error('Local save error:', e); }
+  const localStorageKey = getLocalStorageKey();
+  try { const current = localStorage.getItem(localStorageKey); const parsed = current ? JSON.parse(current) : {}; localStorage.setItem(localStorageKey, JSON.stringify({ ...parsed, ...payload })); } catch (e) { console.error('Local save error:', e); }
   try {
     const requests: Promise<Response>[] = [];
     if (payload.profile) requests.push(fetch('/api/data/profile', { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload.profile) }));
