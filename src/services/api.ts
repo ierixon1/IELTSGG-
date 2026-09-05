@@ -47,7 +47,11 @@ export async function syncDataToServer(payload: SyncDataPayload) {
     if (payload.profile) requests.push(fetch('/api/data/profile', { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload.profile) }));
     if (payload.tasks) requests.push(fetch('/api/data/tasks', { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ tasks: payload.tasks }) }));
     if (payload.checklist) requests.push(fetch('/api/data/checklist', { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ checklist: [payload.checklist] }) }));
-    if (payload.attempts?.length) { const lastAttempt = payload.attempts[payload.attempts.length - 1]; if (lastAttempt) requests.push(fetch('/api/data/attempts', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(lastAttempt) })); }
+    if (payload.attempts?.length) {
+      for (const attempt of payload.attempts) {
+        requests.push(fetch('/api/data/attempts', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(attempt) }));
+      }
+    }
     const results = await Promise.all(requests);
     if (results.some(r => r.status === 401)) { localStorage.removeItem('prep_auth_token'); localStorage.removeItem('prep_auth_user'); }
   } catch (e) { console.warn('Could not sync to backend:', e); }
