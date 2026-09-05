@@ -51,12 +51,16 @@ describe('security regressions', () => {
     expect(main).toContain("localStorage.removeItem('prep_auth_token')");
     expect(api).not.toContain('Authorization: `Bearer');
   });
-  it('uses HttpOnly admin cookie auth and blocks cross-site state changes', async () => {
+  it('uses HttpOnly admin cookie auth and enforces global admin security', async () => {
     const routes = await read('src/routes/adminRoutes.ts');
+    const middleware = await read('src/middleware/adminSecurityMiddleware.ts');
+    const server = await read('server.ts');
     expect(routes).toContain("const ADMIN_AUTH_COOKIE='prep_admin_auth'");
     expect(routes).toContain('httpOnly:true');
-    expect(routes).toContain('Cross-site request blocked.');
     expect(routes).not.toContain('req.headers.authorization');
+    expect(middleware).toContain('Cross-site request blocked.');
+    expect(middleware).toContain("'api_global'");
+    expect(server).toContain("app.use('/api/admin',enforceAdminSecurity,adminRouter)");
   });
   it('validates complete password reset email configuration', async () => {
     const email = await read('src/services/emailService.ts');
