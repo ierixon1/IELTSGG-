@@ -1,21 +1,25 @@
-import { Storage } from '@google-cloud/storage';
+import { getStorage } from 'firebase-admin/storage';
 import { StorageProvider } from './StorageProvider';
 
 export class CloudStorageProvider implements StorageProvider {
   private readonly bucketName: string;
-  private readonly storage: Storage;
 
   constructor(bucketName = process.env.GCS_BUCKET_NAME) {
     if (!bucketName) throw new Error('GCS_BUCKET_NAME is required for cloud storage.');
     this.bucketName = bucketName;
-    this.storage = new Storage({ projectId: process.env.FIREBASE_PROJECT_ID || undefined });
   }
 
-  private bucket() { return this.storage.bucket(this.bucketName); }
+  private bucket() {
+    return getStorage().bucket(this.bucketName);
+  }
 
   async uploadFile(storagePath: string, content: Buffer | Uint8Array | string, contentType?: string): Promise<{ storagePath: string; publicUrl?: string }> {
     const file = this.bucket().file(storagePath);
-    await file.save(content, { resumable: false, contentType, metadata: { cacheControl: 'private, max-age=0, no-store' } });
+    await file.save(content, {
+      resumable: false,
+      contentType,
+      metadata: { cacheControl: 'private, max-age=0, no-store' },
+    });
     return { storagePath };
   }
 
