@@ -1,10 +1,10 @@
 import { requestContext } from '../src/middleware/authMiddleware';
 import { aiRateLimitService, AiOperationType } from '../src/services/aiRateLimitService';
 
-/** Execute Gemini API calls with exponential backoff and an atomic server-side AI guard. */
-export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request'): Promise<T> {
+/** Execute Gemini API calls with exponential backoff and a server-side AI guard. */
+export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request', quotaAlreadyChecked = false): Promise<T> {
   const userId = requestContext.getStore()?.userId;
-  if (userId) {
+  if (userId && !quotaAlreadyChecked) {
     const guard = await aiRateLimitService.checkLimit(userId, quotaOperation);
     if (!guard.allowed) throw new Error(guard.reason);
   }
