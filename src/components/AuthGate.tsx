@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 type AuthUser = { id: string; email: string; username: string; name: string; role: string };
-type Props = { onAuthenticated: (user: AuthUser, token: string) => void };
+type Props = { onAuthenticated: (user: AuthUser) => void };
 
 export function AuthGate({ onAuthenticated }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -18,12 +18,10 @@ export function AuthGate({ onAuthenticated }: Props) {
     try {
       const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
       const body = mode === 'login' ? { username, password } : { username, email, password, name };
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.token || !data.user) throw new Error(data.error || 'Authentication failed.');
-      localStorage.setItem('prep_auth_token', data.token);
-      localStorage.setItem('prep_auth_user', JSON.stringify(data.user));
-      onAuthenticated(data.user, data.token);
+      if (!response.ok || !data.user) throw new Error(data.error || 'Authentication failed.');
+      onAuthenticated(data.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed.');
     } finally { setBusy(false); }
