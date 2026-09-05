@@ -1,0 +1,58 @@
+name: Admin CSRF migration
+
+on:
+  push:
+    branches: [security-hardening]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor == 'ierixon1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply admin hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path('src/routes/adminRoutes.ts')
+          s = p.read_text()
+          if "requestRateLimitService" not in s:
+              s = s.replace("import {storageProvider} from '../services/storage';", "import {storageProvider} from '../services/storage';\nimport {requestRateLimitService} from '../services/requestRateLimitService';")
+          marker = "const readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};"
+          csrf = "const isStateChanging=(method:string)=>['POST','PUT','PATCH','DELETE'].includes(method);\nconst enforceAdminSameOrigin=(req:Request,res:Response,next:NextFunction)=>{if(!isStateChanging(req.method))return next();const origin=req.headers.origin;const forwarded=String(req.headers['x-forwarded-proto']||'').split(',')[0].trim();const protocol=forwarded||req.protocol;const expected=`${protocol}://${req.get('host')}`;const configured=String(process.env.APP_URL||'').trim().replace(/\\/$/,'');if(origin&&origin!==expected&&origin!==configured)return res.status(403).json({error:'Cross-site request blocked.'});if(!origin){const referer=req.headers.referer;if(referer){try{const refOrigin=new URL(referer).origin;if(refOrigin!==expected&&refOrigin!==configured)return res.status(403).json({error:'Cross-site request blocked.'});}catch{return res.status(403).json({error:'Cross-site request blocked.'});}}}return next();};"
+          if csrf not in s:
+              s = s.replace(marker, marker + "\n" + csrf)
+          router_marker = "export const adminRouter=express.Router();"
+          if "adminRouter.use(enforceAdminSameOrigin)" not in s:
+              s = s.replace(router_marker, router_marker + "\nadminRouter.use(enforceAdminSameOrigin);")
+          old_auth = "export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{const token=readCookie(req,ADMIN_AUTH_COOKIE);if(!token)return res.status(403).json({error:'Forbidden.'});const session=await authService.validateSession(token);if(!session||(session.role!== 'admin'&&session.role!=='examiner'))return res.status(403).json({error:'Forbidden.'});req.adminSessionToken=token;req.adminUser={id:session.userId,username:session.username,displayName:session.name,role:session.role};return next();}catch{return res.status(403).json({error:'Forbidden.'});}}"
+          new_auth = "export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{const ip=String(req.ip||req.socket.remoteAddress||'unknown');const limiter=await requestRateLimitService.check(`admin:${ip}`,'api_global');if(!limiter.allowed){res.setHeader('Retry-After',String(Math.max(1,Math.ceil(limiter.retryAfterMs/1000))));return res.status(429).json({error:'Too many requests. Please try again later.'});}const token=readCookie(req,ADMIN_AUTH_COOKIE);if(!token)return res.status(403).json({error:'Forbidden.'});const session=await authService.validateSession(token);if(!session||(session.role!=='admin'&&session.role!=='examiner'))return res.status(403).json({error:'Forbidden.'});req.adminSessionToken=token;req.adminUser={id:session.userId,username:session.username,displayName:session.name,role:session.role};return next();}catch{return res.status(403).json({error:'Forbidden.'});}}"
+          if old_auth in s: s=s.replace(old_auth,new_auth)
+          old_login = "adminRouter.post('/login',async(req,res)=>{try{const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch{return res.status(401).json({error:'Invalid credentials.'});}});"
+          new_login = "adminRouter.post('/login',async(req,res)=>{try{const ip=String(req.ip||req.socket.remoteAddress||'unknown');const limiter=await requestRateLimitService.check(`admin-login:${ip}`,'login');if(!limiter.allowed){res.setHeader('Retry-After',String(Math.max(1,Math.ceil(limiter.retryAfterMs/1000))));return res.status(429).json({error:'Too many login attempts. Please try again later.'});}const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch{return res.status(401).json({error:'Invalid credentials.'});}});"
+          if old_login in s: s=s.replace(old_login,new_login)
+          p.write_text(s)
+
+          # Add regression assertions to the existing security test suite without touching unrelated tests.
+          t = Path('tests/security.test.ts')
+          ts = t.read_text()
+          block = "\n\n test('admin security uses HttpOnly cookie, origin checks, and API throttling',()=>{const p=readText('src/routes/adminRoutes.ts');expect(p).toContain(\"const ADMIN_AUTH_COOKIE='prep_admin_auth'\");expect(p).toContain('httpOnly:true');expect(p).toContain('adminRouter.use(enforceAdminSameOrigin)');expect(p).toContain(\"'api_global'\");expect(p).not.toContain('Authorization: Bearer');expect(p).not.toContain('req.headers.authorization');});"
+          if 'admin security uses HttpOnly cookie, origin checks, and API throttling' not in ts:
+              t.write_text(ts + block)
+
+          Path('.github/workflows/admin-csrf-migrate.yml').unlink()
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'security: enforce admin origin and throttling' || exit 0
+          git push
