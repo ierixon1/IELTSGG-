@@ -19,7 +19,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
 
     try {
       const res = await fetch('/api/admin/login', {
-        credentials: 'same-origin', method: 'POST',
+        method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -29,7 +29,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
       if (!res.ok) throw new Error(data.error || 'Authentication failed.');
       if (!data.admin) throw new Error('Authentication response is invalid.');
       localStorage.setItem('prep_admin_user', JSON.stringify(data.admin));
-      onLoginSuccess(data.token || '', data.admin);
+      onLoginSuccess(data.admin);
     } catch (err: any) {
       setError(err.message || 'Unable to sign in as administrator.');
     } finally {
