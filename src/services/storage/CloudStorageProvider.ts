@@ -1,41 +1,35 @@
+import { Storage } from '@google-cloud/storage';
 import { StorageProvider } from './StorageProvider';
 
-/**
- * Production Google Cloud Storage (GCS) provider for Cloud Run
- * Activated when STORAGE_BACKEND=gcs_firestore
- */
 export class CloudStorageProvider implements StorageProvider {
-  private bucketName: string;
+  private readonly bucketName: string;
+  private readonly storage: Storage;
 
-  constructor(bucketName = process.env.GCS_BUCKET_NAME || 'ielts-preppy-textbooks') {
+  constructor(bucketName = process.env.GCS_BUCKET_NAME) {
+    if (!bucketName) throw new Error('GCS_BUCKET_NAME is required for cloud storage.');
     this.bucketName = bucketName;
+    this.storage = new Storage({ projectId: process.env.FIREBASE_PROJECT_ID || undefined });
   }
 
-  async uploadFile(
-    storagePath: string,
-    content: Buffer | Uint8Array | string,
-    contentType?: string
-  ): Promise<{ storagePath: string; publicUrl?: string }> {
-    // In production, uses @google-cloud/storage
-    // e.g. const bucket = storage.bucket(this.bucketName);
-    // await bucket.file(storagePath).save(content, { contentType });
-    return {
-      storagePath,
-      publicUrl: `https://storage.googleapis.com/${this.bucketName}/${storagePath}`
-    };
+  private bucket() { return this.storage.bucket(this.bucketName); }
+
+  async uploadFile(storagePath: string, content: Buffer | Uint8Array | string, contentType?: string): Promise<{ storagePath: string; publicUrl?: string }> {
+    const file = this.bucket().file(storagePath);
+    await file.save(content, { resumable: false, contentType, metadata: { cacheControl: 'private, max-age=0, no-store' } });
+    return { storagePath };
   }
 
   async downloadFile(storagePath: string): Promise<Buffer> {
-    // In production: const [data] = await bucket.file(storagePath).download();
-    throw new Error('CloudStorageProvider downloadFile requires active GCS credentials.');
+    const [data] = await this.bucket().file(storagePath).download();
+    return data;
   }
 
   async deleteFile(storagePath: string): Promise<void> {
-    // In production: await bucket.file(storagePath).delete({ ignoreNotFound: true });
+    await this.bucket().file(storagePath).delete({ ignoreNotFound: true });
   }
 
   async fileExists(storagePath: string): Promise<boolean> {
-    // In production: const [exists] = await bucket.file(storagePath).exists();
-    return true;
+    const [exists] = await this.bucket().file(storagePath).exists();
+    return exists;
   }
 }
