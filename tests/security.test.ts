@@ -45,7 +45,7 @@ describe('security regressions', () => {
     expect(middleware).not.toContain('authorization');
     expect(routes).toContain('httpOnly:true');
     expect(routes).toContain("sameSite:'strict'");
-    expect(gate).not.toContain("prep_auth_token");
+    expect(gate).not.toContain('prep_auth_token');
     expect(main).toContain("localStorage.removeItem('prep_auth_token')");
     expect(api).not.toContain('Authorization: `Bearer');
   });
@@ -61,6 +61,18 @@ describe('security regressions', () => {
   it('serializes local quota writes', async () => {
     const store = await read('src/services/storage/LocalJsonDataStore.ts');
     expect(store).toContain('withLock(`${userId}:quota`');
+  });
+  it('applies a distributed global throttle to authenticated API requests', async () => {
+    const middleware = await read('src/middleware/authMiddleware.ts');
+    const limiter = await read('src/services/requestRateLimitService.ts');
+    expect(middleware).toContain("check(`api:${ip}`,'api_global')");
+    expect(limiter).toContain("api_global: { windowMs: 60 * 1000, max: 120 }");
+  });
+  it('validates persisted CMS payloads before writing them', async () => {
+    const store = await read('src/services/adminStore.ts');
+    expect(store).toContain('validateMaterial(section,materialData)');
+    expect(store).toContain('validateBundle(bundleData)');
+    expect(store).toContain('maxBytes=2_000_000');
   });
   it('uses Firestore for production admin CMS state and Cloud Storage for production files', async () => {
     const adminStore = await read('src/services/adminStore.ts');
