@@ -1,11 +1,11 @@
 import { requestContext } from '../src/middleware/authMiddleware';
-import { aiRateLimitService } from '../src/services/aiRateLimitService';
+import { aiRateLimitService, AiOperationType } from '../src/services/aiRateLimitService';
 
 /** Execute Gemini API calls with exponential backoff and an atomic server-side AI guard. */
-export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500): Promise<T> {
+export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request'): Promise<T> {
   const userId = requestContext.getStore()?.userId;
   if (userId) {
-    const guard = await aiRateLimitService.checkLimit(userId, 'ai_request');
+    const guard = await aiRateLimitService.checkLimit(userId, quotaOperation);
     if (!guard.allowed) throw new Error(guard.reason);
   }
   let delay = initialDelayMs;
@@ -13,7 +13,7 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
       const result = await operation();
-      if (userId) { try { await aiRateLimitService.recordUsage({ userId, operation: 'ai_request', model: 'gemini-3.8-flash', success: true }); } catch (logError) { console.error('[AI usage log]', logError); } }
+      if (userId) { try { await aiRateLimitService.recordUsage({ userId, operation: quotaOperation, model: 'gemini-3.8-flash', success: true }); } catch (logError) { console.error('[AI usage log]', logError); } }
       return result;
     } catch (err: any) {
       lastError = err;
