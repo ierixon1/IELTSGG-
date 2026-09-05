@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { nanoid } from 'nanoid';
+import crypto from 'crypto';
 
 export type UserRole = 'student' | 'examiner' | 'admin';
 
@@ -15,9 +16,9 @@ export interface UserAccount {
   createdAt: string;
   updatedAt: string;
   failedLoginAttempts: number;
-  lockoutUntil?: number; // epoch ms
-  resetCode?: string;
-  resetCodeExpiresAt?: number; // epoch ms
+  lockoutUntil?: number;
+  resetTokenHash?: string;
+  resetTokenExpiresAt?: number;
 }
 
 export interface UserSession {
@@ -36,9 +37,12 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 
 const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes lockout
-const SESSION_TTL_STUDENT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const SESSION_TTL_ADMIN_MS = 24 * 60 * 60 * 1000; // 24 hours
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+const SESSION_TTL_STUDENT_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_TTL_ADMIN_MS = 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
+
+const explicitDevAuth = () => process.env.EXPLICIT_DEV_AUTH === 'true';
 
 class AuthService {
   constructor() {
@@ -47,238 +51,171 @@ class AuthService {
   }
 
   private ensureFiles(): void {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(USERS_FILE)) {
-      fs.writeFileSync(USERS_FILE, JSON.stringify([], null, 2), 'utf-8');
-    }
-    if (!fs.existsSync(SESSIONS_FILE)) {
-      fs.writeFileSync(SESSIONS_FILE, JSON.stringify({}, null, 2), 'utf-8');
-    }
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([], null, 2), 'utf-8');
+    if (!fs.existsSync(SESSIONS_FILE)) fs.writeFileSync(SESSIONS_FILE, JSON.stringify({}, null, 2), 'utf-8');
   }
 
   private readUsers(): UserAccount[] {
-    try {
-      const raw = fs.readFileSync(USERS_FILE, 'utf-8');
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8')); } catch { return []; }
   }
 
   private writeUsers(users: UserAccount[]): void {
-    const tempPath = `${USERS_FILE}.tmp.${Date.now()}`;
+    const tempPath = `${USERS_FILE}.tmp.${process.pid}.${Date.now()}`;
     fs.writeFileSync(tempPath, JSON.stringify(users, null, 2), 'utf-8');
     fs.renameSync(tempPath, USERS_FILE);
   }
 
   private readSessions(): Record<string, UserSession> {
-    try {
-      const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
-      return JSON.parse(raw);
-    } catch {
-      return {};
-    }
+    try { return JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')); } catch { return {}; }
   }
 
   private writeSessions(sessions: Record<string, UserSession>): void {
-    const tempPath = `${SESSIONS_FILE}.tmp.${Date.now()}`;
+    const tempPath = `${SESSIONS_FILE}.tmp.${process.pid}.${Date.now()}`;
     fs.writeFileSync(tempPath, JSON.stringify(sessions, null, 2), 'utf-8');
     fs.renameSync(tempPath, SESSIONS_FILE);
   }
 
-  /**
-   * Seed initial admin and examiner accounts with hashed passwords if users DB is empty
-   */
   private seedInitialAccounts(): void {
+    if (process.env.SEED_DEFAULT_ACCOUNTS !== 'true') return;
+
+    const adminUser = (process.env.ADMIN_USER || '').trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_PASSWORD || '';
+    if (!adminUser || adminPassword.length < 12) {
+      throw new Error('SEED_DEFAULT_ACCOUNTS=true requires ADMIN_USER and ADMIN_PASSWORD (minimum 12 characters).');
+    }
+
     const users = this.readUsers();
-    let modified = false;
+    let changed = false;
 
-    // Check admin
-    const adminUsername = (process.env.ADMIN_USER || 'admin').toLowerCase();
-    const existingAdmin = users.find(u => u.username.toLowerCase() === adminUsername || u.role === 'admin');
-    if (!existingAdmin) {
-      const adminPass = process.env.ADMIN_PASSWORD || 'prep2026!admin';
-      const salt = bcrypt.genSaltSync(10);
-      const passwordHash = bcrypt.hashSync(adminPass, salt);
-      users.push({
+    if (!users.some(u => u.username.toLowerCase() === adminUser || u.role === 'admin')) {
+      users.push(this.makeSeedUser({
         id: `usr_admin_${nanoid(8)}`,
-        email: 'admin@prepielts.io',
-        username: adminUsername,
-        name: 'Head of IELTS Content',
-        passwordHash,
+        username: adminUser,
+        email: process.env.ADMIN_EMAIL || 'admin@prepielts.local',
+        name: 'Administrator',
+        password: adminPassword,
         role: 'admin',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        failedLoginAttempts: 0,
-      });
-      modified = true;
+      }));
+      changed = true;
     }
 
-    // Check examiner
-    const existingExaminer = users.find(u => u.username.toLowerCase() === 'examiner');
-    if (!existingExaminer) {
-      const examinerPass = 'cambridge2026';
-      const salt = bcrypt.genSaltSync(10);
-      const passwordHash = bcrypt.hashSync(examinerPass, salt);
-      users.push({
-        id: `usr_exam_${nanoid(8)}`,
-        email: 'examiner@prepielts.io',
-        username: 'examiner',
-        name: 'Senior IELTS Examiner',
-        passwordHash,
-        role: 'examiner',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        failedLoginAttempts: 0,
-      });
-      modified = true;
+    if (process.env.EXAMINER_SEED_PASSWORD) {
+      const examinerPassword = process.env.EXAMINER_SEED_PASSWORD;
+      if (!users.some(u => u.username.toLowerCase() === 'examiner')) {
+        users.push(this.makeSeedUser({
+          id: `usr_exam_${nanoid(8)}`,
+          username: 'examiner',
+          email: process.env.EXAMINER_EMAIL || 'examiner@prepielts.local',
+          name: 'IELTS Examiner',
+          password: examinerPassword,
+          role: 'examiner',
+        }));
+        changed = true;
+      }
     }
 
-    // Seed preview student if not exists
-    const existingStudent = users.find(u => u.id === 'usr_student_preview' || u.username === 'student');
-    if (!existingStudent) {
-      const studentPass = 'student2026';
-      const salt = bcrypt.genSaltSync(10);
-      const passwordHash = bcrypt.hashSync(studentPass, salt);
-      users.push({
-        id: 'usr_student_preview',
-        email: 'student@prepielts.io',
-        username: 'student',
-        name: 'Demo Student Candidate',
-        passwordHash,
-        role: 'student',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        failedLoginAttempts: 0,
-      });
-      modified = true;
-    }
-
-    if (modified) {
-      this.writeUsers(users);
-    }
+    if (changed) this.writeUsers(users);
   }
 
-  // --- Registration ---
+  private makeSeedUser(params: {
+    id: string;
+    username: string;
+    email: string;
+    name: string;
+    password: string;
+    role: UserRole;
+  }): UserAccount {
+    const passwordHash = bcrypt.hashSync(params.password, bcrypt.genSaltSync(12));
+    const now = new Date().toISOString();
+    return {
+      id: params.id,
+      username: params.username,
+      email: params.email.trim().toLowerCase(),
+      name: params.name,
+      passwordHash,
+      role: params.role,
+      createdAt: now,
+      updatedAt: now,
+      failedLoginAttempts: 0,
+    };
+  }
+
   public register(params: {
     email: string;
     username: string;
     password: string;
     name?: string;
-    role?: UserRole;
   }): { user: Omit<UserAccount, 'passwordHash'>; token: string } {
-    const { email, username, password, name, role = 'student' } = params;
+    const cleanEmail = String(params.email || '').trim().toLowerCase();
+    const cleanUsername = String(params.username || '').trim().toLowerCase();
+    const password = String(params.password || '');
 
-    // Strict validation
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new Error('Please provide a valid email address.');
-    }
-    if (!username || username.trim().length < 3) {
-      throw new Error('Username must be at least 3 characters long.');
-    }
-    if (!password || password.length < 6) {
-      throw new Error('Password must be at least 6 characters long.');
-    }
-
-    const cleanUsername = username.trim().toLowerCase();
-    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) throw new Error('Invalid email or password.');
+    if (!/^[a-z0-9_.-]{3,32}$/.test(cleanUsername)) throw new Error('Invalid email or password.');
+    if (password.length < 10 || password.length > 128) throw new Error('Invalid email or password.');
 
     const users = this.readUsers();
-    if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
-      throw new Error('This username is already registered.');
-    }
-    if (users.some(u => u.email.toLowerCase() === cleanEmail)) {
-      throw new Error('An account with this email already exists.');
+    if (users.some(u => u.username.toLowerCase() === cleanUsername || u.email.toLowerCase() === cleanEmail)) {
+      throw new Error('Unable to create account with these credentials.');
     }
 
-    // Security: Only allow admin creation via explicit admin API or env seed
-    const assignedRole: UserRole = role === 'admin' ? 'student' : role;
-
-    const salt = bcrypt.genSaltSync(10);
-    const passwordHash = bcrypt.hashSync(password, salt);
     const now = new Date().toISOString();
-
-    const newUser: UserAccount = {
-      id: `usr_${nanoid(12)}`,
+    const user: UserAccount = {
+      id: `usr_${nanoid(16)}`,
       email: cleanEmail,
       username: cleanUsername,
-      name: name?.trim() || cleanUsername,
-      passwordHash,
-      role: assignedRole,
+      name: String(params.name || cleanUsername).trim().slice(0, 80),
+      passwordHash: bcrypt.hashSync(password, bcrypt.genSaltSync(12)),
+      role: 'student',
       createdAt: now,
       updatedAt: now,
       failedLoginAttempts: 0,
     };
 
-    users.push(newUser);
+    users.push(user);
     this.writeUsers(users);
-
-    // Create session
-    const session = this.createSession(newUser);
-
-    const { passwordHash: _, ...safeUser } = newUser;
+    const session = this.createSession(user);
+    const { passwordHash: _passwordHash, ...safeUser } = user;
     return { user: safeUser, token: session.token };
   }
 
-  // --- Login with Brute-Force Rate Limiting ---
   public login(usernameOrEmail: string, password: string): { user: Omit<UserAccount, 'passwordHash'>; token: string } {
-    if (!usernameOrEmail || !password) {
-      throw new Error('Username/email and password are required.');
-    }
-
-    const cleanIdentifier = usernameOrEmail.trim().toLowerCase();
+    const cleanIdentifier = String(usernameOrEmail || '').trim().toLowerCase();
+    const suppliedPassword = String(password || '');
     const users = this.readUsers();
-    const userIndex = users.findIndex(
-      u => u.username.toLowerCase() === cleanIdentifier || u.email.toLowerCase() === cleanIdentifier
-    );
+    const userIndex = users.findIndex(u => u.username.toLowerCase() === cleanIdentifier || u.email.toLowerCase() === cleanIdentifier);
 
-    if (userIndex === -1) {
-      throw new Error('Invalid credentials.');
-    }
+    if (userIndex < 0) throw new Error('Invalid credentials.');
 
     const user = users[userIndex];
     const now = Date.now();
+    if (user.lockoutUntil && user.lockoutUntil > now) throw new Error('Too many login attempts. Please try again later.');
 
-    // Check Lockout
-    if (user.lockoutUntil && user.lockoutUntil > now) {
-      const minutesLeft = Math.ceil((user.lockoutUntil - now) / (60 * 1000));
-      throw new Error(`Account temporarily locked due to multiple failed login attempts. Please try again in ${minutesLeft} minute(s).`);
-    }
-
-    // Verify Password with bcrypt
-    const isMatch = bcrypt.compareSync(password, user.passwordHash);
-    if (!isMatch) {
+    const valid = bcrypt.compareSync(suppliedPassword, user.passwordHash);
+    if (!valid) {
       user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
       if (user.failedLoginAttempts >= MAX_FAILED_ATTEMPTS) {
-        user.lockoutUntil = now + LOCKOUT_DURATION_MS;
         user.failedLoginAttempts = 0;
-        this.writeUsers(users);
-        throw new Error(`Account locked for 15 minutes due to ${MAX_FAILED_ATTEMPTS} consecutive failed attempts.`);
+        user.lockoutUntil = now + LOCKOUT_DURATION_MS;
       }
       this.writeUsers(users);
-      const remaining = MAX_FAILED_ATTEMPTS - user.failedLoginAttempts;
-      throw new Error(`Invalid credentials. ${remaining} attempt(s) remaining before temporary lockout.`);
+      throw new Error('Invalid credentials.');
     }
 
-    // Successful login: reset failed attempts counter
     user.failedLoginAttempts = 0;
-    user.lockoutUntil = undefined;
+    delete user.lockoutUntil;
     this.writeUsers(users);
 
     const session = this.createSession(user);
-    const { passwordHash: _, ...safeUser } = user;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
     return { user: safeUser, token: session.token };
   }
 
-  // --- Session Management ---
   private createSession(user: UserAccount): UserSession {
     const sessions = this.readSessions();
     const now = Date.now();
-    const ttl = user.role === 'admin' ? SESSION_TTL_ADMIN_MS : SESSION_TTL_STUDENT_MS;
-    const token = `prep_${user.role}_${nanoid(32)}`;
-
+    const token = `prep_${nanoid(48)}`;
     const session: UserSession = {
       token,
       userId: user.id,
@@ -287,26 +224,22 @@ class AuthService {
       name: user.name,
       role: user.role,
       createdAt: now,
-      expiresAt: now + ttl,
+      expiresAt: now + (user.role === 'admin' ? SESSION_TTL_ADMIN_MS : SESSION_TTL_STUDENT_MS),
     };
-
     sessions[token] = session;
     this.writeSessions(sessions);
     return session;
   }
 
   public validateSession(token: string): UserSession | null {
-    if (!token) return null;
     const sessions = this.readSessions();
     const session = sessions[token];
     if (!session) return null;
-
-    if (Date.now() > session.expiresAt) {
+    if (Date.now() >= session.expiresAt) {
       delete sessions[token];
       this.writeSessions(sessions);
       return null;
     }
-
     return session;
   }
 
@@ -319,96 +252,77 @@ class AuthService {
     }
   }
 
-  // --- Password Reset ---
-  public requestPasswordReset(email: string): { code: string; expiresMinutes: number } {
-    if (!email) throw new Error('Email is required.');
+  public requestPasswordReset(email: string): { resetToken?: string; expiresMinutes: number } {
+    const cleanEmail = String(email || '').trim().toLowerCase();
     const users = this.readUsers();
-    const cleanEmail = email.trim().toLowerCase();
     const user = users.find(u => u.email.toLowerCase() === cleanEmail);
+    const expiresMinutes = PASSWORD_RESET_TTL_MS / 60000;
 
-    if (!user) {
-      // Return a simulated response to prevent email enumeration attacks
-      return { code: '123456', expiresMinutes: 15 };
-    }
+    if (!user) return { expiresMinutes };
 
-    // 6-digit numeric reset code
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const now = Date.now();
-    user.resetCode = resetCode;
-    user.resetCodeExpiresAt = now + 15 * 60 * 1000; // 15 minutes
-
+    const resetToken = crypto.randomBytes(32).toString('base64url');
+    user.resetTokenHash = this.hashResetToken(resetToken);
+    user.resetTokenExpiresAt = Date.now() + PASSWORD_RESET_TTL_MS;
     this.writeUsers(users);
 
-    console.log(`[AuthService] Password reset code for ${cleanEmail}: ${resetCode}`);
-    return { code: resetCode, expiresMinutes: 15 };
+    // In production this token must be delivered by an email provider, never returned to the client.
+    return explicitDevAuth() ? { resetToken, expiresMinutes } : { expiresMinutes };
   }
 
-  public resetPassword(email: string, code: string, newPassword: string): void {
-    if (!email || !code || !newPassword) {
-      throw new Error('Email, verification code, and new password are required.');
-    }
-    if (newPassword.length < 6) {
-      throw new Error('New password must be at least 6 characters.');
-    }
+  private hashResetToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  public resetPassword(email: string, token: string, newPassword: string): void {
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (newPassword.length < 10 || newPassword.length > 128) throw new Error('Invalid password.');
 
     const users = this.readUsers();
-    const cleanEmail = email.trim().toLowerCase();
     const user = users.find(u => u.email.toLowerCase() === cleanEmail);
-
-    if (!user || !user.resetCode || user.resetCode !== code.trim()) {
-      throw new Error('Invalid or expired verification code.');
+    if (!user || !user.resetTokenHash || !user.resetTokenExpiresAt || Date.now() >= user.resetTokenExpiresAt) {
+      throw new Error('Invalid or expired reset token.');
     }
 
-    if (user.resetCodeExpiresAt && Date.now() > user.resetCodeExpiresAt) {
-      throw new Error('Verification code has expired. Please request a new one.');
+    const suppliedHash = this.hashResetToken(String(token || '').trim());
+    if (!crypto.timingSafeEqual(Buffer.from(suppliedHash), Buffer.from(user.resetTokenHash))) {
+      throw new Error('Invalid or expired reset token.');
     }
 
-    // Set new password
-    const salt = bcrypt.genSaltSync(10);
-    user.passwordHash = bcrypt.hashSync(newPassword, salt);
-    user.resetCode = undefined;
-    user.resetCodeExpiresAt = undefined;
+    user.passwordHash = bcrypt.hashSync(newPassword, bcrypt.genSaltSync(12));
+    delete user.resetTokenHash;
+    delete user.resetTokenExpiresAt;
     user.failedLoginAttempts = 0;
-    user.lockoutUntil = undefined;
+    delete user.lockoutUntil;
     user.updatedAt = new Date().toISOString();
-
     this.writeUsers(users);
 
-    // Invalidate existing sessions for security
     const sessions = this.readSessions();
-    for (const [token, sess] of Object.entries(sessions)) {
-      if (sess.userId === user.id) {
-        delete sessions[token];
-      }
+    for (const [sessionToken, session] of Object.entries(sessions)) {
+      if (session.userId === user.id) delete sessions[sessionToken];
     }
     this.writeSessions(sessions);
   }
 
-  // --- User Administration ---
   public listUsers(): Omit<UserAccount, 'passwordHash'>[] {
-    const users = this.readUsers();
-    return users.map(({ passwordHash: _, ...safeUser }) => safeUser);
+    return this.readUsers().map(({ passwordHash: _passwordHash, ...safeUser }) => safeUser);
   }
 
   public getUserById(userId: string): Omit<UserAccount, 'passwordHash'> | null {
-    const users = this.readUsers();
-    const user = users.find(u => u.id === userId);
+    const user = this.readUsers().find(u => u.id === userId);
     if (!user) return null;
-    const { passwordHash: _, ...safeUser } = user;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
     return safeUser;
   }
 
   public updateUserRole(userId: string, newRole: UserRole): Omit<UserAccount, 'passwordHash'> {
+    if (!['student', 'examiner', 'admin'].includes(newRole)) throw new Error('Invalid role.');
     const users = this.readUsers();
     const user = users.find(u => u.id === userId);
-    if (!user) {
-      throw new Error('User not found.');
-    }
+    if (!user) throw new Error('User not found.');
     user.role = newRole;
     user.updatedAt = new Date().toISOString();
     this.writeUsers(users);
-
-    const { passwordHash: _, ...safeUser } = user;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
     return safeUser;
   }
 }
