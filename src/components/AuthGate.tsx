@@ -21,6 +21,7 @@ export function AuthGate({ onAuthenticated }: Props) {
       const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.user) throw new Error(data.error || 'Authentication failed.');
+      localStorage.setItem('prep_auth_user', JSON.stringify(data.user));
       onAuthenticated(data.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed.');
