@@ -45,7 +45,14 @@ export class LocalJsonDataStore implements DataStore {
   async getUserChecklist(userId: string): Promise<ChecklistWeek[]> { const db = await this.readDb(); return db.users[userId]?.checklist || []; }
   async saveUserChecklist(userId: string, checklist: ChecklistWeek[]): Promise<void> { const db = await this.readDb(); this.ensureUser(db, userId).checklist = checklist; await this.writeDb(db); }
   async getUserAttempts(userId: string): Promise<MockAttempt[]> { const db = await this.readDb(); return db.users[userId]?.attempts || []; }
-  async saveUserAttempt(userId: string, attempt: MockAttempt): Promise<void> { const db = await this.readDb(); const user = this.ensureUser(db, userId); user.attempts ||= []; user.attempts.push(attempt); await this.writeDb(db); }
+  async saveUserAttempt(userId: string, attempt: MockAttempt): Promise<void> {
+    const db = await this.readDb();
+    const user = this.ensureUser(db, userId);
+    user.attempts ||= [];
+    const index = user.attempts.findIndex(a => a.id === attempt.id);
+    if (index >= 0) user.attempts[index] = attempt; else user.attempts.push(attempt);
+    await this.writeDb(db);
+  }
   async recordGeneratedTest(userId: string, test: GeneratedTestRecord): Promise<void> { const db = await this.readDb(); const user = this.ensureUser(db, userId); user.generatedTests ||= []; user.generatedTests.unshift(test); user.generatedTests = user.generatedTests.slice(0, 50); await this.writeDb(db); }
   async getRecentGenerations(userId: string, limit = 20): Promise<GeneratedTestRecord[]> { const db = await this.readDb(); return (db.users[userId]?.generatedTests || []).slice(0, Math.min(Math.max(Math.floor(limit), 1), 50)); }
   async getGeneratedTestById(userId: string, testId: string): Promise<GeneratedTestRecord | null> { const db = await this.readDb(); return (db.users[userId]?.generatedTests || []).find(t => t.id === testId) || null; }
