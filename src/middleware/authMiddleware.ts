@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { authService, UserRole } from '../services/authService';
+import { requestRateLimitService } from '../services/requestRateLimitService';
 
 export interface AuthenticatedRequest extends Request { userId?: string; userEmail?: string; userRole?: UserRole; userName?: string; }
 export const requestContext = new AsyncLocalStorage<{ userId: string }>();
@@ -10,6 +11,9 @@ export const AUTH_COOKIE='prep_auth';
 
 export async function authenticateRequest(req:AuthenticatedRequest,res:Response,next:NextFunction){
  try{
+  const ip=String(req.ip||req.socket.remoteAddress||'unknown');
+  const limiter=await requestRateLimitService.check(`api:${ip}`,'api_global');
+  if(!limiter.allowed){res.setHeader('Retry-After',String(Math.max(1,Math.ceil(limiter.retryAfterMs/1000))));return res.status(429).json({error:'Too many requests. Please try again later.'});}
   let userId:string|undefined,email:string|undefined,role:UserRole|undefined,name:string|undefined;
   const token=readCookie(req,AUTH_COOKIE);
   if(token){const session=await authService.validateSession(token);if(session){userId=session.userId;email=session.email;role=session.role;name=session.name;}}
