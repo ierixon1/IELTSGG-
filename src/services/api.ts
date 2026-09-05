@@ -6,13 +6,7 @@ function authHeaders(extra: Record<string, string> = {}): Record<string, string>
 
 export async function fetchInitialData(): Promise<{ profile: UserProfile; tasks: PlanTask[]; attempts: MockAttempt[]; checklist: ChecklistWeek }> {
   const fallback = { profile: { id: 'user_local', targetBand: 7.5, currentLevel: 6.0, hoursPerWeek: 12, weakSection: 'writing' as const, isOnboarded: false }, tasks: [] as PlanTask[], attempts: [] as MockAttempt[], checklist: { weekNumber: 1, weekStart: new Date().toISOString().split('T')[0], mocksDone: 0, mocksTarget: 2, essaysDone: 0, essaysTarget: 4, speakingDone: 0, speakingTarget: 5 } };
-  try {
-    const res = await fetch('/api/data', { headers: authHeaders() });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.profile) { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data)); return { profile: data.profile, tasks: data.tasks || [], attempts: data.attempts || [], checklist: data.checklist || fallback.checklist }; }
-    }
-  } catch (e) { console.warn('Backend sync unavailable, using local cache:', e); }
+  try { const res = await fetch('/api/data', { headers: authHeaders() }); if (res.ok) { const data = await res.json(); if (data?.profile) { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data)); return { profile: data.profile, tasks: data.tasks || [], attempts: data.attempts || [], checklist: data.checklist || fallback.checklist }; } } } catch (e) { console.warn('Backend sync unavailable, using local cache:', e); }
   try { const cached = localStorage.getItem(LOCAL_STORAGE_KEY); if (cached) return JSON.parse(cached); } catch (e) { console.error('LocalStorage parse error:', e); }
   return fallback;
 }
@@ -26,8 +20,7 @@ export async function syncDataToServer(payload: SyncDataPayload) {
     if (payload.checklist) requests.push(fetch('/api/data/checklist', { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ checklist: [payload.checklist] }) }));
     if (payload.attempts?.length) { const lastAttempt = payload.attempts[payload.attempts.length - 1]; if (lastAttempt) requests.push(fetch('/api/data/attempts', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(lastAttempt) })); }
     const results = await Promise.all(requests);
-    const failed = results.find(r => !r.ok);
-    if (failed && failed.status === 401) { localStorage.removeItem('prep_auth_token'); localStorage.removeItem('prep_auth_user'); }
+    if (results.some(r => r.status === 401)) { localStorage.removeItem('prep_auth_token'); localStorage.removeItem('prep_auth_user'); }
   } catch (e) { console.warn('Could not sync to backend:', e); }
 }
 
