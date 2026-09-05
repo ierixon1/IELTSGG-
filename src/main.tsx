@@ -12,11 +12,10 @@ function Root() {
 
   useEffect(() => {
     localStorage.removeItem('prep_auth_token');
-    localStorage.removeItem('prep_auth_user');
     fetch('/api/auth/me', { credentials: 'same-origin' })
       .then(async response => response.ok ? response.json() : null)
-      .then(data => setAuth(data?.user || null))
-      .catch(() => setAuth(null))
+      .then(data => { const user=data?.user||null; if(user)localStorage.setItem('prep_auth_user',JSON.stringify(user)); else localStorage.removeItem('prep_auth_user'); setAuth(user); })
+      .catch(() => { localStorage.removeItem('prep_auth_user'); setAuth(null); })
       .finally(() => setChecking(false));
   }, []);
 
