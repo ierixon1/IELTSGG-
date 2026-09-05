@@ -11,6 +11,8 @@ function Root() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    localStorage.removeItem('prep_auth_token');
+    localStorage.removeItem('prep_auth_user');
     fetch('/api/auth/me', { credentials: 'same-origin' })
       .then(async response => response.ok ? response.json() : null)
       .then(data => setAuth(data?.user || null))
