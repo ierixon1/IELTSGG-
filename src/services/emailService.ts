@@ -7,7 +7,11 @@ const required = (name: string) => {
 };
 
 export function isEmailDeliveryConfigured() {
-  return Boolean(process.env.RESEND_API_KEY?.trim() && process.env.EMAIL_FROM?.trim());
+  return Boolean(
+    process.env.RESEND_API_KEY?.trim() &&
+    process.env.EMAIL_FROM?.trim() &&
+    process.env.APP_URL?.trim(),
+  );
 }
 
 export async function sendPasswordResetEmail(params: { to: string; token: string }) {
