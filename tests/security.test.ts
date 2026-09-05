@@ -62,6 +62,19 @@ describe('security regressions', () => {
     expect(middleware).toContain("'api_global'");
     expect(server).toContain("app.use('/api/admin',enforceAdminSecurity,adminRouter)");
   });
+  it('does not pass or persist an admin session token in the login UI', async () => {
+    const login = await read('src/components/admin/AdminLogin.tsx');
+    const app = await read('src/App.tsx');
+    const types = await read('src/types/admin.ts');
+    expect(login).toContain('onLoginSuccess(data.admin)');
+    expect(login).not.toContain('data.token');
+    expect(login).not.toContain('prep_admin_token');
+    expect(app).toContain("fetch('/api/admin/me', { credentials: 'same-origin' })");
+    expect(app).toContain("localStorage.removeItem('prep_admin_user')");
+    expect(types).toContain("role: 'admin' | 'examiner'");
+    expect(types).not.toContain('superadmin');
+    expect(types).not.toContain('content_manager');
+  });
   it('validates complete password reset email configuration', async () => {
     const email = await read('src/services/emailService.ts');
     const auth = await read('src/services/authService.ts');
