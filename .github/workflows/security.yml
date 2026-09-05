@@ -1,0 +1,40 @@
+name: Security
+
+on:
+  push:
+    branches: [main, security-hardening]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run lint
+
+      - name: Audit dependencies
+        run: bun audit --audit-level=high
+
+      - name: Check tracked secret files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.env|\.env\..*|.*\.pem|.*\.key)$' | grep -v '^\.env\.example$'; then
+            echo 'Tracked secret-like files detected.'
+            exit 1
+          fi
