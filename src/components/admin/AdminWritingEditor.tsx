@@ -6,14 +6,12 @@ import { CdiHtmlViewer } from '../common/CdiHtmlViewer';
 
 interface AdminWritingEditorProps {
   initialData?: AdminWritingMaterial | null;
-  adminToken: string;
   onSave: (material: Partial<AdminWritingMaterial>) => Promise<void>;
   onCancel: () => void;
 }
 
 export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
   initialData,
-  adminToken,
   onSave,
   onCancel,
 }) => {
@@ -191,7 +189,6 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
               category="image"
               label="Upload Task 1 Diagram / Chart Image"
               description="Attach an official bar chart, line graph, pie chart, or process diagram."
-              adminToken={adminToken}
               onUploaded={(file) => setTask1ImageUrl(file.url)}
             />
 
@@ -255,7 +252,6 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
                 category="html"
                 label="Import Task 1 HTML Prompt (.html)"
                 description="Upload an HTML snippet or formatted instructions for Task 1."
-                adminToken={adminToken}
                 onUploaded={(file) => {
                   if (file.extractedHtml) setTask1Html(file.extractedHtml);
                 }}
@@ -335,7 +331,6 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
               category="html"
               label="Import Task 2 HTML Prompt (.html)"
               description="Upload an HTML formatted article, case study, or discussion prompt."
-              adminToken={adminToken}
               onUploaded={(file) => {
                 if (file.extractedHtml) setTask2Html(file.extractedHtml);
               }}

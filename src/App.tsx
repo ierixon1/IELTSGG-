@@ -51,7 +51,6 @@ export default function App() {
   const [targetedMocksSection, setTargetedMocksSection] = useState<SkillType | null>(null);
 
   // Admin CMS authentication state
-  const [adminToken, setAdminToken] = useState<string | null>(() => localStorage.getItem('prep_admin_token'));
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
     try {
       const saved = localStorage.getItem('prep_admin_user');
@@ -185,7 +184,7 @@ export default function App() {
         profile={profile}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
         onOpenPreppy={() => setIsPreppyOpen(true)}
-        isAdminAuthenticated={Boolean(adminToken && adminUser)}
+        isAdminAuthenticated={Boolean(adminUser)}
       />
 
       {/* Main Content Area */}
@@ -232,23 +231,14 @@ export default function App() {
 
         {activeTab === 'admin' && (
           <div>
-            {!adminToken || !adminUser ? (
+            {!adminUser ? (
               <AdminLogin
-                onLoginSuccess={(token, user) => {
-                  setAdminToken(token);
-                  setAdminUser(user);
-                }}
+                onLoginSuccess={(user) => setAdminUser(user)}
               />
             ) : (
               <AdminDashboard
                 adminUser={adminUser}
-                adminToken={adminToken}
-                onLogout={() => {
-                  localStorage.removeItem('prep_admin_token');
-                  localStorage.removeItem('prep_admin_user');
-                  setAdminToken(null);
-                  setAdminUser(null);
-                }}
+                onLogout={async () => { try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }); } finally { localStorage.removeItem('prep_admin_user'); setAdminUser(null); } }}
               />
             )}
           </div>

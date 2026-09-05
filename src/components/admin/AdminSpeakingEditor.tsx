@@ -5,14 +5,12 @@ import { FileUploadZone } from './FileUploadZone';
 
 interface AdminSpeakingEditorProps {
   initialData?: AdminSpeakingMaterial | null;
-  adminToken: string;
   onSave: (material: Partial<AdminSpeakingMaterial>) => Promise<void>;
   onCancel: () => void;
 }
 
 export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
   initialData,
-  adminToken,
   onSave,
   onCancel,
 }) => {
@@ -295,7 +293,6 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
           category="audio"
           label="Audio Recording of Band 8-9 Model Answer"
           description="Upload an official audio sample so students can listen to pronunciation and fluency standards."
-          adminToken={adminToken}
           onUploaded={(file) => {
             setAudioModels([
               ...audioModels,

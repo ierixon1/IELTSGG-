@@ -14,14 +14,12 @@ interface ListeningEditorQuestion {
 
 interface AdminListeningEditorProps {
   initialData?: AdminListeningMaterial | null;
-  adminToken: string;
   onSave: (material: Partial<AdminListeningMaterial>) => Promise<void>;
   onCancel: () => void;
 }
 
 export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
   initialData,
-  adminToken,
   onSave,
   onCancel,
 }) => {
@@ -139,7 +137,6 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
           category="audio"
           label="Official Listening Audio File (MP3 / WAV)"
           description="Upload pristine exam audio with authentic accents (British, Australian, North American)."
-          adminToken={adminToken}
           onUploaded={(file) => {
             setAudioUrl(file.url);
             setAudioFileName(file.originalName);

@@ -3,7 +3,7 @@ import { Shield, Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
 import { AdminUser } from '../../types/admin';
 
 interface AdminLoginProps {
-  onLoginSuccess: (token: string, admin: AdminUser) => void;
+  onLoginSuccess: (admin: AdminUser) => void;
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
@@ -19,7 +19,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
 
     try {
       const res = await fetch('/api/admin/login', {
-        method: 'POST',
+        credentials: 'same-origin', method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -28,8 +28,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Authentication failed.');
       if (!data.admin) throw new Error('Authentication response is invalid.');
-
-      localStorage.removeItem('prep_admin_token');
       localStorage.setItem('prep_admin_user', JSON.stringify(data.admin));
       onLoginSuccess(data.token || '', data.admin);
     } catch (err: any) {
