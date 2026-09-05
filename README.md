@@ -2,22 +2,14 @@
 
 PrepIELTS AI Studio is an independent AI-assisted IELTS preparation platform.
 
-## Production architecture
+The application is designed for multiple users. Protected APIs require authentication, and user data is scoped by the authenticated user ID. Production persistence uses Firestore for application data and Google Cloud Storage for files.
 
-The application is designed for multiple users. Authentication is required for protected APIs, and user data is scoped by the authenticated user ID. Production persistence uses Firestore for application data and Google Cloud Storage for files.
+The mobile client must be treated as untrusted: authorization, ownership, quotas and privileged roles are enforced server-side.
 
-The mobile client must be treated as an untrusted client: authorization, ownership, quotas and privileged roles are enforced server-side.
+Production must keep EXPLICIT_DEV_AUTH=false and SEED_DEFAULT_ACCOUNTS=false unless a controlled bootstrap is explicitly required. Production must provide valid Google/Firebase credentials and use STORAGE_BACKEND=gcs_firestore.
 
-## Security requirements
+Never commit .env files, service-account keys, API keys or administrator credentials.
 
-Production must keep `EXPLICIT_DEV_AUTH=false` and `SEED_DEFAULT_ACCOUNTS=false` unless a controlled bootstrap is explicitly required. Production must provide valid Firebase/Google Cloud credentials and `STORAGE_BACKEND=gcs_firestore`.
+For local development, STORAGE_BACKEND=local may be used. EXPLICIT_DEV_AUTH=true is only for local testing and must never be enabled on a public deployment.
 
-Never commit `.env` files, service-account keys, API keys or administrator credentials.
-
-## Development
-
-Set `STORAGE_BACKEND=local` for explicit local development. The optional `EXPLICIT_DEV_AUTH=true` mode is only for local testing with an existing local user and must never be enabled in a public deployment.
-
-## Scope
-
-IELTS® is a registered trademark of University of Cambridge, British Council, and IDP Education Australia. This project is an independent educational tool and is not affiliated with or endorsed by those organizations.
+IELTS® is a registered trademark of University of Cambridge, British Council, and IDP Education Australia. This project is independent and not affiliated with or endorsed by those organizations.
