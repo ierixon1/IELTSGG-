@@ -4,7 +4,7 @@ import { authService, UserRole } from '../services/authService';
 
 export interface AuthenticatedRequest extends Request { userId?: string; userEmail?: string; userRole?: UserRole; userName?: string; }
 export const requestContext = new AsyncLocalStorage<{ userId: string }>();
-const isExplicitDevAuthEnabled=()=>process.env.EXPLICIT_DEV_AUTH==='true';
+const isExplicitDevAuthEnabled=()=>process.env.NODE_ENV!=='production'&&process.env.EXPLICIT_DEV_AUTH==='true';
 
 export async function authenticateRequest(req:AuthenticatedRequest,res:Response,next:NextFunction){
  try{
