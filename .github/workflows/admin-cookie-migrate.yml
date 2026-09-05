@@ -27,56 +27,91 @@ jobs:
 
           admin_dir = Path('src/components/admin')
 
-          def component(path: Path):
+          def clean_component(path: Path):
               s = path.read_text()
-              s = re.sub(r'(?m)^\s*adminToken:\s*string;\s*$', '', s)
-              s = re.sub(r'(?m)^\s*adminToken,\s*$', '', s)
-              s = s.replace('adminToken={adminToken}', '')
-              s = re.sub(r'(?m)^\s*Authorization:\s*`Bearer \$\{adminToken\}`,?\s*$', '', s)
-              s = re.sub(r'\},\s*\[adminToken\]\);', '}, []);', s)
+              # Remove the prop from interfaces.
+              s = re.sub(r'\s*adminToken\??\s*:\s*string\s*;?', '', s)
+              # Remove destructured references in any object pattern.
+              s = re.sub(r',\s*adminToken\s*,', ',', s)
+              s = re.sub(r',\s*adminToken\s*\}', '}', s)
+              s = re.sub(r'\{\s*adminToken\s*,', '{', s)
+              # Remove JSX prop forwarding.
+              s = re.sub(r'\s+adminToken=\{adminToken\}', '', s)
+              # Remove explicit Bearer header lines and empty header entries.
+              s = re.sub(r'\s*Authorization:\s*`Bearer \$\{adminToken\}`,?', '', s)
+              # Admin requests must use same-origin cookies.
+              s = re.sub(r'(fetch\([^\n]+,\s*\{\s*)', lambda m: m.group(1) if "credentials: 'same-origin'" in m.group(1) else m.group(1) + "credentials: 'same-origin', ", s)
+              s = s.replace('  }, [adminToken]);', '  }, []);')
               path.write_text(s)
 
           for p in admin_dir.glob('*.tsx'):
-              component(p)
+              clean_component(p)
 
-          # Login callback carries only the returned admin identity.
+          # Admin login never exposes a session token to React/localStorage.
           p = admin_dir / 'AdminLogin.tsx'
           s = p.read_text()
           s = s.replace('onLoginSuccess: (token: string, admin: AdminUser) => void;', 'onLoginSuccess: (admin: AdminUser) => void;')
-          s = re.sub(r'\s*localStorage\.removeItem\([\'\"]prep_admin_token[\'\"]\);', '', s)
+          s = re.sub(r"\s*localStorage\.removeItem\(['\"]prep_admin_token['\"]\);", '', s)
           s = s.replace("onLoginSuccess(data.token || '', data.admin);", 'onLoginSuccess(data.admin);')
           p.write_text(s)
 
-          # App: remove the token state and pass no token to the CMS.
+          # App keeps only the non-sensitive cached identity.
           p = Path('src/App.tsx')
           s = p.read_text()
-          s = re.sub(r"\n\s*const \[adminToken, setAdminToken\] = useState<string \| null>\(\(\) => localStorage\.getItem\('prep_admin_token'\)\);", '', s)
+          s = re.sub(r"\s*const \[adminToken, setAdminToken\] = useState<string \| null>\(\(\) => localStorage\.getItem\('prep_admin_token'\)\);", '', s)
           s = s.replace('isAdminAuthenticated={Boolean(adminToken && adminUser)}', 'isAdminAuthenticated={Boolean(adminUser)}')
           s = s.replace('!adminToken || !adminUser', '!adminUser')
           s = re.sub(r'onLoginSuccess=\{\(token, user\) => \{\s*setAdminToken\(token\);\s*setAdminUser\(user\);\s*\}\}', 'onLoginSuccess={(user) => setAdminUser(user)}', s)
           s = re.sub(r'\s*adminToken=\{adminToken\}', '', s)
           s = re.sub(r"onLogout=\{\(\) => \{\s*localStorage\.removeItem\('prep_admin_token'\);\s*localStorage\.removeItem\('prep_admin_user'\);\s*setAdminToken\(null\);\s*setAdminUser\(null\);\s*\}\}", "onLogout={async () => { try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }); } finally { localStorage.removeItem('prep_admin_user'); setAdminUser(null); } }}", s)
+          if "fetch('/api/admin/me'" not in s:
+              marker = '  // Load initial data on mount\n'
+              if marker in s:
+                  s = s.replace(marker, "  useEffect(() => {\n    fetch('/api/admin/me', { credentials: 'same-origin' })\n      .then(async r => { if (!r.ok) throw new Error('admin session invalid'); return r.json(); })\n      .then(data => { if (data?.admin) { localStorage.setItem('prep_admin_user', JSON.stringify(data.admin)); setAdminUser(data.admin); } })\n      .catch(() => { localStorage.removeItem('prep_admin_user'); setAdminUser(null); });\n  }, []);\n\n" + marker)
           p.write_text(s)
 
-          # Server: isolated HttpOnly admin session cookie; no Bearer auth for /api/admin.
+          # Server-side HttpOnly cookie session.
           p = Path('src/routes/adminRoutes.ts')
           s = p.read_text()
-          s = s.replace("type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string}};", "type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string};adminSessionToken?:string};\nconst ADMIN_AUTH_COOKIE='prep_admin_auth';\nconst readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};")
-          s = re.sub(r"export async function requireAdminAuth\(req:AdminRequest,res:Response,next:NextFunction\)\{.*?\nexport function requireAdminRole", "export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{const token=readCookie(req,ADMIN_AUTH_COOKIE);if(!token)return res.status(403).json({error:'Forbidden.'});const session=await authService.validateSession(token);if(!session||(session.role!=='admin'&&session.role!=='examiner'))return res.status(403).json({error:'Forbidden.'});req.adminSessionToken=token;req.adminUser={id:session.userId,username:session.username,displayName:session.name,role:session.role};return next();}catch{return res.status(403).json({error:'Forbidden.'});}}\nexport function requireAdminRole", s, flags=re.S, count=1)
-          s = re.sub(r"adminRouter\.post\('/login',[\s\S]*?\nadminRouter\.get\('/me'", "adminRouter.post('/login',async(req,res)=>{try{const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch{return res.status(401).json({error:'Invalid credentials.'});}});\nadminRouter.get('/me'", s, flags=re.S, count=1)
-          s = re.sub(r"adminRouter\.post\('/logout',[\s\S]*?\nadminRouter\.get\('/files", "adminRouter.post('/logout',requireAdminAuth,async(req:AdminRequest,res)=>{try{await authService.logout(req.adminSessionToken||'');}catch{}res.clearCookie(ADMIN_AUTH_COOKIE,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin'});return res.json({success:true});});\nadminRouter.get('/files", s, flags=re.S, count=1)
+          if "const ADMIN_AUTH_COOKIE='prep_admin_auth';" not in s:
+              needle = 'type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string}};'
+              if needle not in s:
+                  raise SystemExit('admin request type marker not found')
+              s = s.replace(needle, needle + "\nconst ADMIN_AUTH_COOKIE='prep_admin_auth';\nconst readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};")
+          start = s.find('export async function requireAdminAuth')
+          end = s.find('export function requireAdminRole', start)
+          if start < 0 or end < 0:
+              raise SystemExit('admin auth function boundaries not found')
+          s = s[:start] + "export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{const token=readCookie(req,ADMIN_AUTH_COOKIE);if(!token)return res.status(403).json({error:'Forbidden.'});const session=await authService.validateSession(token);if(!session||(session.role!=='admin'&&session.role!=='examiner'))return res.status(403).json({error:'Forbidden.'});req.adminSessionToken=token;req.adminUser={id:session.userId,username:session.username,displayName:session.name,role:session.role};return next();}catch{return res.status(403).json({error:'Forbidden.'});}}\n" + s[end:]
+          login_start = s.find("adminRouter.post('/login'")
+          login_end = s.find("adminRouter.get('/me'", login_start)
+          if login_start < 0 or login_end < 0:
+              raise SystemExit('admin login route boundaries not found')
+          login = "adminRouter.post('/login',async(req,res)=>{try{const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch{return res.status(401).json({error:'Invalid credentials.'});}});\n"
+          s = s[:login_start] + login + s[login_end:]
+          logout_start = s.find("adminRouter.post('/logout'")
+          logout_end = s.find("adminRouter.get('/files'", logout_start)
+          if logout_start < 0 or logout_end < 0:
+              raise SystemExit('admin logout route boundaries not found')
+          logout = "adminRouter.post('/logout',requireAdminAuth,async(req:AdminRequest,res)=>{try{await authService.logout(req.adminSessionToken||'');}catch{}res.clearCookie(ADMIN_AUTH_COOKIE,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin'});return res.json({success:true});});\n"
+          s = s[:logout_start] + logout + s[logout_end:]
+          s = s.replace("adminSessionToken?:string};\n", "adminSessionToken?:string};\n")
+          # If the cookie type field was not added with the marker, add it now.
+          s = s.replace('type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string}};', 'type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string};adminSessionToken?:string};')
           p.write_text(s)
 
-          # No browser-held admin token anywhere in the admin surface.
-          scan = '\n'.join(x.read_text() for x in list(admin_dir.glob('*.tsx')) + [Path('src/App.tsx'), Path('src/routes/adminRoutes.ts')])
-          bad = ['prep_admin_token', 'adminToken']
-          if any(x in scan for x in bad):
-              raise SystemExit('Residual client admin token reference detected')
+          # Sanity assertions; these should fail before creating a bad commit.
+          targets = list(admin_dir.glob('*.tsx')) + [Path('src/App.tsx'), Path('src/routes/adminRoutes.ts')]
+          joined = '\n'.join(x.read_text() for x in targets)
+          if 'prep_admin_token' in joined or 'adminToken' in joined:
+              raise SystemExit('Residual admin token plumbing remains')
+          if 'ADMIN_AUTH_COOKIE' not in Path('src/routes/adminRoutes.ts').read_text():
+              raise SystemExit('Admin cookie was not installed')
+
           Path('.github/workflows/admin-cookie-migrate.yml').unlink()
           PY
 
           git diff --check
-          grep -R --line-number --exclude-dir=node_modules --exclude-dir=.git 'Authorization:.*adminToken\|prep_admin_token\|adminToken' src/components/admin src/App.tsx src/routes/adminRoutes.ts || true
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
