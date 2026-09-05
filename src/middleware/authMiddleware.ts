@@ -5,14 +5,16 @@ import { authService, UserRole } from '../services/authService';
 export interface AuthenticatedRequest extends Request { userId?: string; userEmail?: string; userRole?: UserRole; userName?: string; }
 export const requestContext = new AsyncLocalStorage<{ userId: string }>();
 const isExplicitDevAuthEnabled=()=>process.env.NODE_ENV!=='production'&&process.env.EXPLICIT_DEV_AUTH==='true';
+const readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};
+export const AUTH_COOKIE='prep_auth';
 
 export async function authenticateRequest(req:AuthenticatedRequest,res:Response,next:NextFunction){
  try{
   const header=req.headers.authorization;let userId:string|undefined,email:string|undefined,role:UserRole|undefined,name:string|undefined;
-  if(header?.startsWith('Bearer ')){
-   const token=header.slice(7).trim();
-   if(token){const session=await authService.validateSession(token);if(session){userId=session.userId;email=session.email;role=session.role;name=session.name;}}
-  }
+  const bearerToken=header?.startsWith('Bearer ')?header.slice(7).trim():'';
+  const cookieToken=readCookie(req,AUTH_COOKIE);
+  const token=bearerToken||cookieToken;
+  if(token){const session=await authService.validateSession(token);if(session){userId=session.userId;email=session.email;role=session.role;name=session.name;}}
   if(!userId&&isExplicitDevAuthEnabled()){
    const id=String(req.headers['x-user-id']||'').trim();
    if(/^[a-zA-Z0-9_\-.]{3,64}$/.test(id)){const user=await authService.getUserById(id);if(user){userId=user.id;email=user.email;role=user.role;name=user.name;}}
