@@ -1,0 +1,868 @@
+{
+  "profile": {
+    "id": "user_1",
+    "targetBand": 7.5,
+    "currentLevel": 6,
+    "hoursPerWeek": 12,
+    "weakSection": "speaking",
+    "isOnboarded": true
+  },
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Speaking Part 2: Cue Card 2-Minute Monologue with Complex Grammatical Structures",
+      "skill": "speaking",
+      "taskType": "speaking_part2",
+      "dueDate": "2026-09-06",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 45,
+      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-2",
+      "title": "Academic Writing Task 1: Chart Description & Overview",
+      "skill": "writing",
+      "taskType": "writing_task1",
+      "dueDate": "2026-09-08",
+      "completed": false,
+      "weight": 3,
+      "durationMins": 40,
+      "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-3",
+      "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+      "skill": "speaking",
+      "taskType": "criteria_drill",
+      "dueDate": "2026-09-10",
+      "completed": false,
+      "weight": 4,
+      "durationMins": 15,
+      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "sectionId": "arcade"
+    },
+    {
+      "id": "task-4",
+      "title": "Timed Section Assessment: SPEAKING & WRITING",
+      "skill": "speaking",
+      "taskType": "section_mock",
+      "dueDate": "2026-09-11",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 60,
+      "reason": "Milestone check to measure section progress.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-5",
+      "title": "Speaking Part 2: Cue Card 2-Minute Monologue with Complex Grammatical Structures",
+      "skill": "speaking",
+      "taskType": "speaking_part2",
+      "dueDate": "2026-09-13",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 45,
+      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-6",
+      "title": "Academic Writing Task 1: Chart Description & Overview",
+      "skill": "writing",
+      "taskType": "writing_task1",
+      "dueDate": "2026-09-15",
+      "completed": false,
+      "weight": 3,
+      "durationMins": 40,
+      "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-7",
+      "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+      "skill": "speaking",
+      "taskType": "criteria_drill",
+      "dueDate": "2026-09-17",
+      "completed": false,
+      "weight": 4,
+      "durationMins": 15,
+      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "sectionId": "arcade"
+    },
+    {
+      "id": "task-8",
+      "title": "Full Academic Mock Test #1 (All 4 Sections)",
+      "skill": "speaking",
+      "taskType": "full_mock",
+      "dueDate": "2026-09-18",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 165,
+      "reason": "Simulation of actual test conditions without pauses.",
+      "sectionId": "exam-mode"
+    },
+    {
+      "id": "task-9",
+      "title": "Speaking Part 2: Cue Card 2-Minute Monologue with Complex Grammatical Structures",
+      "skill": "speaking",
+      "taskType": "speaking_part2",
+      "dueDate": "2026-09-20",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 45,
+      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-10",
+      "title": "Academic Writing Task 1: Chart Description & Overview",
+      "skill": "writing",
+      "taskType": "writing_task1",
+      "dueDate": "2026-09-22",
+      "completed": false,
+      "weight": 3,
+      "durationMins": 40,
+      "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-11",
+      "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+      "skill": "speaking",
+      "taskType": "criteria_drill",
+      "dueDate": "2026-09-24",
+      "completed": false,
+      "weight": 4,
+      "durationMins": 15,
+      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "sectionId": "arcade"
+    },
+    {
+      "id": "task-12",
+      "title": "Timed Section Assessment: SPEAKING & WRITING",
+      "skill": "speaking",
+      "taskType": "section_mock",
+      "dueDate": "2026-09-25",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 60,
+      "reason": "Milestone check to measure section progress.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-13",
+      "title": "Speaking Part 2: Cue Card 2-Minute Monologue with Complex Grammatical Structures",
+      "skill": "speaking",
+      "taskType": "speaking_part2",
+      "dueDate": "2026-09-27",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 45,
+      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-14",
+      "title": "Academic Writing Task 1: Chart Description & Overview",
+      "skill": "writing",
+      "taskType": "writing_task1",
+      "dueDate": "2026-09-29",
+      "completed": false,
+      "weight": 3,
+      "durationMins": 40,
+      "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-15",
+      "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+      "skill": "speaking",
+      "taskType": "criteria_drill",
+      "dueDate": "2026-10-01",
+      "completed": false,
+      "weight": 4,
+      "durationMins": 15,
+      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "sectionId": "arcade"
+    },
+    {
+      "id": "task-16",
+      "title": "Full Academic Mock Test #2 (All 4 Sections)",
+      "skill": "speaking",
+      "taskType": "full_mock",
+      "dueDate": "2026-10-02",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 165,
+      "reason": "Simulation of actual test conditions without pauses.",
+      "sectionId": "exam-mode"
+    },
+    {
+      "id": "task-17",
+      "title": "Speaking Part 2: Cue Card 2-Minute Monologue with Complex Grammatical Structures",
+      "skill": "speaking",
+      "taskType": "speaking_part2",
+      "dueDate": "2026-10-04",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 45,
+      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-18",
+      "title": "Academic Writing Task 1: Chart Description & Overview",
+      "skill": "writing",
+      "taskType": "writing_task1",
+      "dueDate": "2026-10-06",
+      "completed": false,
+      "weight": 3,
+      "durationMins": 40,
+      "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-19",
+      "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+      "skill": "speaking",
+      "taskType": "criteria_drill",
+      "dueDate": "2026-10-08",
+      "completed": false,
+      "weight": 4,
+      "durationMins": 15,
+      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "sectionId": "arcade"
+    },
+    {
+      "id": "task-20",
+      "title": "Timed Section Assessment: SPEAKING & WRITING",
+      "skill": "speaking",
+      "taskType": "section_mock",
+      "dueDate": "2026-10-09",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 60,
+      "reason": "Milestone check to measure section progress.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-21",
+      "title": "Speaking Part 2: Cue Card 2-Minute Monologue with Complex Grammatical Structures",
+      "skill": "speaking",
+      "taskType": "speaking_part2",
+      "dueDate": "2026-10-11",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 45,
+      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-22",
+      "title": "Academic Writing Task 1: Chart Description & Overview",
+      "skill": "writing",
+      "taskType": "writing_task1",
+      "dueDate": "2026-10-13",
+      "completed": false,
+      "weight": 3,
+      "durationMins": 40,
+      "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
+      "sectionId": "test-1"
+    },
+    {
+      "id": "task-23",
+      "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+      "skill": "speaking",
+      "taskType": "criteria_drill",
+      "dueDate": "2026-10-15",
+      "completed": false,
+      "weight": 4,
+      "durationMins": 15,
+      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "sectionId": "arcade"
+    },
+    {
+      "id": "task-24",
+      "title": "Full Academic Mock Test #3 (All 4 Sections)",
+      "skill": "speaking",
+      "taskType": "full_mock",
+      "dueDate": "2026-10-16",
+      "completed": false,
+      "weight": 5,
+      "durationMins": 165,
+      "reason": "Simulation of actual test conditions without pauses.",
+      "sectionId": "exam-mode"
+    }
+  ],
+  "attempts": [],
+  "checklist": {
+    "weekNumber": 1,
+    "weekStart": "2026-09-05",
+    "mocksDone": 0,
+    "mocksTarget": 2,
+    "essaysDone": 0,
+    "essaysTarget": 4,
+    "speakingDone": 0,
+    "speakingTarget": 5
+  },
+  "users": {
+    "usr_student_preview": {
+      "profile": {
+        "id": "user_1",
+        "targetBand": 7.5,
+        "currentLevel": 6,
+        "hoursPerWeek": 12,
+        "weakSection": "writing",
+        "isOnboarded": false
+      },
+      "tasks": [
+        {
+          "id": "task-1",
+          "title": "Writing Task 2: High-Band Essay Structure & Idea Cohesion",
+          "skill": "writing",
+          "taskType": "writing_task2",
+          "dueDate": "2026-09-06",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 45,
+          "reason": "Targeting your identified weakest section (WRITING) for rapid score uplift.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-2",
+          "title": "Speaking Part 1 & 3: Fluency & Spontaneity",
+          "skill": "speaking",
+          "taskType": "speaking_part1",
+          "dueDate": "2026-09-08",
+          "completed": false,
+          "weight": 3,
+          "durationMins": 40,
+          "reason": "Building balanced competency in SPEAKING to secure target Band 7.5.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-3",
+          "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+          "skill": "speaking",
+          "taskType": "criteria_drill",
+          "dueDate": "2026-09-10",
+          "completed": false,
+          "weight": 4,
+          "durationMins": 15,
+          "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+          "sectionId": "arcade"
+        },
+        {
+          "id": "task-4",
+          "title": "Timed Section Assessment: WRITING & SPEAKING",
+          "skill": "writing",
+          "taskType": "section_mock",
+          "dueDate": "2026-09-11",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 60,
+          "reason": "Milestone check to measure section progress.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-5",
+          "title": "Writing Task 2: High-Band Essay Structure & Idea Cohesion",
+          "skill": "writing",
+          "taskType": "writing_task2",
+          "dueDate": "2026-09-13",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 45,
+          "reason": "Targeting your identified weakest section (WRITING) for rapid score uplift.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-6",
+          "title": "Speaking Part 1 & 3: Fluency & Spontaneity",
+          "skill": "speaking",
+          "taskType": "speaking_part1",
+          "dueDate": "2026-09-15",
+          "completed": false,
+          "weight": 3,
+          "durationMins": 40,
+          "reason": "Building balanced competency in SPEAKING to secure target Band 7.5.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-7",
+          "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+          "skill": "speaking",
+          "taskType": "criteria_drill",
+          "dueDate": "2026-09-17",
+          "completed": false,
+          "weight": 4,
+          "durationMins": 15,
+          "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+          "sectionId": "arcade"
+        },
+        {
+          "id": "task-8",
+          "title": "Full Academic Mock Test #1 (All 4 Sections)",
+          "skill": "writing",
+          "taskType": "full_mock",
+          "dueDate": "2026-09-18",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 165,
+          "reason": "Simulation of actual test conditions without pauses.",
+          "sectionId": "exam-mode"
+        },
+        {
+          "id": "task-9",
+          "title": "Writing Task 2: High-Band Essay Structure & Idea Cohesion",
+          "skill": "writing",
+          "taskType": "writing_task2",
+          "dueDate": "2026-09-20",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 45,
+          "reason": "Targeting your identified weakest section (WRITING) for rapid score uplift.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-10",
+          "title": "Speaking Part 1 & 3: Fluency & Spontaneity",
+          "skill": "speaking",
+          "taskType": "speaking_part1",
+          "dueDate": "2026-09-22",
+          "completed": false,
+          "weight": 3,
+          "durationMins": 40,
+          "reason": "Building balanced competency in SPEAKING to secure target Band 7.5.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-11",
+          "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+          "skill": "speaking",
+          "taskType": "criteria_drill",
+          "dueDate": "2026-09-24",
+          "completed": false,
+          "weight": 4,
+          "durationMins": 15,
+          "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+          "sectionId": "arcade"
+        },
+        {
+          "id": "task-12",
+          "title": "Timed Section Assessment: WRITING & SPEAKING",
+          "skill": "writing",
+          "taskType": "section_mock",
+          "dueDate": "2026-09-25",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 60,
+          "reason": "Milestone check to measure section progress.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-13",
+          "title": "Writing Task 2: High-Band Essay Structure & Idea Cohesion",
+          "skill": "writing",
+          "taskType": "writing_task2",
+          "dueDate": "2026-09-27",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 45,
+          "reason": "Targeting your identified weakest section (WRITING) for rapid score uplift.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-14",
+          "title": "Speaking Part 1 & 3: Fluency & Spontaneity",
+          "skill": "speaking",
+          "taskType": "speaking_part1",
+          "dueDate": "2026-09-29",
+          "completed": false,
+          "weight": 3,
+          "durationMins": 40,
+          "reason": "Building balanced competency in SPEAKING to secure target Band 7.5.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-15",
+          "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+          "skill": "speaking",
+          "taskType": "criteria_drill",
+          "dueDate": "2026-10-01",
+          "completed": false,
+          "weight": 4,
+          "durationMins": 15,
+          "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+          "sectionId": "arcade"
+        },
+        {
+          "id": "task-16",
+          "title": "Full Academic Mock Test #2 (All 4 Sections)",
+          "skill": "writing",
+          "taskType": "full_mock",
+          "dueDate": "2026-10-02",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 165,
+          "reason": "Simulation of actual test conditions without pauses.",
+          "sectionId": "exam-mode"
+        },
+        {
+          "id": "task-17",
+          "title": "Writing Task 2: High-Band Essay Structure & Idea Cohesion",
+          "skill": "writing",
+          "taskType": "writing_task2",
+          "dueDate": "2026-10-04",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 45,
+          "reason": "Targeting your identified weakest section (WRITING) for rapid score uplift.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-18",
+          "title": "Speaking Part 1 & 3: Fluency & Spontaneity",
+          "skill": "speaking",
+          "taskType": "speaking_part1",
+          "dueDate": "2026-10-06",
+          "completed": false,
+          "weight": 3,
+          "durationMins": 40,
+          "reason": "Building balanced competency in SPEAKING to secure target Band 7.5.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-19",
+          "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+          "skill": "speaking",
+          "taskType": "criteria_drill",
+          "dueDate": "2026-10-08",
+          "completed": false,
+          "weight": 4,
+          "durationMins": 15,
+          "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+          "sectionId": "arcade"
+        },
+        {
+          "id": "task-20",
+          "title": "Timed Section Assessment: WRITING & SPEAKING",
+          "skill": "writing",
+          "taskType": "section_mock",
+          "dueDate": "2026-10-09",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 60,
+          "reason": "Milestone check to measure section progress.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-21",
+          "title": "Writing Task 2: High-Band Essay Structure & Idea Cohesion",
+          "skill": "writing",
+          "taskType": "writing_task2",
+          "dueDate": "2026-10-11",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 45,
+          "reason": "Targeting your identified weakest section (WRITING) for rapid score uplift.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-22",
+          "title": "Speaking Part 1 & 3: Fluency & Spontaneity",
+          "skill": "speaking",
+          "taskType": "speaking_part1",
+          "dueDate": "2026-10-13",
+          "completed": false,
+          "weight": 3,
+          "durationMins": 40,
+          "reason": "Building balanced competency in SPEAKING to secure target Band 7.5.",
+          "sectionId": "test-1"
+        },
+        {
+          "id": "task-23",
+          "title": "Speaking Arcade: \"Speak or Die\" 5-Minute Fluency Drill",
+          "skill": "speaking",
+          "taskType": "criteria_drill",
+          "dueDate": "2026-10-15",
+          "completed": false,
+          "weight": 4,
+          "durationMins": 15,
+          "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+          "sectionId": "arcade"
+        },
+        {
+          "id": "task-24",
+          "title": "Full Academic Mock Test #3 (All 4 Sections)",
+          "skill": "writing",
+          "taskType": "full_mock",
+          "dueDate": "2026-10-16",
+          "completed": false,
+          "weight": 5,
+          "durationMins": 165,
+          "reason": "Simulation of actual test conditions without pauses.",
+          "sectionId": "exam-mode"
+        }
+      ],
+      "checklist": [
+        {
+          "weekNumber": 1,
+          "weekStart": "2026-09-05",
+          "mocksDone": 0,
+          "mocksTarget": 2,
+          "essaysDone": 0,
+          "essaysTarget": 4,
+          "speakingDone": 0,
+          "speakingTarget": 5
+        }
+      ],
+      "attempts": [],
+      "quotas": {
+        "2026-09-05": {
+          "generationsCount": 3,
+          "uploadsCount": 0
+        }
+      },
+      "generatedTests": [
+        {
+          "id": "mock_adm_adm-spe-1788610580018-3E-4R",
+          "userId": "usr_student_preview",
+          "timestamp": "2026-09-05T12:16:24.473Z",
+          "module": "academic",
+          "section": "speaking",
+          "targetBand": "8.0",
+          "theme": "Travel & Tourism",
+          "contentHash": "adm-adm-spe-1788610580018-3E-4R",
+          "title": "Speaking Cambridge 18 Test 1",
+          "questionTypes": [
+            "part1_interview",
+            "part2_cuecard",
+            "part3_discussion"
+          ],
+          "data": {
+            "part1": {
+              "topic": "Holidays and Travel",
+              "questions": [
+                "Where do you like to spend your holidays?"
+              ]
+            },
+            "part2": {
+              "cueCardTopic": "Describe a journey you took by public transport",
+              "bulletPoints": [
+                "Where you went",
+                "What vehicle you used"
+              ]
+            },
+            "part3": {
+              "questions": [
+                "How has tourism impacted cultural identity in your country?"
+              ]
+            }
+          }
+        },
+        {
+          "id": "mock_1788577162295_pfhjk",
+          "userId": "usr_student_preview",
+          "timestamp": "2026-09-05T02:59:28.565Z",
+          "module": "academic",
+          "section": "speaking",
+          "targetBand": "7.0-7.5",
+          "theme": "Media Literacy & Digital Information",
+          "contentHash": "8a8af220f7ccd652",
+          "title": "IELTS Speaking Examination: Media Literacy & Digital Information",
+          "questionTypes": [
+            "part1_interview",
+            "part2_cuecard",
+            "part3_discussion"
+          ],
+          "data": {
+            "testTitle": "IELTS Speaking Examination: Media Literacy & Digital Information",
+            "theme": "Media Literacy & Digital Information",
+            "targetBand": "7.0-7.5",
+            "part1": {
+              "topicName": "Daily News Habits and Online Content",
+              "questions": [
+                {
+                  "id": "p1_q1",
+                  "questionNumber": 1,
+                  "prompt": "How do you usually stay updated with the latest news and current affairs?",
+                  "examinerTip": "Aim to expand naturally beyond single-word answers by stating your main source and briefly noting why you rely on it."
+                },
+                {
+                  "id": "p1_q2",
+                  "questionNumber": 2,
+                  "prompt": "Do you prefer reading news online or watching televised broadcasts, and why?",
+                  "examinerTip": "Use comparative structures and discourse markers like 'whereas' or 'on the other hand' to demonstrate grammatical flexibility."
+                },
+                {
+                  "id": "p1_q3",
+                  "questionNumber": 3,
+                  "prompt": "Have you ever found out that a story you read online was untrue or exaggerated?",
+                  "examinerTip": "Keep the tone conversational and briefly illustrate with a concrete personal anecdote without rambling."
+                },
+                {
+                  "id": "p1_q4",
+                  "questionNumber": 4,
+                  "prompt": "How do you check whether a digital article or social media post is trustworthy?",
+                  "examinerTip": "Integrate topic-specific vocabulary such as 'verifying credentials', 'cross-referencing', or 'credible outlets'."
+                }
+              ]
+            },
+            "part2": {
+              "category": "experience",
+              "topic": "An Occasion When You Discovered Inaccurate Online Information",
+              "cueCardPrompt": "Describe a time when you realized that an article or piece of information you found online was inaccurate or misleading.",
+              "bulletPoints": [
+                "what the information was and where you first came across it",
+                "what made you question or verify its accuracy",
+                "how you uncovered the real facts behind the story",
+                "and explain how you felt when you realized the information was false."
+              ],
+              "roundingOffQuestion": "Do you think people are generally more skeptical of online posts nowadays?"
+            },
+            "part3": {
+              "discussionArea": "Information Verification, Algorithmic Curation, and Societal Impact",
+              "questions": [
+                {
+                  "id": "p3_q1",
+                  "questionNumber": 1,
+                  "prompt": "In what ways do algorithmic newsfeeds alter the kind of perspectives people are exposed to?",
+                  "sampleIdeaPoints": [
+                    "Creation of echo chambers and confirmation bias reinforcement",
+                    "Prioritization of sensationalist or polarizing headlines over balanced journalism",
+                    "Decreased exposure to dissenting viewpoints and nuanced debate"
+                  ]
+                },
+                {
+                  "id": "p3_q2",
+                  "questionNumber": 2,
+                  "prompt": "To what extent should social media platforms be legally responsible for curbing misinformation on their networks?",
+                  "sampleIdeaPoints": [
+                    "Balance between public safety/integrity and freedom of expression",
+                    "Feasibility challenges regarding the sheer volume of user-generated content",
+                    "Risk of corporate censorship versus duty of care to counter harmful deception"
+                  ]
+                },
+                {
+                  "id": "p3_q3",
+                  "questionNumber": 3,
+                  "prompt": "How might advancements in generative artificial intelligence and deepfakes complicate our perception of public evidence?",
+                  "sampleIdeaPoints": [
+                    "Erosion of baseline societal trust in video and photographic documentation",
+                    "Need for advanced cryptographic watermarking and forensic verification tools",
+                    "Heightened susceptibility of the general public to political manipulation"
+                  ]
+                },
+                {
+                  "id": "p3_q4",
+                  "questionNumber": 4,
+                  "prompt": "Should critical evaluation of digital media be treated as an essential life skill on par with traditional literacy?",
+                  "sampleIdeaPoints": [
+                    "Civic necessity for sustaining informed democratic participation",
+                    "Protection of individuals against digital fraud, scams, and algorithmic nudges",
+                    "Long-term empowerment of citizens to distinguish verified data from sponsored rhetoric"
+                  ]
+                }
+              ]
+            },
+            "recommendedPhrases": [
+              {
+                "phrase": "take it with a pinch of salt",
+                "meaning": "to view information with skepticism and not accept it entirely at face value",
+                "spokenExample": "Whenever I spot sensationalist headlines on social platforms, I take them with a pinch of salt until verified."
+              },
+              {
+                "phrase": "for my money",
+                "meaning": "in my personal opinion or judgment",
+                "spokenExample": "For my money, cross-referencing multiple independent sources is the most dependable way to avoid falling for clickbait."
+              },
+              {
+                "phrase": "separate the wheat from the chaff",
+                "meaning": "to distinguish valuable or true things from things that are useless or false",
+                "spokenExample": "With so much sponsored content circulating, it takes deliberate effort to separate the wheat from the chaff."
+              },
+              {
+                "phrase": "ring true",
+                "meaning": "to sound plausible, authentic, or believable",
+                "spokenExample": "The claims in the viral video simply didn't ring true, so I looked into the author's primary sources."
+              },
+              {
+                "phrase": "down the rabbit hole",
+                "meaning": "getting deeply absorbed in exploring complex, obscure, or interconnected information online",
+                "spokenExample": "I went down a bit of a rabbit hole trying to verify who had originally funded the research organization."
+              },
+              {
+                "phrase": "at face value",
+                "meaning": "accepting something as it appears without questioning deeper motives or veracity",
+                "spokenExample": "We can no longer afford to accept digital photos at face value given how sophisticated synthetic media has become."
+              }
+            ]
+          }
+        },
+        {
+          "id": "mock_demo_1788575955665",
+          "userId": "usr_student_preview",
+          "timestamp": "2026-09-05T02:39:15.665Z",
+          "module": "academic",
+          "section": "reading",
+          "targetBand": "7.0-7.5",
+          "theme": "Childhood Development & Modern Parenting",
+          "contentHash": "demo-hash-01",
+          "title": "IELTS READING: Childhood Development & Modern Parenting (Standard Model)",
+          "questionTypes": [
+            "multiple_choice",
+            "true_false_not_given",
+            "sentence_completion"
+          ],
+          "data": {
+            "testTitle": "IELTS READING: Childhood Development & Modern Parenting",
+            "module": "academic",
+            "targetBand": "7.0-7.5",
+            "theme": "Childhood Development & Modern Parenting",
+            "passages": [
+              {
+                "passageNumber": 1,
+                "title": "The Architecture of Childhood Development & Modern Parenting",
+                "subheading": "Exploring contemporary developments and historical evolution",
+                "content": "[A] Recent developments in Childhood Development & Modern Parenting have fundamentally shifted how researchers conceptualise systemic changes. In early twentieth-century scholarship, empirical investigations were frequently constrained by rudimentary observational apparatus. Consequently, initial postulates emphasized mechanical causality over complex dynamic equilibria.\n\n[B] However, the advent of high-resolution digital telemetry in the late 1990s precipitated a transformative paradigm shift. Cross-institutional consortiums began aggregating longitudinal datasets spanning multiple continents, revealing subtle interdependencies that previous deterministic frameworks failed to anticipate.\n\n[C] In contemporary discourse, scholarly consensus underscores three interrelated pillars: first, rigorous baseline quantification; second, dynamic mitigation strategies; and third, democratic stakeholder engagement. Without proactive integration of these elements, policy interventions frequently yield unintended collateral repercussions.",
+                "wordCount": 820,
+                "questions": [
+                  {
+                    "id": "q1",
+                    "questionNumber": 1,
+                    "type": "true_false_not_given",
+                    "prompt": "Early twentieth-century research into this domain possessed sophisticated computational tools.",
+                    "instructions": "Write TRUE if the statement agrees with the information, FALSE if it contradicts, or NOT GIVEN if there is no information.",
+                    "correctAnswer": "FALSE",
+                    "explanation": "Paragraph [A] explicitly states that investigations were \"constrained by rudimentary observational apparatus\", which directly contradicts the claim that they possessed sophisticated computational tools.",
+                    "targetSkill": "Direct factual contradiction"
+                  },
+                  {
+                    "id": "q2",
+                    "questionNumber": 2,
+                    "type": "sentence_completion",
+                    "prompt": "The emergence of high-resolution digital telemetry triggered a transformative ________ in the late 1990s.",
+                    "instructions": "Choose NO MORE THAN TWO WORDS from the passage for each answer.",
+                    "correctAnswer": "paradigm shift",
+                    "acceptableAnswers": [
+                      "paradigm shift",
+                      "shift"
+                    ],
+                    "explanation": "Paragraph [B] states: \"precipitated a transformative paradigm shift\".",
+                    "targetSkill": "Exact text retrieval"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "textbooks": []
+    }
+  },
+  "chunks": {}
+}

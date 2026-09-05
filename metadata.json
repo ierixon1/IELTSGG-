@@ -1,0 +1,6 @@
+{
+  "name": "PrepIELTS AI Studio",
+  "description": "Comprehensive personal AI-powered IELTS preparation platform with instant multi-criteria grading for Writing and Speaking, authentic Listening & Reading mocks, strict Exam Mode, adaptive study plan, and Speak or Die arcade.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
