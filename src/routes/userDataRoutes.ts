@@ -1,0 +1,173 @@
+import { Router, Response } from 'express';
+import { z } from 'zod';
+import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { dataStore } from '../services/storage';
+
+const router = Router();
+
+const profileSchema = z.object({
+  id: z.string().max(128).optional(),
+  targetBand: z.number().min(0).max(9),
+  currentLevel: z.number().min(0).max(9),
+  hoursPerWeek: z.number().min(0).max(168),
+  weakSection: z.enum(['reading', 'listening', 'writing', 'speaking']),
+  isOnboarded: z.boolean(),
+}).strip();
+
+const taskSchema = z.object({
+  id: z.string().max(128),
+  title: z.string().max(500),
+  skill: z.enum(['reading', 'listening', 'writing', 'speaking']),
+  taskType: z.string().max(100),
+  dueDate: z.string().max(32),
+  completed: z.boolean(),
+  weight: z.number().min(0).max(100),
+  durationMins: z.number().min(0).max(1440),
+  reason: z.string().max(2000),
+  sectionId: z.string().max(128),
+}).strip();
+
+const checklistSchema = z.object({
+  weekNumber: z.number().int().min(1).max(1000),
+  weekStart: z.string().max(32),
+  mocksDone: z.number().int().min(0).max(1000),
+  mocksTarget: z.number().int().min(0).max(1000),
+  essaysDone: z.number().int().min(0).max(1000),
+  essaysTarget: z.number().int().min(0).max(1000),
+  speakingDone: z.number().int().min(0).max(1000),
+  speakingTarget: z.number().int().min(0).max(1000),
+}).strip();
+
+const syncSchema = z.object({
+  profile: profileSchema.optional(),
+  tasks: z.array(taskSchema).max(500).optional(),
+  checklist: z.array(checklistSchema).max(100).optional(),
+}).strict();
+
+function requireUser(req: AuthenticatedRequest, res: Response): string | null {
+  if (!req.userId) {
+    res.status(401).json({ error: 'Unauthorized.' });
+    return null;
+  }
+  return req.userId;
+}
+
+router.get('/data', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  try {
+    const [profile, tasks, attempts, checklist] = await Promise.all([
+      dataStore.getUserProfile(userId),
+      dataStore.getUserTasks(userId),
+      dataStore.getUserAttempts(userId),
+      dataStore.getUserChecklist(userId),
+    ]);
+    res.json({
+      profile: profile || {
+        id: userId,
+        targetBand: 7.5,
+        currentLevel: 6,
+        hoursPerWeek: 12,
+        weakSection: 'writing',
+        isOnboarded: false,
+      },
+      tasks,
+      attempts,
+      checklist: checklist[checklist.length - 1] || {
+        weekNumber: 1,
+        weekStart: new Date().toISOString().slice(0, 10),
+        mocksDone: 0,
+        mocksTarget: 2,
+        essaysDone: 0,
+        essaysTarget: 4,
+        speakingDone: 0,
+        speakingTarget: 5,
+      },
+    });
+  } catch (error) {
+    console.error('[UserData] read error:', error);
+    res.status(500).json({ error: 'Unable to load user data.' });
+  }
+});
+
+router.put('/data/profile', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const parsed = profileSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid profile.' });
+  try {
+    const profile = { ...parsed.data, id: userId };
+    await dataStore.saveUserProfile(userId, profile);
+    res.json({ success: true, profile });
+  } catch (error) {
+    console.error('[UserData] profile save error:', error);
+    res.status(500).json({ error: 'Unable to save profile.' });
+  }
+});
+
+router.put('/data/tasks', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const parsed = z.array(taskSchema).max(500).safeParse(req.body?.tasks);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid tasks.' });
+  try {
+    await dataStore.saveUserTasks(userId, parsed.data);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[UserData] tasks save error:', error);
+    res.status(500).json({ error: 'Unable to save tasks.' });
+  }
+});
+
+router.put('/data/checklist', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const parsed = z.array(checklistSchema).max(100).safeParse(req.body?.checklist);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid checklist.' });
+  try {
+    await dataStore.saveUserChecklist(userId, parsed.data);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[UserData] checklist save error:', error);
+    res.status(500).json({ error: 'Unable to save checklist.' });
+  }
+});
+
+router.post('/data/attempts', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const parsed = req.body;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return res.status(400).json({ error: 'Invalid attempt.' });
+  }
+  try {
+    const safeAttempt = {
+      ...(parsed as Record<string, unknown>),
+      userId: undefined,
+    } as any;
+    delete safeAttempt.userId;
+    await dataStore.saveUserAttempt(userId, safeAttempt);
+    res.status(201).json({ success: true });
+  } catch (error) {
+    console.error('[UserData] attempt save error:', error);
+    res.status(500).json({ error: 'Unable to save attempt.' });
+  }
+});
+
+router.post('/data/sync', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const parsed = syncSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid sync payload.' });
+  try {
+    if (parsed.data.profile) await dataStore.saveUserProfile(userId, { ...parsed.data.profile, id: userId });
+    if (parsed.data.tasks) await dataStore.saveUserTasks(userId, parsed.data.tasks);
+    if (parsed.data.checklist) await dataStore.saveUserChecklist(userId, parsed.data.checklist);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[UserData] sync error:', error);
+    res.status(500).json({ error: 'Unable to sync user data.' });
+  }
+});
+
+export { router as userDataRouter };
