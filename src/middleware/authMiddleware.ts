@@ -10,10 +10,8 @@ export const AUTH_COOKIE='prep_auth';
 
 export async function authenticateRequest(req:AuthenticatedRequest,res:Response,next:NextFunction){
  try{
-  const header=req.headers.authorization;let userId:string|undefined,email:string|undefined,role:UserRole|undefined,name:string|undefined;
-  const bearerToken=header?.startsWith('Bearer ')?header.slice(7).trim():'';
-  const cookieToken=readCookie(req,AUTH_COOKIE);
-  const token=bearerToken||cookieToken;
+  let userId:string|undefined,email:string|undefined,role:UserRole|undefined,name:string|undefined;
+  const token=readCookie(req,AUTH_COOKIE);
   if(token){const session=await authService.validateSession(token);if(session){userId=session.userId;email=session.email;role=session.role;name=session.name;}}
   if(!userId&&isExplicitDevAuthEnabled()){
    const id=String(req.headers['x-user-id']||'').trim();
