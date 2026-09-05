@@ -4,99 +4,105 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware';
 
 export const authRouter = Router();
 
+function isValidJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 // Registration endpoint
+// This route is intentionally limited to student accounts; privileged roles are assigned server-side.
 authRouter.post('/register', (req: Request, res: Response) => {
   try {
+    if (!isValidJsonObject(req.body)) return res.status(400).json({ error: 'Invalid request.' });
     const { email, username, password, name } = req.body;
     const result = authService.register({
-      email,
-      username,
-      password,
-      name,
-      role: 'student',
+      email: String(email || ''),
+      username: String(username || ''),
+      password: String(password || ''),
+      name: name == null ? undefined : String(name),
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'Account created successfully.',
       user: result.user,
       token: result.token,
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Registration failed.' });
+  } catch {
+    return res.status(400).json({ error: 'Unable to create account.' });
   }
 });
 
-// Login endpoint (with brute-force protection)
+// Login endpoint
+// Detailed credential failure reasons are deliberately hidden from clients.
 authRouter.post('/login', (req: Request, res: Response) => {
   try {
+    if (!isValidJsonObject(req.body)) return res.status(400).json({ error: 'Invalid request.' });
     const { username, password } = req.body;
-    const result = authService.login(username, password);
+    const result = authService.login(String(username || ''), String(password || ''));
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Logged in successfully.',
       user: result.user,
       token: result.token,
     });
-  } catch (error: any) {
-    const isLocked = error.message?.includes('locked');
-    res.status(isLocked ? 429 : 401).json({ error: error.message || 'Login failed.' });
+  } catch {
+    return res.status(401).json({ error: 'Invalid credentials.' });
   }
 });
 
 // Logout endpoint
 authRouter.post('/logout', (req: AuthenticatedRequest, res: Response) => {
   const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split('Bearer ')[1]?.trim();
-    if (token) {
-      authService.logout(token);
-    }
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice('Bearer '.length).trim();
+    if (token) authService.logout(token);
   }
-  res.json({ success: true, message: 'Logged out successfully.' });
+  return res.json({ success: true, message: 'Logged out successfully.' });
 });
 
-// Current User profile info
+// Current user profile info
 authRouter.get('/me', (req: AuthenticatedRequest, res: Response) => {
-  if (!req.userId) {
-    return res.status(401).json({ error: 'Not authenticated.' });
-  }
-
+  if (!req.userId) return res.status(401).json({ error: 'Not authenticated.' });
   const user = authService.getUserById(req.userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User profile not found.' });
-  }
-
-  res.json({ user });
+  if (!user) return res.status(404).json({ error: 'User profile not found.' });
+  return res.json({ user });
 });
 
-// Forgot Password request
+// Forgot password.
+// Production responses never expose the reset token. Configure an email provider before enabling recovery publicly.
 authRouter.post('/forgot-password', (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
-    const { code, expiresMinutes } = authService.requestPasswordReset(email);
-    // In production, this would be emailed; in dev/preview, return verification code for seamless UX
-    res.json({
+    const email = isValidJsonObject(req.body) ? String(req.body.email || '') : '';
+    const result = authService.requestPasswordReset(email);
+    const response: Record<string, unknown> = {
       success: true,
-      message: `Password reset code sent. Valid for ${expiresMinutes} minutes.`,
-      code, // Helpful preview code for immediate testing
+      message: 'If an account exists for this email, recovery instructions will be sent.',
+      expiresMinutes: result.expiresMinutes,
+    };
+
+    if (process.env.EXPLICIT_DEV_AUTH === 'true' && result.resetToken) {
+      response.devResetToken = result.resetToken;
+    }
+
+    return res.json(response);
+  } catch {
+    // Keep password recovery responses intentionally generic.
+    return res.json({
+      success: true,
+      message: 'If an account exists for this email, recovery instructions will be sent.',
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Password reset request failed.' });
   }
 });
 
-// Reset Password confirmation
+// Reset password with a one-time cryptographically random reset token.
 authRouter.post('/reset-password', (req: Request, res: Response) => {
   try {
-    const { email, code, newPassword } = req.body;
-    authService.resetPassword(email, code, newPassword);
-    res.json({
-      success: true,
-      message: 'Password successfully reset. You can now log in with your new password.',
-    });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Password reset failed.' });
+    if (!isValidJsonObject(req.body)) return res.status(400).json({ error: 'Invalid request.' });
+    const { email, token, newPassword } = req.body;
+    authService.resetPassword(String(email || ''), String(token || ''), String(newPassword || ''));
+    return res.json({ success: true, message: 'Password successfully reset.' });
+  } catch {
+    return res.status(400).json({ error: 'Invalid or expired reset token.' });
   }
 });
