@@ -8,12 +8,28 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
     const guard = await aiRateLimitService.checkLimit(userId, quotaOperation);
     if (!guard.allowed) throw new Error(guard.reason);
   }
+
   let delay = initialDelayMs;
   let lastError: any = null;
+  let attemptsMade = 0;
+
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    attemptsMade = attempt;
     try {
       const result = await operation();
-      if (userId) { try { await aiRateLimitService.recordUsage({ userId, operation: quotaOperation, model: 'gemini-3.8-flash', success: true }); } catch (logError) { console.error('[AI usage log]', logError); } }
+      if (userId) {
+        try {
+          await aiRateLimitService.recordUsage({
+            userId,
+            operation: quotaOperation,
+            model: 'gemini-3.8-flash',
+            success: true,
+            notes: `completed_after_${attempt} attempt${attempt === 1 ? '' : 's'}`,
+          });
+        } catch (logError) {
+          console.error('[AI usage log]', logError);
+        }
+      }
       return result;
     } catch (err: any) {
       lastError = err;
@@ -29,6 +45,21 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
       break;
     }
   }
+
+  if (userId) {
+    try {
+      await aiRateLimitService.recordUsage({
+        userId,
+        operation: quotaOperation,
+        model: 'gemini-3.8-flash',
+        success: false,
+        notes: `failed_after_${attemptsMade}_attempt${attemptsMade === 1 ? '' : 's'}:${String(lastError?.message || 'unknown').slice(0, 240)}`,
+      });
+    } catch (logError) {
+      console.error('[AI usage log]', logError);
+    }
+  }
+
   const is429 = lastError?.message?.includes('429') || lastError?.message?.includes('RESOURCE_EXHAUSTED');
   if (is429) throw new Error('Gemini API quota or rate limit reached. Please wait a moment before trying again.');
   throw new Error(`AI generation error: ${lastError?.message || 'Unknown error occurred during synthesis.'}`);
