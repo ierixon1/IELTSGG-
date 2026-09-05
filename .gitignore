@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+data/uploads/
+data/users.json
+data/sessions.json
+data/ai_usage_log.json
