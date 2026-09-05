@@ -45,9 +45,28 @@ describe('security regressions', () => {
     expect(middleware).not.toContain('authorization');
     expect(routes).toContain('httpOnly:true');
     expect(routes).toContain("sameSite:'strict'");
+    expect(routes).not.toContain('Authorization');
+    expect(routes).not.toContain('const bearer=');
     expect(gate).not.toContain('prep_auth_token');
     expect(main).toContain("localStorage.removeItem('prep_auth_token')");
     expect(api).not.toContain('Authorization: `Bearer');
+  });
+  it('uses HttpOnly admin cookie auth and blocks cross-site state changes', async () => {
+    const routes = await read('src/routes/adminRoutes.ts');
+    expect(routes).toContain("const ADMIN_AUTH_COOKIE='prep_admin_auth'");
+    expect(routes).toContain('httpOnly:true');
+    expect(routes).toContain('Cross-site request blocked.');
+    expect(routes).not.toContain('req.headers.authorization');
+  });
+  it('validates complete password reset email configuration', async () => {
+    const email = await read('src/services/emailService.ts');
+    const auth = await read('src/services/authService.ts');
+    expect(email).toContain("process.env.RESEND_API_KEY?.trim()");
+    expect(email).toContain("process.env.EMAIL_FROM?.trim()");
+    expect(email).toContain("process.env.APP_URL?.trim()");
+    expect(email).toContain('AbortSignal.timeout(10000)');
+    expect(auth).toContain('sendPasswordResetEmail({to:user.email,token})');
+    expect(auth).not.toContain("process.env.NODE_ENV!=='production'&&isEmailDeliveryConfigured()");
   });
   it('does not allow draft materials to escape through a published bundle', async () => {
     const store = await read('src/services/adminStore.ts');
