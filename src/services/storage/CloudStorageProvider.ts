@@ -9,9 +9,7 @@ export class CloudStorageProvider implements StorageProvider {
     this.bucketName = bucketName;
   }
 
-  private bucket() {
-    return getStorage().bucket(this.bucketName);
-  }
+  private bucket() { return getStorage().bucket(this.bucketName); }
 
   async uploadFile(storagePath: string, content: Buffer | Uint8Array | string, contentType?: string): Promise<{ storagePath: string; publicUrl?: string }> {
     const file = this.bucket().file(storagePath);
