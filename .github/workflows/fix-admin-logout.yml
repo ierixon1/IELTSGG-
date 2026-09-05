@@ -1,0 +1,30 @@
+name: Fix admin logout
+
+on:
+  push:
+    branches: [security-hardening]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor == 'ierixon1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fix logout and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          perl -0pi -e "s#adminRouter\.post\('/logout',requireAdminAuth,async\(req:AdminRequest,res\)=>\{try\{const h=req\.headers\.authorization;if\(h\?\.startsWith\('Bearer '\)\)await authService\.logout\(h\.slice\(7\)\.trim\(\)\);\}catch\{\}return res\.json\(\{success:true\}\);\}\);#adminRouter.post('/logout',requireAdminAuth,async(req:AdminRequest,res)=>{try{await authService.logout(req.adminSessionToken||'');}catch{}res.clearCookie(ADMIN_AUTH_COOKIE,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin'});return res.json({success:true});});#" src/routes/adminRoutes.ts
+          ! grep -q "const h=req.headers.authorization" src/routes/adminRoutes.ts
+          grep -q "res.clearCookie(ADMIN_AUTH_COOKIE" src/routes/adminRoutes.ts
+          rm -f .github/workflows/fix-admin-logout.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'security: finish admin cookie logout migration'
+          git push
