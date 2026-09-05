@@ -22,8 +22,8 @@ const BINARY_MAGIC_SIGNATURES = [
 export function validateHtmlFileBuffer(buffer: Buffer): { valid: boolean; error?: string } {
   if (!buffer?.length) return { valid:false, error:'File is empty.' };
   if (buffer.length > 5*1024*1024) return { valid:false, error:'HTML file exceeds the 5MB size limit.' };
-  for (const sig of BINARY_MAGIC_SIGNATURES) if (buffer.length >= sig.length && sig.every((b,i)=>buffer[i]===b)) return { valid:false, error:'Disguised binary file detected.' };
-  if (buffer.includes(0)) return { valid:false, error:'Binary null bytes detected.' };
+  for (const sig of BINARY_MAGIC_SIGNATURES) if (buffer.length >= sig.length && sig.every((b,i)=>buffer[i]===b)) return {valid:false,error:'Disguised binary file detected.'};
+  if (buffer.includes(0)) return {valid:false,error:'Binary null bytes detected.'};
   for (let i=0;i<Math.min(buffer.length,8192);i++){const b=buffer[i];if(b<9||b===11||b===12||(b>=14&&b<=31)||b===127)return{valid:false,error:'Unprintable binary control bytes detected.'};}
   let text='';
   try { text = new TextDecoder('utf-8',{fatal:true}).decode(buffer); } catch { return {valid:false,error:'Invalid UTF-8 byte sequence.'}; }
@@ -42,13 +42,17 @@ export const sanitizeHtmlServer = (rawHtml: string): string => sanitizeHtml(type
 
 export function deepSanitizeHtml(obj:any):any{if(!obj||typeof obj!=='object')return obj;if(Array.isArray(obj))return obj.map(deepSanitizeHtml);const out:any={};for(const[k,v]of Object.entries(obj))out[k]=(k==='htmlContent'||k==='passageHtml')&&typeof v==='string'?sanitizeHtmlServer(v):v&&typeof v==='object'?deepSanitizeHtml(v):v;return out;}
 
-/** Authenticate admin/examiner with the same server-side session system as students. */
 export function requireAdminAuth(req: AdminRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return res.status(403).json({error:'Forbidden.'});
   const session = authService.validateSession(header.slice('Bearer '.length).trim());
   if (!session || (session.role !== 'admin' && session.role !== 'examiner')) return res.status(403).json({error:'Forbidden.'});
   req.adminUser = { id:session.userId, username:session.username, displayName:session.name, role:session.role };
+  return next();
+}
+
+export function requireAdminRole(req: AdminRequest, res: Response, next: NextFunction) {
+  if (req.adminUser?.role !== 'admin') return res.status(403).json({error:'Administrator role required.'});
   return next();
 }
 
@@ -65,23 +69,23 @@ adminRouter.post('/logout',requireAdminAuth,(req:AdminRequest,res)=>{const h=req
 
 adminRouter.get('/stats',requireAdminAuth,(_req,res)=>{try{return res.json({stats:adminStore.getStats()});}catch{return res.status(500).json({error:'Unable to load stats.'});}});
 
-adminRouter.post('/upload',requireAdminAuth,upload.single('file'),async(req:AdminRequest,res)=>{const file=(req as any).file;if(!file)return res.status(400).json({error:'No file was uploaded.'});try{const ext=path.extname(file.originalname).toLowerCase();let extractedText='';let extractedHtml='';if(ext==='.html'||ext==='.htm'){const b=fs.readFileSync(file.path);const v=validateHtmlFileBuffer(b);if(!v.valid){try{fs.unlinkSync(file.path)}catch{};return res.status(400).json({error:v.error});}extractedHtml=sanitizeHtmlServer(b.toString('utf8'));fs.writeFileSync(file.path,extractedHtml,'utf8');extractedText=extractedHtml.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();}else if(ext==='.txt'){const b=fs.readFileSync(file.path);if(b.includes(0)){try{fs.unlinkSync(file.path)}catch{};return res.status(400).json({error:'Binary text file rejected.'});}extractedText=b.toString('utf8');}else if(ext==='.docx'){const r=await mammoth.extractRawText({path:file.path});extractedText=r.value||'';}else if(ext==='.pdf'){try{const mod=await import('pdf-parse');const fn=(mod as any).default||(mod as any).PDFParse||mod;if(typeof fn==='function'){const r=await fn(fs.readFileSync(file.path));extractedText=r.text||'';}}catch{}}
+adminRouter.post('/upload',requireAdminAuth,requireAdminRole,upload.single('file'),async(req:AdminRequest,res)=>{const file=(req as any).file;if(!file)return res.status(400).json({error:'No file was uploaded.'});try{const ext=path.extname(file.originalname).toLowerCase();let extractedText='';let extractedHtml='';if(ext==='.html'||ext==='.htm'){const b=fs.readFileSync(file.path);const v=validateHtmlFileBuffer(b);if(!v.valid){try{fs.unlinkSync(file.path)}catch{};return res.status(400).json({error:v.error});}extractedHtml=sanitizeHtmlServer(b.toString('utf8'));fs.writeFileSync(file.path,extractedHtml,'utf8');extractedText=extractedHtml.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();}else if(ext==='.txt'){const b=fs.readFileSync(file.path);if(b.includes(0)){try{fs.unlinkSync(file.path)}catch{};return res.status(400).json({error:'Binary text file rejected.'});}extractedText=b.toString('utf8');}else if(ext==='.docx'){const r=await mammoth.extractRawText({path:file.path});extractedText=r.value||'';}else if(ext==='.pdf'){try{const mod=await import('pdf-parse');const fn=(mod as any).default||(mod as any).PDFParse||mod;if(typeof fn==='function'){const r=await fn(fs.readFileSync(file.path));extractedText=r.text||'';}}catch{}}
 return res.json({success:true,file:{filename:file.filename,originalName:file.originalname,size:file.size,mimetype:file.mimetype,url:`/api/uploads/${file.filename}`,extractedHtml:extractedHtml||undefined,extractedText:extractedText.trim()||undefined}});}catch{try{fs.unlinkSync(file.path)}catch{};return res.status(500).json({error:'File upload failed.'});}});
 
 adminRouter.get('/materials',requireAdminAuth,(req,res)=>{const status=['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as any:undefined;const s=req.query.section;if(isSection(s))return res.json({items:adminStore.listMaterials(s,status)});return res.json({items:(['speaking','reading','listening','writing'] as const).flatMap(x=>adminStore.listMaterials(x,status))});});
 adminRouter.get('/materials/:section/:id',requireAdminAuth,(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});const item=adminStore.getMaterial(req.params.section,req.params.id);return item?res.json({item}):res.status(404).json({error:'Material not found.'});});
-adminRouter.post('/materials',requireAdminAuth,(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});const body=deepSanitizeHtml(req.body);return res.json({success:true,item:adminStore.saveMaterial(req.body.section,body,req.adminUser?.displayName||'Admin')});});
-adminRouter.post('/materials/:section',requireAdminAuth,(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({success:true,item:adminStore.saveMaterial(req.params.section,deepSanitizeHtml(req.body),req.adminUser?.displayName||'Admin')});});
-adminRouter.put('/materials/:id',requireAdminAuth,(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});return res.json({success:true,item:adminStore.saveMaterial(req.body.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin')});});
-adminRouter.put('/materials/:section/:id',requireAdminAuth,(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({success:true,item:adminStore.saveMaterial(req.params.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin')});});
-adminRouter.delete('/materials/:id',requireAdminAuth,(req,res)=>{for(const s of ['speaking','reading','listening','writing'] as const)if(adminStore.deleteMaterial(s,req.params.id))return res.json({success:true});return res.status(404).json({error:'Material not found.'});});
-adminRouter.delete('/materials/:section/:id',requireAdminAuth,(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return adminStore.deleteMaterial(req.params.section,req.params.id)?res.json({success:true}):res.status(404).json({error:'Material not found.'});});
+adminRouter.post('/materials',requireAdminAuth,requireAdminRole,(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});const body=deepSanitizeHtml(req.body);return res.json({success:true,item:adminStore.saveMaterial(req.body.section,body,req.adminUser?.displayName||'Admin')});});
+adminRouter.post('/materials/:section',requireAdminAuth,requireAdminRole,(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({success:true,item:adminStore.saveMaterial(req.params.section,deepSanitizeHtml(req.body),req.adminUser?.displayName||'Admin')});});
+adminRouter.put('/materials/:id',requireAdminAuth,requireAdminRole,(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});return res.json({success:true,item:adminStore.saveMaterial(req.body.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin')});});
+adminRouter.put('/materials/:section/:id',requireAdminAuth,requireAdminRole,(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({success:true,item:adminStore.saveMaterial(req.params.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin')});});
+adminRouter.delete('/materials/:id',requireAdminAuth,requireAdminRole,(req,res)=>{for(const s of ['speaking','reading','listening','writing'] as const)if(adminStore.deleteMaterial(s,req.params.id))return res.json({success:true});return res.status(404).json({error:'Material not found.'});});
+adminRouter.delete('/materials/:section/:id',requireAdminAuth,requireAdminRole,(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return adminStore.deleteMaterial(req.params.section,req.params.id)?res.json({success:true}):res.status(404).json({error:'Material not found.'});});
 
 adminRouter.get('/bundles',requireAdminAuth,(req,res)=>res.json({bundles:adminStore.listBundles(['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as any:undefined)}));
 adminRouter.get('/bundles/:id',requireAdminAuth,(req,res)=>{const x=adminStore.getResolvedBundle(req.params.id);return x?res.json(x):res.status(404).json({error:'CDI Bundle not found.'});});
-adminRouter.post('/bundles',requireAdminAuth,(req,res)=>res.json({success:true,bundle:adminStore.saveBundle(deepSanitizeHtml(req.body))}));
-adminRouter.put('/bundles/:id',requireAdminAuth,(req,res)=>res.json({success:true,bundle:adminStore.saveBundle({...deepSanitizeHtml(req.body),id:req.params.id})}));
-adminRouter.delete('/bundles/:id',requireAdminAuth,(req,res)=>adminStore.deleteBundle(req.params.id)?res.json({success:true}):res.status(404).json({error:'Bundle not found.'}));
+adminRouter.post('/bundles',requireAdminAuth,requireAdminRole,(req,res)=>res.json({success:true,bundle:adminStore.saveBundle(deepSanitizeHtml(req.body))}));
+adminRouter.put('/bundles/:id',requireAdminAuth,requireAdminRole,(req,res)=>res.json({success:true,bundle:adminStore.saveBundle({...deepSanitizeHtml(req.body),id:req.params.id})}));
+adminRouter.delete('/bundles/:id',requireAdminAuth,requireAdminRole,(req,res)=>adminStore.deleteBundle(req.params.id)?res.json({success:true}):res.status(404).json({error:'Bundle not found.'}));
 
 adminRouter.get('/public/materials/:section',(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({items:adminStore.listMaterials(req.params.section,'published')});});
 adminRouter.get('/public/bundles',(_req,res)=>res.json({bundles:adminStore.listBundles('published')}));
