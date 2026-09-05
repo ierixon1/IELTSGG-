@@ -1,22 +1,39 @@
 import { GoogleGenAI } from '@google/genai';
-import { GenerateMockRequest, GeneratedMockResult } from '../types';
-import { generateListening } from '../../prompts/generateListening';
-import { generateReading } from '../../prompts/generateReading';
-import { generateSpeaking } from '../../prompts/generateSpeaking';
-import { generateWriting } from '../../prompts/generateWriting';
+import crypto from 'crypto';
+import { GenerateMockRequest } from '../schemas/mockGeneratorSchema';
+import { IELTS_THEMES } from '../config/ieltsTaxonomy';
+import { executeGeminiWithRetry } from '../../prompts/geminiRetry';
+import { buildReadingPrompt, readingResponseSchema } from '../../prompts/generateReading';
+import { buildListeningPrompt, listeningResponseSchema } from '../../prompts/generateListening';
+import { buildWritingPrompt, writingResponseSchema } from '../../prompts/generateWriting';
+import { buildSpeakingPrompt, speakingResponseSchema } from '../../prompts/generateSpeaking';
 import { requestContext } from '../middleware/authMiddleware';
 import { aiRateLimitService, AI_OPERATION_LIMITS } from './aiRateLimitService';
 import { dataStore } from './storage';
+import { adminStore } from './adminStore';
+
+export interface GenerationResult { id:string; module:'academic'|'general'; section:'reading'|'listening'|'writing'|'speaking'|'full_mock'; targetBand:string; theme:string; contentHash:string; title:string; questionTypes:string[]; testData:any; }
 
 export class MockGeneratorService {
-  private getAI(){const key=process.env.GEMINI_API_KEY;if(!key)throw new Error('AI service is not configured.');return new GoogleGenAI({apiKey:key});}
-  async generateMock(req:GenerateMockRequest,recentThemes:string[]=[]):Promise<GeneratedMockResult>{
+  private getAi(apiKey:string):GoogleGenAI{return new GoogleGenAI({apiKey,httpOptions:{headers:{'User-Agent':'PrepIELTS-server'}}});}
+  public pickUniqueTheme(negativeThemes:string[]=[]):string{const blocked=new Set(negativeThemes.map(t=>t.toLowerCase().trim()));const pool=IELTS_THEMES.filter(t=>!blocked.has(t.name.toLowerCase().trim()));const candidates=pool.length?pool:IELTS_THEMES;return candidates[Math.floor(Math.random()*candidates.length)].name;}
+
+  public async generateMock(options:GenerateMockRequest,recentThemes:string[]=[],skipQuota=false):Promise<GenerationResult>{
     const userId=requestContext.getStore()?.userId;
     const maxGenerations=Number.parseInt(process.env.RATE_LIMIT_GENERATIONS||'',10)||AI_OPERATION_LIMITS.mock_generation.daily;
-    if(userId){const aiGuard=await aiRateLimitService.checkLimit(userId,'mock_generation');if(!aiGuard.allowed)throw new Error(aiGuard.reason);const reserved=await dataStore.reserveGeneration(userId,maxGenerations);if(!reserved)throw new Error(`Daily generation limit reached (${maxGenerations}).`);}
-    const ai=this.getAI(); const theme=req.theme||'Education and society'; const avoid=recentThemes.filter(Boolean).slice(0,10).join(', '); const context={ai,theme,avoidThemes:avoid,targetBand:req.targetBand,module:req.module,section:req.section}; let testData:any;
-    if(req.section==='listening')testData=await generateListening(context as any); else if(req.section==='reading')testData=await generateReading(context as any); else if(req.section==='writing')testData=await generateWriting(context as any); else testData=await generateSpeaking(context as any);
-    const id=`mock_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,contentHash=JSON.stringify(testData).slice(0,200); return{id,module:req.module,section:req.section,targetBand:req.targetBand,theme,title:`IELTS ${req.section} mock — ${theme}`,questionTypes:[],contentHash,testData};
+    if(userId&&!skipQuota){const guard=await aiRateLimitService.checkLimit(userId,'mock_generation');if(!guard.allowed)throw new Error(guard.reason||'Daily generation limit reached.');const reserved=await dataStore.reserveGeneration(userId,maxGenerations);if(!reserved)throw new Error(`Daily generation limit reached (${maxGenerations}).`);}
+    const theme=options.theme||this.pickUniqueTheme(recentThemes);const combinedNegatives=Array.from(new Set([...recentThemes,...(options.negativeTopics||[])]));
+    try{if(options.section!=='full_mock'){const materials=adminStore.listMaterials(options.section,'published');const matching=materials.filter(m=>(!m.module||m.module===options.module)&&(!options.theme||m.theme?.toLowerCase().includes(options.theme.toLowerCase())));const candidate=matching.length?matching[Math.floor(Math.random()*matching.length)]:null;if(candidate){const content:any=candidate.content||{};return{id:`mock_adm_${candidate.id}`,module:candidate.module||options.module,section:options.section,targetBand:candidate.targetBand||options.targetBand,theme:candidate.theme||candidate.title,contentHash:`adm-${candidate.id}`,title:candidate.title,questionTypes:options.section==='speaking'?['part1_interview','part2_cuecard','part3_discussion']:[],testData:content.speakingSession||content.passage||content.section||content.task||content};}}}catch(error){console.warn('[MockGenerator] Admin material lookup failed:',error);}
+    const apiKey=process.env.GEMINI_API_KEY;if(!apiKey)return this.generateFallbackMock(options,theme);const ai=this.getAi(apiKey);const testId=`mock_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+    const generate=async(built:{systemInstruction:string;userPrompt:string},schema:any)=>{const response=await executeGeminiWithRetry(()=>ai.models.generateContent({model:'gemini-3.8-flash',contents:built.userPrompt,config:{systemInstruction:built.systemInstruction,temperature:0.9,responseMimeType:'application/json',responseSchema:schema}}),3,1500,'mock_generation');return JSON.parse(response.text||'{}');};
+    try{switch(options.section){
+      case 'reading':{const parsed=await generate(buildReadingPrompt({module:options.module,targetBand:options.targetBand,theme,negativeTopics:combinedNegatives,requestedQuestionTypes:options.requestedQuestionTypes,passageCount:options.passageCount||1}),readingResponseSchema);const qTypes=parsed.passages?.[0]?.questions?.map((q:any)=>q.type)||[];return{id:testId,module:options.module,section:'reading',targetBand:options.targetBand,theme,contentHash:crypto.createHash('sha256').update(parsed.passages?.[0]?.content||'').digest('hex').slice(0,16),title:parsed.testTitle||`IELTS Reading: ${theme}`,questionTypes:Array.from(new Set(qTypes)) as string[],testData:parsed};}
+      case 'listening':{const parsed=await generate(buildListeningPrompt({module:options.module,targetBand:options.targetBand,theme,negativeTopics:combinedNegatives,partNumber:options.partNumber,requestedQuestionTypes:options.requestedQuestionTypes}),listeningResponseSchema);const qTypes=parsed.parts?.[0]?.questions?.map((q:any)=>q.type)||[];return{id:testId,module:options.module,section:'listening',targetBand:options.targetBand,theme,contentHash:crypto.createHash('sha256').update(parsed.parts?.[0]?.fullTranscript||'').digest('hex').slice(0,16),title:parsed.testTitle||`IELTS Listening: ${theme}`,questionTypes:Array.from(new Set(qTypes)) as string[],testData:parsed};}
+      case 'writing':{const parsed=await generate(buildWritingPrompt({module:options.module,targetBand:options.targetBand,theme,negativeTopics:combinedNegatives,task1Type:options.task1Type,task2Type:options.task2Type}),writingResponseSchema);return{id:testId,module:options.module,section:'writing',targetBand:options.targetBand,theme,contentHash:crypto.createHash('sha256').update(parsed.task2?.prompt||'').digest('hex').slice(0,16),title:parsed.testTitle||`IELTS Writing: ${theme}`,questionTypes:[parsed.task1?.taskType,parsed.task2?.essayType].filter(Boolean),testData:parsed};}
+      case 'speaking':{const parsed=await generate(buildSpeakingPrompt({targetBand:options.targetBand,theme,negativeTopics:combinedNegatives,cueCardCategory:options.cueCardCategory}),speakingResponseSchema);return{id:testId,module:options.module,section:'speaking',targetBand:options.targetBand,theme,contentHash:crypto.createHash('sha256').update(parsed.part2?.cueCardPrompt||'').digest('hex').slice(0,16),title:parsed.testTitle||`IELTS Speaking: ${theme}`,questionTypes:['part1_interview','part2_cuecard','part3_discussion'],testData:parsed};}
+      case 'full_mock':{const [reading,listening,writing,speaking]=await Promise.all([this.generateMock({...options,section:'reading'},combinedNegatives,true),this.generateMock({...options,section:'listening'},combinedNegatives,true),this.generateMock({...options,section:'writing'},combinedNegatives,true),this.generateMock({...options,section:'speaking'},combinedNegatives,true)]);return{id:testId,module:options.module,section:'full_mock',targetBand:options.targetBand,theme,contentHash:`${reading.contentHash}-${writing.contentHash}`,title:`Full IELTS ${options.module.toUpperCase()} Examination: ${theme}`,questionTypes:['full_exam_all_sections'],testData:{reading:reading.testData,listening:listening.testData,writing:writing.testData,speaking:speaking.testData,isFullMock:true}};}
+    }}catch(error){console.warn('[MockGenerator] Gemini generation failed, using fallback:',error);return this.generateFallbackMock(options,theme);}
   }
+  private generateFallbackMock(options:GenerateMockRequest,theme:string):GenerationResult{return{id:`mock_demo_${Date.now()}`,module:options.module,section:options.section,targetBand:options.targetBand,theme,contentHash:'demo-hash-01',title:`IELTS ${options.section.toUpperCase()}: ${theme} (Standard Model)`,questionTypes:['multiple_choice','true_false_not_given','sentence_completion'],testData:{testTitle:`IELTS ${options.section.toUpperCase()}: ${theme}`,module:options.module,targetBand:options.targetBand,theme,sections:[]}};}
 }
 export const mockGeneratorService=new MockGeneratorService();
