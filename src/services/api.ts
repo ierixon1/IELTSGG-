@@ -1,4 +1,4 @@
-import { UserProfile, PlanTask, MockAttempt, ChecklistWeek, WritingGradingResult, SpeakingGradingResult, VocabCard } from '../types';
+import { UserProfile, PlanTask, MockAttempt, ChecklistWeek, WritingGradingResult, SpeakingGradingResult, VocabCard, RewriteResult } from '../types';
 
 /**
  * A grading request the server refused, carrying the reason. The screens map
@@ -80,4 +80,6 @@ export async function saveVocabCards(cards: VocabCard[]): Promise<void> {
 
 export async function requestWritingGrading(params:{taskType:'task1'|'task2';prompt:string;essay:string}):Promise<WritingGradingResult>{const res=await fetch('/api/grade/writing',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({}));throw new GradingError(String(err.code||'unknown'),String(err.error||'Server failed to grade writing'),err);}return res.json();}
 export async function requestSpeakingGrading(params:{topic:string;cueCard?:string;partNumber:number;audioBase64?:string;mimeType?:string;transcriptProvided?:string;clientMetrics?:any}):Promise<SpeakingGradingResult>{const res=await fetch('/api/grade/speaking',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({}));throw new GradingError(String(err.code||'unknown'),String(err.error||'Server failed to grade speaking'),err);}return res.json();}
+export async function requestParagraphRewrite(params:{paragraph:string;prompt?:string}):Promise<RewriteResult>{const res=await fetch('/api/writing/improve',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({}));throw new GradingError(String(err.code||'unknown'),String(err.error||'Rewrite failed'),err);}return res.json();}
+
 export async function sendPreppyMessage(messages:{role:'user'|'assistant';content:string}[],userContext:any):Promise<string>{const res=await fetch('/api/preppy/chat',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages,userContext})}));if(!res.ok)throw new Error('Preppy AI service temporarily unavailable');return(await res.json()).reply;}

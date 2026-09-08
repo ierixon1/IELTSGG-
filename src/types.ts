@@ -73,6 +73,23 @@ export interface VocabCard {
   createdAt: string;
 }
 
+/** One concrete edit made when rewriting a paragraph at a higher band. */
+export interface RewriteChange {
+  /** What was there before. */
+  before: string;
+  /** What replaced it. */
+  after: string;
+  /** Which criterion the change serves. */
+  criterion: string;
+  reason: string;
+}
+
+export interface RewriteResult {
+  improved: string;
+  targetBand: number;
+  changes: RewriteChange[];
+}
+
 export interface CriterionFeedback {
   name: string;
   band: number;
@@ -104,9 +121,22 @@ export interface SpeakingObjectiveMetrics {
   fillerWords: { word: string; count: number }[];
 }
 
+/** One bullet from a Part 2 cue card, and whether the answer reached it. */
+export interface CueCardPointCoverage {
+  point: string;
+  covered: boolean;
+  /** The candidate's own words that show it was addressed. */
+  evidence?: string;
+}
+
 export interface SpeakingGradingResult {
   band_overall: number;
   transcript: string;
+  /**
+   * Present for Part 2 only. A checklist, deliberately not a fifth band —
+   * IELTS Speaking has four criteria and coverage is not among them.
+   */
+  cue_card_coverage?: CueCardPointCoverage[];
   criteria: {
     fluency_coherence: CriterionFeedback;
     lexical_resource: CriterionFeedback;

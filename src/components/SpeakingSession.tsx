@@ -15,6 +15,8 @@ import {
   RotateCcw,
   Sparkles,
   Square,
+  Upload,
+  X,
   Zap,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -33,6 +35,9 @@ interface SpeakingSessionProps {
 type PartNumber = 1 | 2 | 3;
 
 const PARTS: PartNumber[] = [1, 2, 3];
+
+/** The server rejects a base64 payload beyond this; stop it at the picker. */
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 
 /** How long a strong answer runs, per part, in seconds. */
 const TARGET_SECONDS: Record<PartNumber, number> = { 1: 60, 2: 120, 3: 60 };
@@ -55,8 +60,13 @@ const CRITERION_ORDER = [
  */
 interface MeasuredMetrics {
   durationSeconds: number;
-  pauseCount: number;
-  pauseSeconds: number;
+  /**
+   * Pause figures exist only for a live recording: the analyser measures
+   * silence as it happens and cannot recover it from a finished file.
+   */
+  pauseCount: number | null;
+  pauseSeconds: number | null;
+  source: 'recording' | 'upload';
 }
 
 interface PartAttempt {
@@ -285,6 +295,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
         durationSeconds: recordingSeconds,
         pauseCount: pauses.count,
         pauseSeconds: Math.round(pauses.totalMs / 1000),
+        source: 'recording',
       };
       volumeDetectorRef.current = null;
     }
@@ -292,6 +303,47 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
     setIsRecording(false);
     setVolumeLevel(0);
     setIsSpeakingLive(false);
+  };
+
+  /**
+   * Reads a chosen audio file into the same slot a recording would fill.
+   * Duration comes from the decoded media, so pace stays honest; pause data
+   * is unavailable and is reported as such.
+   */
+  const handleAudioFile = async (file: File) => {
+    setErrorMsg(null);
+
+    if (file.size > MAX_AUDIO_BYTES) {
+      setErrorMsg(t('speaking.fileTooLarge', { limit: Math.round(MAX_AUDIO_BYTES / (1024 * 1024)) }));
+      return;
+    }
+
+    teardownRecorder();
+    setIsRecording(false);
+    recordedBlobRef.current = file;
+
+    const url = URL.createObjectURL(file);
+    setAudioUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return url;
+    });
+
+    const probe = new Audio(url);
+    const duration = await new Promise<number>((resolve) => {
+      probe.addEventListener('loadedmetadata', () =>
+        resolve(Number.isFinite(probe.duration) ? Math.round(probe.duration) : 0),
+      );
+      probe.addEventListener('error', () => resolve(0));
+    });
+
+    setRecordingSeconds(duration);
+    setLivePauseCount(0);
+    measuredRef.current = {
+      durationSeconds: duration,
+      pauseCount: null,
+      pauseSeconds: null,
+      source: 'upload',
+    };
   };
 
   /* --- Grading ------------------------------------------------------------ */
@@ -310,6 +362,9 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
 
     try {
       const audioBase64 = hasAudio ? await blobToBase64(recordedBlobRef.current!) : undefined;
+      // A live recording is always webm; an uploaded file can be anything, and
+      // the model needs to be told which it is getting.
+      const mimeType = hasAudio ? recordedBlobRef.current!.type || 'audio/webm' : undefined;
       const measured = hasAudio ? measuredRef.current : null;
 
       const response = await requestSpeakingGrading({
@@ -317,14 +372,19 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
         topic: partData.topic,
         cueCard: partData.cueCard ? JSON.stringify(partData.cueCard) : undefined,
         audioBase64,
+        mimeType,
         transcriptProvided: typed || undefined,
         // Only genuinely measured values are sent; the examiner prompt should
         // not be reasoning about numbers we invented.
         clientMetrics: measured
           ? {
               durationSeconds: measured.durationSeconds,
-              pausesCount: measured.pauseCount,
-              totalPauseDurationSeconds: measured.pauseSeconds,
+              ...(measured.pauseCount !== null
+                ? {
+                    pausesCount: measured.pauseCount,
+                    totalPauseDurationSeconds: measured.pauseSeconds,
+                  }
+                : {}),
             }
           : undefined,
       });
@@ -625,6 +685,26 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
                         {t('speaking.recorder.play')}
                       </Button>
                     )}
+
+                    {!isRecording && (
+                      <label
+                        className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-[var(--radius-control)] border border-ink-200 bg-white px-5 text-sm font-semibold text-ink-800 transition-colors hover:border-ink-300 hover:bg-ink-50"
+                        id="label-upload-speaking-audio"
+                      >
+                        <Upload className="h-4 w-4" />
+                        {t('speaking.recorder.upload')}
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          className="sr-only"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) handleAudioFile(file);
+                            event.target.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
                   </div>
 
                   {audioUrl && (
@@ -742,6 +822,48 @@ const PartResult: React.FC<{
       {/* The same arithmetic as Writing, run over what the candidate actually said. */}
       <LexisPanel metrics={analyseLexis(result.transcript || '')} />
 
+      {result.cue_card_coverage && result.cue_card_coverage.length > 0 && (
+        <section className="rounded-[var(--radius-card)] border border-ink-100 p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="font-display text-sm font-bold text-ink-900">
+              {t('speaking.result.coverageTitle')}
+            </h3>
+            <p className="text-xs text-ink-400">{t('speaking.result.coverageNote')}</p>
+          </div>
+
+          <ul className="mt-4 space-y-3">
+            {result.cue_card_coverage.map((entry, index) => (
+              <li key={index} className="flex items-start gap-3">
+                <span
+                  className={cx(
+                    'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full',
+                    entry.covered ? 'bg-success-50 text-success-700' : 'bg-danger-50 text-danger-700',
+                  )}
+                >
+                  {entry.covered ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink-900">{entry.point}</p>
+                  <p
+                    className={cx(
+                      'text-xs',
+                      entry.covered ? 'text-success-700' : 'text-danger-700',
+                    )}
+                  >
+                    {entry.covered ? t('speaking.result.covered') : t('speaking.result.missed')}
+                  </p>
+                  {entry.covered && entry.evidence && (
+                    <p className="mt-1 text-sm italic leading-relaxed text-ink-500">
+                      “{entry.evidence}”
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {metrics ? (
         <div>
           <div className="es-ink-surface grid grid-cols-2 gap-4 rounded-[var(--radius-card)] p-5 sm:grid-cols-4">
@@ -754,10 +876,20 @@ const PartResult: React.FC<{
                   : '—'
               }
             />
-            <Metric label={t('speaking.result.pauses')} value={String(metrics.pauseCount)} />
-            <Metric label={t('speaking.result.pauseTime')} value={`${metrics.pauseSeconds}s`} />
+            <Metric
+              label={t('speaking.result.pauses')}
+              value={metrics.pauseCount === null ? '—' : String(metrics.pauseCount)}
+            />
+            <Metric
+              label={t('speaking.result.pauseTime')}
+              value={metrics.pauseSeconds === null ? '—' : `${metrics.pauseSeconds}s`}
+            />
           </div>
-          <p className="mt-2 text-xs text-ink-400">{t('speaking.result.measuredNote')}</p>
+          <p className="mt-2 text-xs text-ink-400">
+            {metrics.source === 'upload'
+              ? t('speaking.result.uploadedNote')
+              : t('speaking.result.measuredNote')}
+          </p>
         </div>
       ) : (
         <p className="text-xs text-ink-400">{t('speaking.result.typedNote')}</p>

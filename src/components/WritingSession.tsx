@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { WritingTaskData, WritingGradingResult, TextAnnotation } from '../types';
-import { GradingError, requestWritingGrading } from '../services/api';
+import { WritingTaskData, WritingGradingResult, TextAnnotation, RewriteResult } from '../types';
+import { GradingError, requestWritingGrading, requestParagraphRewrite } from '../services/api';
 import {
   AlertTriangle,
   BarChart2,
@@ -10,6 +10,7 @@ import {
   PenTool,
   RefreshCw,
   Sparkles,
+  Wand2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
@@ -102,6 +103,7 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
     setIsGrading(true);
     setErrorMsg(null);
     setSelectedAnnotation(null);
+    setRewrite(null);
 
     try {
       const grading = await requestWritingGrading({
@@ -130,10 +132,49 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
    * now — the learner may have kept typing after submitting.
    */
   const [gradedEssay, setGradedEssay] = useState('');
+  const [rewrite, setRewrite] = useState<RewriteResult | null>(null);
+  const [rewriteFor, setRewriteFor] = useState('');
+  const [isRewriting, setIsRewriting] = useState(false);
   const lexis = useMemo(() => analyseLexis(gradedEssay), [gradedEssay]);
   const grammarFlags = result?.annotated_text?.filter(
     (annotation) => annotation.issue_type === 'grammar',
   ).length;
+
+  /**
+   * The paragraph to work on: the longest one in the graded essay. A short
+   * opener rewrites into something that teaches nothing, while the body
+   * paragraph carrying the argument is where band is won or lost.
+   */
+  const targetParagraph = useMemo(() => {
+    const paragraphs = gradedEssay
+      .split(/\n\s*\n/)
+      .map((block) => block.trim())
+      .filter((block) => block.split(/\s+/).filter(Boolean).length >= 15);
+
+    if (paragraphs.length === 0) return gradedEssay.trim();
+    return paragraphs.reduce((longest, block) => (block.length > longest.length ? block : longest));
+  }, [gradedEssay]);
+
+  const handleRewrite = async () => {
+    if (!targetParagraph) return;
+
+    setIsRewriting(true);
+    setErrorMsg(null);
+
+    try {
+      const result = await requestParagraphRewrite({
+        paragraph: targetParagraph,
+        prompt: `${activeTaskData.title}
+${activeTaskData.prompt}`,
+      });
+      setRewrite(result);
+      setRewriteFor(targetParagraph);
+    } catch (error) {
+      setErrorMsg(describeGradingError(error, t));
+    } finally {
+      setIsRewriting(false);
+    }
+  };
 
   const promptLooksLikeHtml = /<[a-z][\s\S]*>/i.test(activeTaskData.prompt);
 
@@ -440,6 +481,82 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
               </div>
             </div>
           )}
+
+          {/* One paragraph, rewritten at Band 8, with the edits itemised. */}
+          <div className="border-t border-ink-100 pt-5">
+            {rewrite ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="font-display text-base font-bold text-ink-900">
+                    {t('writing.rewrite.title', { band: rewrite.targetBand.toFixed(1) })}
+                  </h3>
+                  <p className="text-xs text-ink-400">{t('writing.rewrite.note')}</p>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-[var(--radius-card)] bg-ink-50 p-4">
+                    <p className="text-[0.625rem] font-bold uppercase tracking-[0.1em] text-ink-400">
+                      {t('writing.rewrite.yours')}
+                    </p>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink-700">
+                      {rewriteFor}
+                    </p>
+                  </div>
+                  <div className="rounded-[var(--radius-card)] border border-success-500/20 bg-success-50 p-4">
+                    <p className="text-[0.625rem] font-bold uppercase tracking-[0.1em] text-success-700">
+                      {t('writing.rewrite.improved')}
+                    </p>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink-800">
+                      {rewrite.improved}
+                    </p>
+                  </div>
+                </div>
+
+                {rewrite.changes?.length > 0 && (
+                  <ul className="space-y-3">
+                    {rewrite.changes.map((change, index) => (
+                      <li
+                        key={index}
+                        className="rounded-[var(--radius-control)] border border-ink-100 p-4"
+                      >
+                        <Badge tone="brand">{change.criterion}</Badge>
+                        <p className="mt-2.5 text-sm">
+                          <span className="text-ink-400 line-through">{change.before}</span>
+                          <span className="mx-2 text-ink-300">→</span>
+                          <span className="font-medium text-ink-900">{change.after}</span>
+                        </p>
+                        <p className="mt-1.5 text-sm leading-relaxed text-ink-500">
+                          {change.reason}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-ink-500">{t('writing.rewrite.pitch')}</p>
+                <Button
+                  id="btn-rewrite-paragraph"
+                  variant="secondary"
+                  onClick={handleRewrite}
+                  disabled={isRewriting || !targetParagraph}
+                >
+                  {isRewriting ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      {t('writing.rewrite.working')}
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="h-4 w-4 text-brand-500" />
+                      {t('writing.rewrite.action')}
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
         </Card>
       )}
     </div>
