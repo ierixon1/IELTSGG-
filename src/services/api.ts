@@ -1,4 +1,4 @@
-import { UserProfile, PlanTask, MockAttempt, ChecklistWeek, WritingGradingResult, SpeakingGradingResult } from '../types';
+import { UserProfile, PlanTask, MockAttempt, ChecklistWeek, WritingGradingResult, SpeakingGradingResult, VocabCard } from '../types';
 
 /**
  * A grading request the server refused, carrying the reason. The screens map
@@ -56,6 +56,26 @@ export async function syncDataToServer(payload: SyncDataPayload) {
     if (payload.attempts?.length) for (const attempt of payload.attempts) requests.push(fetch('/api/data/attempts', sameOriginInit({ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(attempt) })));
     const results=await Promise.all(requests);if(results.some(r=>r.status===401))clearLocalAuth();
   } catch(e){console.warn('Could not sync to backend:',e);}
+}
+
+export async function fetchVocabCards(): Promise<VocabCard[]> {
+  try {
+    const res = await fetch('/api/data/vocab', sameOriginInit());
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.cards) ? data.cards : [];
+  } catch (error) {
+    console.warn('Could not load vocabulary:', error);
+    return [];
+  }
+}
+
+export async function saveVocabCards(cards: VocabCard[]): Promise<void> {
+  try {
+    await fetch('/api/data/vocab', sameOriginInit({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cards }) }));
+  } catch (error) {
+    console.warn('Could not save vocabulary:', error);
+  }
 }
 
 export async function requestWritingGrading(params:{taskType:'task1'|'task2';prompt:string;essay:string}):Promise<WritingGradingResult>{const res=await fetch('/api/grade/writing',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({}));throw new GradingError(String(err.code||'unknown'),String(err.error||'Server failed to grade writing'),err);}return res.json();}

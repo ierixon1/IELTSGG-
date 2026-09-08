@@ -45,6 +45,34 @@ export interface PlanTask {
   sectionId?: string;
 }
 
+/**
+ * One item in the learner's vocabulary deck.
+ *
+ * Cards are never invented: each one comes from something the learner wrote or
+ * said — a phrase the examiner flagged, or a word they leaned on too heavily —
+ * so the deck is a record of their own work rather than a generic word list.
+ */
+export interface VocabCard {
+  id: string;
+  /** The learner's own word or phrase. */
+  term: string;
+  source: 'annotation' | 'repetition';
+  /** The sentence it came from, when there is one. */
+  context?: string;
+  /** A stronger alternative, where the examiner offered one. */
+  suggestion?: string;
+  /** Why it was captured. */
+  note?: string;
+  skill: SkillType;
+  /** Leitner box, 1–5. Higher means longer between reviews. */
+  box: number;
+  /** ISO date the card is next due. */
+  dueDate: string;
+  reviews: number;
+  lapses: number;
+  createdAt: string;
+}
+
 export interface CriterionFeedback {
   name: string;
   band: number;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MockTest, SkillType } from '../types';
+import { MockTest, SkillType, WritingGradingResult } from '../types';
 import { ListeningSession } from './ListeningSession';
 import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
@@ -12,6 +12,8 @@ interface MocksHubProps {
   mockTest: MockTest;
   onRecordScore: (skill: SkillType, band: number, raw?: number) => void;
   initialSelectedSection?: SkillType | null;
+  onWritingGraded?: (result: WritingGradingResult, essay: string) => void;
+  onSpeakingGraded?: (transcript: string) => void;
 }
 
 /**
@@ -29,6 +31,8 @@ export const MocksHub: React.FC<MocksHubProps> = ({
   mockTest,
   onRecordScore,
   initialSelectedSection,
+  onWritingGraded,
+  onSpeakingGraded,
 }) => {
   const t = useT();
   const [activeSection, setActiveSection] = useState<SkillType | null>(
@@ -61,6 +65,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
         task1Data={mockTest.writing.task1}
         task2Data={mockTest.writing.task2}
         onRecordScore={(taskNum, band) => onRecordScore('writing', band)}
+        onGraded={onWritingGraded}
         onBackToMocks={() => setActiveSection(null)}
       />
     );
@@ -71,6 +76,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
       <SpeakingSession
         speakingData={mockTest.speaking}
         onRecordScore={(band) => onRecordScore('speaking', band)}
+        onGraded={onSpeakingGraded}
         onBackToMocks={() => setActiveSection(null)}
       />
     );

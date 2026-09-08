@@ -25,6 +25,8 @@ import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 interface SpeakingSessionProps {
   speakingData: SpeakingData;
   onRecordScore?: (band: number) => void;
+  /** Feeds the vocabulary deck with the words the answer leaned on. */
+  onGraded?: (transcript: string) => void;
   onBackToMocks?: () => void;
 }
 
@@ -101,6 +103,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
   speakingData,
   onRecordScore,
   onBackToMocks,
+  onGraded,
 }) => {
   const t = useT();
 
@@ -338,6 +341,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
       }));
 
       onRecordScore?.(response.band_overall);
+      if (transcript) onGraded?.(transcript);
 
       if (response.band_overall >= 7.0) {
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });

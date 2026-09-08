@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Clock,
   Flame,
+  Languages,
   LogOut,
   Settings2,
   ShieldCheck,
@@ -15,7 +16,7 @@ import { UserProfile } from '../types';
 import { useT } from '../i18n';
 import { Button, LanguageSwitcher, Logo, cx } from './ui';
 
-export type NavTab = 'plan' | 'mocks' | 'exam' | 'stats' | 'arcade' | 'admin';
+export type NavTab = 'plan' | 'mocks' | 'exam' | 'stats' | 'arcade' | 'vocab' | 'admin';
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -70,6 +71,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'mocks', label: t('nav.mocksLong'), icon: BookOpen },
     { id: 'exam', label: t('nav.exam'), icon: Clock },
     { id: 'arcade', label: t('nav.arcade'), icon: Flame },
+    { id: 'vocab', label: t('vocab.title'), icon: Languages },
     { id: 'stats', label: t('nav.stats'), icon: BarChart3 },
   ];
 

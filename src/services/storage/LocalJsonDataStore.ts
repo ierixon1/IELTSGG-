@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
-import { UserProfile, MockAttempt, PlanTask, ChecklistWeek } from '../../types';
+import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
 import { DataStore, DailyQuota } from './DataStore';
 import { GeneratedTestRecord, StoredTextbook, StoredTextbookSummary, TextbookChunk } from './types';
 
@@ -21,6 +21,8 @@ export class LocalJsonDataStore implements DataStore{
  async saveUserChecklist(userId:string,checklist:ChecklistWeek[]){this.write(userId,'checklist.json',checklist);}
  async getUserAttempts(userId:string){return this.read<MockAttempt[]>(userId,'attempts.json',[]);}
  async saveUserAttempt(userId:string,attempt:MockAttempt){await this.withLock(`${userId}:attempts`,async()=>{const all=await this.getUserAttempts(userId),i=all.findIndex(x=>x.id===attempt.id);if(i>=0)all[i]=attempt;else all.push(attempt);this.write(userId,'attempts.json',all);});}
+ async getUserVocab(userId:string){return this.read<VocabCard[]>(userId,'vocab.json',[]);}
+ async saveUserVocab(userId:string,cards:VocabCard[]){await this.withLock(`${userId}:vocab`,async()=>{this.write(userId,'vocab.json',cards);});}
  async recordGeneratedTest(userId:string,test:GeneratedTestRecord){await this.withLock(`${userId}:generatedTests`,async()=>{const all=this.read<GeneratedTestRecord[]>(userId,'generatedTests.json',[]);all.unshift(test);this.write(userId,'generatedTests.json',all.slice(0,200));});}
  async getRecentGenerations(userId:string,limit=20){return this.read<GeneratedTestRecord[]>(userId,'generatedTests.json',[]).slice(0,Math.min(Math.max(Math.floor(limit),1),50));}
  async getGeneratedTestById(userId:string,testId:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(testId))return null;return this.read<GeneratedTestRecord[]>(userId,'generatedTests.json',[]).find(x=>x.id===testId)||null;}

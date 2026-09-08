@@ -472,6 +472,37 @@ export const en: Dictionary = {
     level: { low: 'Low', mid: 'Fair', high: 'Strong' },
   },
 
+  vocab: {
+    eyebrow: 'Built from your own work',
+    title: 'Vocabulary',
+    subtitle:
+      'Every card came from something you wrote or said — a phrase the examiner flagged, or a word you leaned on too often.',
+    due: 'Due',
+    total: 'In deck',
+    learned: 'Learned',
+    emptyTitle: 'Your deck fills itself',
+    emptyBody:
+      'Cards appear after a graded Writing or Speaking answer: phrases the examiner marked as lexical problems, and words you repeated four times or more.',
+    remaining: '{count} left today',
+    box: 'Box {box}/{max}',
+    source: { annotation: 'Flagged by examiner', repetition: 'Overused' },
+    prompt: {
+      annotation: 'What could you have written instead?',
+      repetition: 'Say two stronger words that could replace it.',
+    },
+    usedTimes: 'You used it {count} times in one answer',
+    reveal: 'Show the answer',
+    stronger: 'Stronger option',
+    repetitionAdvice:
+      'Repeating one word across an answer caps Lexical Resource. Keep a second and third option ready for the ideas you return to.',
+    again: 'Not yet',
+    gotIt: 'Knew it',
+    doneTitle: 'Nothing due right now',
+    doneBody: 'You reviewed {count} cards. The rest come back on their own schedule.',
+    reviewAgain: 'Go through them again',
+    deckTitle: 'Whole deck',
+  },
+
   landing: {
     nav: {
       platform: 'Platform',

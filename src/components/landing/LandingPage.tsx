@@ -281,7 +281,7 @@ const TOOLS = [
   { key: 'stats', icon: BarChart3, span: '', soon: false },
   { key: 'arcade', icon: Flame, span: '', soon: false },
   { key: 'preppy', icon: Sparkles, span: 'lg:col-span-2', soon: false },
-  { key: 'vocab', icon: Languages, span: 'lg:col-span-2', soon: true },
+  { key: 'vocab', icon: Languages, span: 'lg:col-span-2', soon: false },
 ] as const;
 
 const Tools: React.FC = () => {

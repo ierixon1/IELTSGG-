@@ -7,14 +7,17 @@ import {
   SkillType 
 } from './types';
 import { MOCK_TEST_1 } from './data/mockBank';
-import { fetchInitialData, syncDataToServer } from './services/api';
+import { VocabCard, WritingGradingResult } from './types';
+import { fetchInitialData, syncDataToServer, fetchVocabCards, saveVocabCards } from './services/api';
 import { generateInitialPlan, recalculatePlan, RecalculationResult } from './utils/planEngine';
+import { harvestFromSpeaking, harvestFromWriting } from './utils/vocabEngine';
 import { Navbar, NavTab } from './components/Navbar';
 import { PlanView } from './components/PlanView';
 import { MocksHub } from './components/MocksHub';
 import { ExamMode } from './components/ExamMode';
 import { SpeakOrDieArcade } from './components/SpeakOrDieArcade';
 import { StatisticsView } from './components/StatisticsView';
+import { VocabTrainer } from './components/VocabTrainer';
 import { OnboardingModal } from './components/OnboardingModal';
 import { PreppyAIAssistant } from './components/PreppyAIAssistant';
 import { AdminLogin } from './components/admin/AdminLogin';
@@ -61,6 +64,7 @@ export default function App() {
   const [isPreppyOpen, setIsPreppyOpen] = useState<boolean>(false);
   const [lastRecalc, setLastRecalc] = useState<RecalculationResult | undefined>(undefined);
   const [targetedMocksSection, setTargetedMocksSection] = useState<SkillType | null>(null);
+  const [vocabCards, setVocabCards] = useState<VocabCard[]>([]);
 
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
     try {
@@ -142,6 +146,7 @@ export default function App() {
         syncDataToServer({ tasks: initialTasks });
       }
       if (!data.profile.isOnboarded) setIsOnboardingOpen(true);
+      setVocabCards(await fetchVocabCards());
     }
     init();
   }, [authUser]);
@@ -179,6 +184,26 @@ export default function App() {
       setAuthUser(null);
       handleBackToLanding();
     }
+  };
+
+  const persistVocab = (cards: VocabCard[]) => {
+    setVocabCards(cards);
+    saveVocabCards(cards);
+  };
+
+  /**
+   * Grading is the only source of vocabulary cards: whatever the examiner
+   * flagged, plus the words the answer leaned on. Nothing is added from a
+   * stock list.
+   */
+  const handleWritingGraded = (result: WritingGradingResult, essay: string) => {
+    const harvested = harvestFromWriting(result, essay, vocabCards);
+    if (harvested.length > 0) persistVocab([...vocabCards, ...harvested]);
+  };
+
+  const handleSpeakingGraded = (transcript: string) => {
+    const harvested = harvestFromSpeaking(transcript, vocabCards);
+    if (harvested.length > 0) persistVocab([...vocabCards, ...harvested]);
   };
 
   const handleSaveProfile = (updatedProfile: UserProfile) => {
@@ -276,9 +301,10 @@ export default function App() {
         className="es-enter flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8"
       >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
-        {activeTab === 'mocks' && <MocksHub mockTest={MOCK_TEST_1} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} />}
+        {activeTab === 'mocks' && <MocksHub mockTest={MOCK_TEST_1} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} />}
         {activeTab === 'exam' && <ExamMode mockTest={MOCK_TEST_1} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}
+        {activeTab === 'vocab' && <VocabTrainer cards={vocabCards} onUpdateCards={persistVocab} />}
         {activeTab === 'stats' && <StatisticsView profile={profile} attempts={attempts} tasks={tasks} checklist={checklist} onOpenExamMode={() => setActiveTab('exam')} />}
         {activeTab === 'admin' && (
           <div>

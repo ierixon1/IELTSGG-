@@ -1,6 +1,6 @@
 import { getApps, initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Firestore } from 'firebase-admin/firestore';
-import { UserProfile, MockAttempt, PlanTask, ChecklistWeek } from '../../types';
+import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
 import { DataStore, DailyQuota } from './DataStore';
 import { GeneratedTestRecord, StoredTextbook, StoredTextbookSummary, TextbookChunk } from './types';
 
@@ -17,6 +17,8 @@ export class FirestoreDataStore implements DataStore{
  async saveUserChecklist(userId:string,checklist:ChecklistWeek[]){const c=this.subRef(userId,'checklist');const keep=new Map(checklist.map(x=>[String(x.weekNumber),x]));await this.db.runTransaction(async tx=>{const old=await tx.get(c);old.docs.filter(d=>!keep.has(d.id)).forEach(d=>tx.delete(d.ref));checklist.forEach(x=>{const id=String(x.weekNumber);if(!/^-?\\d+$/.test(id)||id.length>12)throw new Error('Invalid checklist week identifier.');tx.set(c.doc(id),x);});});}
  async getUserAttempts(userId:string):Promise<MockAttempt[]>{const s=await this.subRef(userId,'attempts').get();return s.docs.map(d=>d.data() as MockAttempt);}
  async saveUserAttempt(userId:string,attempt:MockAttempt){assertUserId(userId);if(!attempt?.id||typeof attempt.id!=='string'||attempt.id.length>128)throw new Error('Invalid attempt identifier.');await this.subRef(userId,'attempts').doc(attempt.id).set({...attempt,userId});}
+ async getUserVocab(userId:string):Promise<VocabCard[]>{const s=await this.subRef(userId,'vocab').get();return s.docs.map(d=>d.data() as VocabCard);}
+ async saveUserVocab(userId:string,cards:VocabCard[]){assertUserId(userId);const c=this.subRef(userId,'vocab');const keep=new Map(cards.map(card=>[card.id,card]));await this.db.runTransaction(async tx=>{const old=await tx.get(c);old.docs.filter(d=>!keep.has(d.id)).forEach(d=>tx.delete(d.ref));cards.forEach(card=>{if(!card?.id||typeof card.id!=='string'||card.id.length>128)throw new Error('Invalid vocabulary card identifier.');tx.set(c.doc(card.id),{...card,userId});});});}
  async recordGeneratedTest(userId:string,test:GeneratedTestRecord){await this.subRef(userId,'generatedTests').doc(test.id).set({...test,userId});}
  async getRecentGenerations(userId:string,limit=20):Promise<GeneratedTestRecord[]>{const n=Math.min(Math.max(Math.floor(limit),1),50),s=await this.subRef(userId,'generatedTests').orderBy('timestamp','desc').limit(n).get();return s.docs.map(d=>d.data() as GeneratedTestRecord);}
  async getGeneratedTestById(userId:string,testId:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(testId))return null;const s=await this.subRef(userId,'generatedTests').doc(testId).get();return s.exists?s.data() as GeneratedTestRecord:null;}

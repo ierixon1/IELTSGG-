@@ -469,6 +469,37 @@ export const uz: Dictionary = {
     level: { low: 'Kam', mid: 'O‘rtacha', high: 'Yaxshi' },
   },
 
+  vocab: {
+    eyebrow: 'O‘z ishingizdan yig‘ilgan',
+    title: 'Lug‘at',
+    subtitle:
+      'Har bir karta siz yozgan yoki aytgan narsadan olingan: imtihonchi belgilagan ibora yoki siz juda ko‘p takrorlagan so‘z.',
+    due: 'Takrorlashga',
+    total: 'To‘plamda',
+    learned: 'O‘rganilgan',
+    emptyTitle: 'To‘plam o‘zi to‘ladi',
+    emptyBody:
+      'Kartalar Writing yoki Speaking baholangandan keyin paydo bo‘ladi: leksik muammo deb belgilangan iboralar va to‘rt martadan ko‘p takrorlangan so‘zlar.',
+    remaining: 'bugun qoldi: {count}',
+    box: 'Daraja {box}/{max}',
+    source: { annotation: 'Imtihonchi belgilagan', repetition: 'Juda tez-tez' },
+    prompt: {
+      annotation: 'Buning o‘rniga nima yozish mumkin edi?',
+      repetition: 'O‘rniga ikkita kuchliroq so‘z ayting.',
+    },
+    usedTimes: 'Bitta javobda uni {count} marta ishlatdingiz',
+    reveal: 'Javobni ko‘rsatish',
+    stronger: 'Kuchliroq variant',
+    repetitionAdvice:
+      'Bitta so‘zni butun javob bo‘ylab takrorlash Lexical Resource ballini cheklaydi. Qaytadigan fikrlaringiz uchun ikkinchi va uchinchi variantni tayyor tuting.',
+    again: 'Hali yo‘q',
+    gotIt: 'Bilardim',
+    doneTitle: 'Hozircha takrorlash kerak emas',
+    doneBody: 'Siz {count} ta kartani ko‘rib chiqdingiz. Qolganlari o‘z jadvali bo‘yicha qaytadi.',
+    reviewAgain: 'Yana bir bor',
+    deckTitle: 'Butun to‘plam',
+  },
+
   landing: {
     nav: {
       platform: 'Platforma',

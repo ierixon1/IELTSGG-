@@ -21,6 +21,8 @@ interface WritingSessionProps {
   task1Data: WritingTaskData;
   task2Data: WritingTaskData;
   onRecordScore?: (taskNumber: 1 | 2, band: number) => void;
+  /** Feeds the vocabulary deck with what the examiner flagged. */
+  onGraded?: (result: WritingGradingResult, essay: string) => void;
   onBackToMocks?: () => void;
 }
 
@@ -57,6 +59,7 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
   task2Data,
   onRecordScore,
   onBackToMocks,
+  onGraded,
 }) => {
   const t = useT();
   const [selectedTask, setSelectedTask] = useState<1 | 2>(2);
@@ -110,6 +113,7 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
       setResult(grading);
       setGradedEssay(essayText);
       onRecordScore?.(selectedTask, grading.band_overall);
+      onGraded?.(grading, essayText);
 
       if (grading.band_overall >= 7.0) {
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
