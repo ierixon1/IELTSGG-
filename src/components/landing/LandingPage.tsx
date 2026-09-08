@@ -60,7 +60,7 @@ const LandingHeader: React.FC<{ onEnterApp: () => void }> = ({ onEnterApp }) => 
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
-        <Logo tone={scrolled ? 'dark' : 'light'} />
+        <Logo tone={scrolled ? 'dark' : 'light'} compact />
 
         <nav className="hidden items-center gap-1 lg:flex">
           {links.map((link) => (

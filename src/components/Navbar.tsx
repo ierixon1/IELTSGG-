@@ -87,7 +87,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="shrink-0 transition-opacity hover:opacity-80"
             aria-label="Ever Study"
           >
-            <Logo />
+            <Logo compact />
           </button>
 
           <nav className="hidden items-center gap-1 lg:flex">

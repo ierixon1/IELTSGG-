@@ -4,6 +4,12 @@ interface LogoProps {
   /** `dark` renders for light backgrounds, `light` for the ink surfaces. */
   tone?: 'dark' | 'light';
   showWordmark?: boolean;
+  /**
+   * Drops the wordmark on very narrow screens, where a header has to fit a
+   * logo, a language switcher and a call to action side by side. The mark
+   * alone still identifies the product.
+   */
+  compact?: boolean;
   className?: string;
 }
 
@@ -11,7 +17,7 @@ interface LogoProps {
  * The Ever Study mark: a rising arc inside a rounded token — progress, drawn
  * once so it stays identical in the navbar, the landing hero and the favicon.
  */
-export const LogoMark: React.FC<{ className?: string }> = ({ className = 'w-9 h-9' }) => (
+export const LogoMark: React.FC<{ className?: string }> = ({ className = 'w-9 h-9 shrink-0' }) => (
   <svg viewBox="0 0 40 40" fill="none" className={className} aria-hidden="true">
     <defs>
       <linearGradient id="es-logo-grad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
@@ -37,14 +43,23 @@ export const LogoMark: React.FC<{ className?: string }> = ({ className = 'w-9 h-
   </svg>
 );
 
-export const Logo: React.FC<LogoProps> = ({ tone = 'dark', showWordmark = true, className = '' }) => (
+export const Logo: React.FC<LogoProps> = ({
+  tone = 'dark',
+  showWordmark = true,
+  compact = false,
+  className = '',
+}) => (
   <span className={`inline-flex items-center gap-2.5 ${className}`}>
     <LogoMark />
     {showWordmark && (
       <span
-        className={`font-display text-[1.35rem] font-extrabold tracking-[-0.03em] ${
-          tone === 'light' ? 'text-white' : 'text-ink-900'
-        }`}
+        className={[
+          'whitespace-nowrap font-display text-[1.35rem] font-extrabold tracking-[-0.03em]',
+          compact ? 'max-[430px]:hidden' : '',
+          tone === 'light' ? 'text-white' : 'text-ink-900',
+        ]
+          .filter(Boolean)
+          .join(' ')}
       >
         Ever Study
       </span>
