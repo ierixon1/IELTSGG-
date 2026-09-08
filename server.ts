@@ -1,6 +1,8 @@
+// Must come first: modules imported below read process.env while they are
+// being evaluated, and ES imports all run before this file's own body.
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
-import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { authenticateRequest, AuthenticatedRequest } from './src/middleware/authMiddleware';
@@ -15,7 +17,6 @@ import { userDataRouter } from './src/routes/userDataRoutes';
 import { authRouter } from './src/routes/authRoutes';
 import { UPLOADS_DIR } from './src/services/adminStore';
 
-dotenv.config();
 const app=express();
 const PORT=3000;
 /**
