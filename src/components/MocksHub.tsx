@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { MockTest, SkillType, WritingGradingResult } from '../types';
+import { PublishedTestSummary } from '../services/publishedTests';
 import { ListeningSession } from './ListeningSession';
 import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
@@ -14,6 +15,11 @@ interface MocksHubProps {
   initialSelectedSection?: SkillType | null;
   onWritingGraded?: (result: WritingGradingResult, essay: string) => void;
   onSpeakingGraded?: (transcript: string) => void;
+  /** Tests published from the admin CMS, alongside the built-in one. */
+  publishedTests?: PublishedTestSummary[];
+  activeTestId?: string;
+  builtInTestId?: string;
+  onSelectTest?: (id: string) => void;
 }
 
 /**
@@ -33,6 +39,10 @@ export const MocksHub: React.FC<MocksHubProps> = ({
   initialSelectedSection,
   onWritingGraded,
   onSpeakingGraded,
+  publishedTests = [],
+  activeTestId,
+  builtInTestId,
+  onSelectTest,
 }) => {
   const t = useT();
   const [activeSection, setActiveSection] = useState<SkillType | null>(
@@ -104,6 +114,30 @@ export const MocksHub: React.FC<MocksHubProps> = ({
           </div>
         </div>
       </Card>
+
+      {/* Only worth showing once something has actually been published. */}
+      {publishedTests.length > 0 && onSelectTest && (
+        <Card className="es-enter flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-bold text-ink-900">{t('mocks.chooseTest')}</p>
+            <p className="mt-0.5 text-xs text-ink-500">{t('mocks.chooseTestHint')}</p>
+          </div>
+
+          <select
+            id="select-active-test"
+            value={activeTestId}
+            onChange={(event) => onSelectTest(event.target.value)}
+            className="w-full rounded-[var(--radius-control)] border border-ink-200 bg-white px-3.5 py-2.5 text-sm font-medium text-ink-900 outline-none focus:border-brand-400 sm:w-80"
+          >
+            {builtInTestId && <option value={builtInTestId}>{t('mocks.builtInTest')}</option>}
+            {publishedTests.map((test) => (
+              <option key={test.id} value={test.id}>
+                {test.title}
+              </option>
+            ))}
+          </select>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         {SECTIONS.map(({ skill, icon: Icon, iconClass }, index) => (

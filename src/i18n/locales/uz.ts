@@ -88,6 +88,9 @@ export const uz: Dictionary = {
       'Bitta bo‘limni aniq mashq sifatida yoki butun testni real vaqt hisobi va darhol AI baholashi bilan topshiring.',
     difficulty: 'Murakkablik',
     start: 'Bo‘limni boshlash',
+    chooseTest: 'Qaysi testni topshirish',
+    chooseTestHint: 'Admin paneldan chop etilgan testlar shu yerda, o‘rnatilgani yonida chiqadi.',
+    builtInTest: 'O‘rnatilgan sinov test',
     listening: {
       meta: '~30 daqiqa · 4 qism',
       title: 'Listening',

@@ -91,6 +91,9 @@ export const en: Dictionary = {
       'Take one section for a targeted drill, or sit the whole test under real timing with instant AI scoring.',
     difficulty: 'Difficulty',
     start: 'Start section',
+    chooseTest: 'Which test to sit',
+    chooseTestHint: 'Tests published from the admin CMS appear here alongside the built-in one.',
+    builtInTest: 'Built-in practice test',
     listening: {
       meta: '~30 min · 4 parts',
       title: 'Listening',

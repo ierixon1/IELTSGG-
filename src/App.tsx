@@ -7,6 +7,8 @@ import {
   SkillType 
 } from './types';
 import { MOCK_TEST_1 } from './data/mockBank';
+import { MockTest } from './types';
+import { PublishedTestSummary, fetchPublishedTest, fetchPublishedTests } from './services/publishedTests';
 import { VocabCard, WritingGradingResult } from './types';
 import { fetchInitialData, syncDataToServer, fetchVocabCards, saveVocabCards } from './services/api';
 import { generateInitialPlan, recalculatePlan, RecalculationResult } from './utils/planEngine';
@@ -65,6 +67,14 @@ export default function App() {
   const [lastRecalc, setLastRecalc] = useState<RecalculationResult | undefined>(undefined);
   const [targetedMocksSection, setTargetedMocksSection] = useState<SkillType | null>(null);
   const [vocabCards, setVocabCards] = useState<VocabCard[]>([]);
+
+  /**
+   * The built-in test plus anything published from the CMS. Selecting one
+   * swaps the material every session screen works from.
+   */
+  const [publishedTests, setPublishedTests] = useState<PublishedTestSummary[]>([]);
+  const [activeTest, setActiveTest] = useState<MockTest>(MOCK_TEST_1);
+  const [activeTestId, setActiveTestId] = useState<string>(MOCK_TEST_1.id);
 
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
     try {
@@ -147,6 +157,7 @@ export default function App() {
       }
       if (!data.profile.isOnboarded) setIsOnboardingOpen(true);
       setVocabCards(await fetchVocabCards());
+      setPublishedTests(await fetchPublishedTests());
     }
     init();
   }, [authUser]);
@@ -183,6 +194,20 @@ export default function App() {
       localStorage.removeItem('prep_auth_user');
       setAuthUser(null);
       handleBackToLanding();
+    }
+  };
+
+  const handleSelectTest = async (id: string) => {
+    if (id === MOCK_TEST_1.id) {
+      setActiveTest(MOCK_TEST_1);
+      setActiveTestId(MOCK_TEST_1.id);
+      return;
+    }
+
+    const loaded = await fetchPublishedTest(id);
+    if (loaded) {
+      setActiveTest(loaded);
+      setActiveTestId(id);
     }
   };
 
@@ -301,8 +326,8 @@ export default function App() {
         className="es-enter flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8"
       >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
-        {activeTab === 'mocks' && <MocksHub mockTest={MOCK_TEST_1} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} />}
-        {activeTab === 'exam' && <ExamMode mockTest={MOCK_TEST_1} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
+        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} />}
+        {activeTab === 'exam' && <ExamMode mockTest={activeTest} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}
         {activeTab === 'vocab' && <VocabTrainer cards={vocabCards} onUpdateCards={persistVocab} />}
         {activeTab === 'stats' && <StatisticsView profile={profile} attempts={attempts} tasks={tasks} checklist={checklist} onOpenExamMode={() => setActiveTab('exam')} />}
