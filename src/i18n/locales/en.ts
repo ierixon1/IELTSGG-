@@ -455,6 +455,8 @@ export const en: Dictionary = {
         'That is {count} words — too short to assess. Write at least {minimum} before asking for a band.',
       too_short_speaking:
         'That answer is too short to assess. Speak for at least {seconds} seconds, or type at least {words} words.',
+      ai_unavailable:
+        'The grading model is busy right now. Your answer is still here — try again in a minute.',
       unknown: 'Grading failed. Please try again.',
     },
   },

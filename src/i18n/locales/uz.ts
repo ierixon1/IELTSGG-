@@ -452,6 +452,8 @@ export const uz: Dictionary = {
         'Bu yerda {count} ta so‘z — baholash uchun juda kam. Ball so‘rashdan oldin kamida {minimum} ta yozing.',
       too_short_speaking:
         'Javob baholash uchun juda qisqa. Kamida {seconds} soniya gapiring yoki kamida {words} ta so‘z yozing.',
+      ai_unavailable:
+        'Baholash modeli hozir band. Javobingiz saqlanib turibdi — bir daqiqadan so‘ng urinib ko‘ring.',
       unknown: 'Baholash amalga oshmadi. Qaytadan urinib ko‘ring.',
     },
   },

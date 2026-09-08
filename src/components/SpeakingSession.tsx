@@ -70,6 +70,7 @@ interface PartAttempt {
 function describeGradingError(error: unknown, t: (key: string, vars?: Record<string, string | number>) => string): string {
   if (error instanceof GradingError) {
     if (error.code === 'ai_not_configured') return t('grading.errors.ai_not_configured');
+    if (error.code === 'ai_unavailable') return t('grading.errors.ai_unavailable');
     if (error.code === 'too_short') {
       return t('grading.errors.too_short_speaking', {
         seconds: Number(error.details?.minimumSeconds ?? 10),

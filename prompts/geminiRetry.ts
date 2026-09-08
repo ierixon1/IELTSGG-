@@ -1,8 +1,20 @@
 import { requestContext } from '../src/middleware/authMiddleware';
 import { aiRateLimitService, AiOperationType } from '../src/services/aiRateLimitService';
 
+/**
+ * Raised when the model itself is unreachable — overloaded, rate limited or
+ * timing out — as opposed to the request being wrong. Callers use this to tell
+ * a learner "try again in a minute" instead of "grading failed".
+ */
+export class AiUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AiUnavailableError';
+  }
+}
+
 /** Execute Gemini API calls with exponential backoff and a server-side AI guard. */
-export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request', quotaAlreadyChecked = false): Promise<T> {
+export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request', quotaAlreadyChecked = false, activeModelForLog = 'gemini-3.8-flash'): Promise<T> {
   const userId = requestContext.getStore()?.userId;
   if (userId && !quotaAlreadyChecked) {
     const guard = await aiRateLimitService.checkLimit(userId, quotaOperation);
@@ -22,7 +34,7 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
           await aiRateLimitService.recordUsage({
             userId,
             operation: quotaOperation,
-            model: 'gemini-3.8-flash',
+            model: activeModelForLog,
             success: true,
             notes: `completed_after_${attempt} attempt${attempt === 1 ? '' : 's'}`,
           });
@@ -51,7 +63,7 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
       await aiRateLimitService.recordUsage({
         userId,
         operation: quotaOperation,
-        model: 'gemini-3.8-flash',
+        model: activeModelForLog,
         success: false,
         notes: `failed_after_${attemptsMade}_attempt${attemptsMade === 1 ? '' : 's'}:${String(lastError?.message || 'unknown').slice(0, 240)}`,
       });
@@ -60,7 +72,18 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
     }
   }
 
-  const is429 = lastError?.message?.includes('429') || lastError?.message?.includes('RESOURCE_EXHAUSTED');
-  if (is429) throw new Error('Gemini API quota or rate limit reached. Please wait a moment before trying again.');
-  throw new Error(`AI generation error: ${lastError?.message || 'Unknown error occurred during synthesis.'}`);
+  const message = String(lastError?.message || '');
+  const exhausted = message.includes('429') || message.includes('RESOURCE_EXHAUSTED');
+  const overloaded =
+    message.includes('503') || message.includes('UNAVAILABLE') || message.includes('timeout');
+
+  if (exhausted) {
+    throw new AiUnavailableError(
+      'Gemini API quota or rate limit reached. Please wait a moment before trying again.',
+    );
+  }
+  if (overloaded) {
+    throw new AiUnavailableError(`AI model unavailable: ${message || 'upstream did not respond.'}`);
+  }
+  throw new Error(`AI generation error: ${message || 'Unknown error occurred during synthesis.'}`);
 }
