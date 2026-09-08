@@ -7,14 +7,14 @@ coverage/
 .env*
 !.env.example
 
-# Local runtime state written by the dev server. `users.json` holds password
-# hashes, `sessions.json` holds live tokens and `db.json` holds a learner's
-# own plan and attempts — none of it belongs in the repo. The server recreates
-# db.json from its defaults when it is missing.
+# Credentials the dev server writes: `users.json` holds password hashes and
+# `sessions.json` holds live session tokens. These stay out of the repository
+# regardless of whether it is public or private — anything pushed to a public
+# repo is already mirrored and cached, and going private later does not undo
+# that. `db.json` is the legacy single-user store the server recreates on boot.
 data/users.json
 data/sessions.json
 data/db.json
-data/users/
 data/uploads/
 data/ai_usage_log.json
 data/ai_quota.json

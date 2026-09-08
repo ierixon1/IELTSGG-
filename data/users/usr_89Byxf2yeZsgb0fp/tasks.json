@@ -1,0 +1,419 @@
+[
+  {
+    "id": "task-1",
+    "title": "Writing Task 2: essay structure and idea cohesion",
+    "titleKey": "planTasks.title.focus_writing",
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "writing_task2",
+    "dueDate": "2026-09-09",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 45,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-2",
+    "title": "Speaking Parts 1 & 3: fluency and thinking on your feet",
+    "titleKey": "planTasks.title.second_speaking",
+    "reasonKey": "planTasks.reason.second",
+    "reasonParams": {
+      "skill": "speaking",
+      "band": 8.5
+    },
+    "skill": "speaking",
+    "taskType": "speaking_part1",
+    "dueDate": "2026-09-11",
+    "completed": false,
+    "weight": 1,
+    "durationMins": 40,
+    "reason": "Keeping speaking strong enough to hold your target of Band 8.5.",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-3",
+    "title": "Speak or Die: a five-minute fluency drill",
+    "titleKey": "planTasks.title.arcade",
+    "reasonKey": "planTasks.reason.arcade",
+    "skill": "speaking",
+    "taskType": "criteria_drill",
+    "dueDate": "2026-09-13",
+    "completed": false,
+    "weight": 2,
+    "durationMins": 15,
+    "reason": "Kills the hesitation pauses that cost you on Fluency.",
+    "sectionId": "arcade"
+  },
+  {
+    "id": "task-4",
+    "title": "Timed section check: writing and speaking",
+    "titleKey": "planTasks.title.sectionMock",
+    "titleParams": {
+      "first": "writing",
+      "second": "speaking"
+    },
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "section_mock",
+    "dueDate": "2026-09-14",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 60,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-5",
+    "title": "Writing Task 2: essay structure and idea cohesion",
+    "titleKey": "planTasks.title.focus_writing",
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "writing_task2",
+    "dueDate": "2026-09-16",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 45,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-6",
+    "title": "Speaking Parts 1 & 3: fluency and thinking on your feet",
+    "titleKey": "planTasks.title.second_speaking",
+    "reasonKey": "planTasks.reason.second",
+    "reasonParams": {
+      "skill": "speaking",
+      "band": 8.5
+    },
+    "skill": "speaking",
+    "taskType": "speaking_part1",
+    "dueDate": "2026-09-18",
+    "completed": false,
+    "weight": 1,
+    "durationMins": 40,
+    "reason": "Keeping speaking strong enough to hold your target of Band 8.5.",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-7",
+    "title": "Speak or Die: a five-minute fluency drill",
+    "titleKey": "planTasks.title.arcade",
+    "reasonKey": "planTasks.reason.arcade",
+    "skill": "speaking",
+    "taskType": "criteria_drill",
+    "dueDate": "2026-09-20",
+    "completed": false,
+    "weight": 2,
+    "durationMins": 15,
+    "reason": "Kills the hesitation pauses that cost you on Fluency.",
+    "sectionId": "arcade"
+  },
+  {
+    "id": "task-8",
+    "title": "Full mock test #1, all four sections",
+    "titleKey": "planTasks.title.fullMock",
+    "titleParams": {
+      "number": 1
+    },
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "full_mock",
+    "dueDate": "2026-09-21",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 165,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "exam-mode"
+  },
+  {
+    "id": "task-9",
+    "title": "Writing Task 2: essay structure and idea cohesion",
+    "titleKey": "planTasks.title.focus_writing",
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "writing_task2",
+    "dueDate": "2026-09-23",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 45,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-10",
+    "title": "Speaking Parts 1 & 3: fluency and thinking on your feet",
+    "titleKey": "planTasks.title.second_speaking",
+    "reasonKey": "planTasks.reason.second",
+    "reasonParams": {
+      "skill": "speaking",
+      "band": 8.5
+    },
+    "skill": "speaking",
+    "taskType": "speaking_part1",
+    "dueDate": "2026-09-25",
+    "completed": false,
+    "weight": 1,
+    "durationMins": 40,
+    "reason": "Keeping speaking strong enough to hold your target of Band 8.5.",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-11",
+    "title": "Speak or Die: a five-minute fluency drill",
+    "titleKey": "planTasks.title.arcade",
+    "reasonKey": "planTasks.reason.arcade",
+    "skill": "speaking",
+    "taskType": "criteria_drill",
+    "dueDate": "2026-09-27",
+    "completed": false,
+    "weight": 2,
+    "durationMins": 15,
+    "reason": "Kills the hesitation pauses that cost you on Fluency.",
+    "sectionId": "arcade"
+  },
+  {
+    "id": "task-12",
+    "title": "Timed section check: writing and speaking",
+    "titleKey": "planTasks.title.sectionMock",
+    "titleParams": {
+      "first": "writing",
+      "second": "speaking"
+    },
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "section_mock",
+    "dueDate": "2026-09-28",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 60,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-13",
+    "title": "Writing Task 2: essay structure and idea cohesion",
+    "titleKey": "planTasks.title.focus_writing",
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "writing_task2",
+    "dueDate": "2026-09-30",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 45,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-14",
+    "title": "Speaking Parts 1 & 3: fluency and thinking on your feet",
+    "titleKey": "planTasks.title.second_speaking",
+    "reasonKey": "planTasks.reason.second",
+    "reasonParams": {
+      "skill": "speaking",
+      "band": 8.5
+    },
+    "skill": "speaking",
+    "taskType": "speaking_part1",
+    "dueDate": "2026-10-02",
+    "completed": false,
+    "weight": 1,
+    "durationMins": 40,
+    "reason": "Keeping speaking strong enough to hold your target of Band 8.5.",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-15",
+    "title": "Speak or Die: a five-minute fluency drill",
+    "titleKey": "planTasks.title.arcade",
+    "reasonKey": "planTasks.reason.arcade",
+    "skill": "speaking",
+    "taskType": "criteria_drill",
+    "dueDate": "2026-10-04",
+    "completed": false,
+    "weight": 2,
+    "durationMins": 15,
+    "reason": "Kills the hesitation pauses that cost you on Fluency.",
+    "sectionId": "arcade"
+  },
+  {
+    "id": "task-16",
+    "title": "Full mock test #2, all four sections",
+    "titleKey": "planTasks.title.fullMock",
+    "titleParams": {
+      "number": 2
+    },
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "full_mock",
+    "dueDate": "2026-10-05",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 165,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "exam-mode"
+  },
+  {
+    "id": "task-17",
+    "title": "Writing Task 2: essay structure and idea cohesion",
+    "titleKey": "planTasks.title.focus_writing",
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "writing_task2",
+    "dueDate": "2026-10-07",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 45,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-18",
+    "title": "Speaking Parts 1 & 3: fluency and thinking on your feet",
+    "titleKey": "planTasks.title.second_speaking",
+    "reasonKey": "planTasks.reason.second",
+    "reasonParams": {
+      "skill": "speaking",
+      "band": 8.5
+    },
+    "skill": "speaking",
+    "taskType": "speaking_part1",
+    "dueDate": "2026-10-09",
+    "completed": false,
+    "weight": 1,
+    "durationMins": 40,
+    "reason": "Keeping speaking strong enough to hold your target of Band 8.5.",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-19",
+    "title": "Speak or Die: a five-minute fluency drill",
+    "titleKey": "planTasks.title.arcade",
+    "reasonKey": "planTasks.reason.arcade",
+    "skill": "speaking",
+    "taskType": "criteria_drill",
+    "dueDate": "2026-10-11",
+    "completed": false,
+    "weight": 2,
+    "durationMins": 15,
+    "reason": "Kills the hesitation pauses that cost you on Fluency.",
+    "sectionId": "arcade"
+  },
+  {
+    "id": "task-20",
+    "title": "Timed section check: writing and speaking",
+    "titleKey": "planTasks.title.sectionMock",
+    "titleParams": {
+      "first": "writing",
+      "second": "speaking"
+    },
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "section_mock",
+    "dueDate": "2026-10-12",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 60,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-21",
+    "title": "Writing Task 2: essay structure and idea cohesion",
+    "titleKey": "planTasks.title.focus_writing",
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "writing_task2",
+    "dueDate": "2026-10-14",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 45,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-22",
+    "title": "Speaking Parts 1 & 3: fluency and thinking on your feet",
+    "titleKey": "planTasks.title.second_speaking",
+    "reasonKey": "planTasks.reason.second",
+    "reasonParams": {
+      "skill": "speaking",
+      "band": 8.5
+    },
+    "skill": "speaking",
+    "taskType": "speaking_part1",
+    "dueDate": "2026-10-16",
+    "completed": false,
+    "weight": 1,
+    "durationMins": 40,
+    "reason": "Keeping speaking strong enough to hold your target of Band 8.5.",
+    "sectionId": "test-1"
+  },
+  {
+    "id": "task-23",
+    "title": "Speak or Die: a five-minute fluency drill",
+    "titleKey": "planTasks.title.arcade",
+    "reasonKey": "planTasks.reason.arcade",
+    "skill": "speaking",
+    "taskType": "criteria_drill",
+    "dueDate": "2026-10-18",
+    "completed": false,
+    "weight": 2,
+    "durationMins": 15,
+    "reason": "Kills the hesitation pauses that cost you on Fluency.",
+    "sectionId": "arcade"
+  },
+  {
+    "id": "task-24",
+    "title": "Full mock test #3, all four sections",
+    "titleKey": "planTasks.title.fullMock",
+    "titleParams": {
+      "number": 3
+    },
+    "reasonKey": "planTasks.reason.elevated",
+    "reasonParams": {
+      "skill": "writing"
+    },
+    "skill": "writing",
+    "taskType": "full_mock",
+    "dueDate": "2026-10-19",
+    "completed": false,
+    "weight": 5,
+    "durationMins": 165,
+    "reason": "Priority raised: this is your current bottleneck (writing).",
+    "sectionId": "exam-mode"
+  }
+]
