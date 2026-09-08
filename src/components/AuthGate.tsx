@@ -17,6 +17,9 @@ interface AuthGateProps {
   onBack?: () => void;
 }
 
+/** Mirrors the server rule in `authService.register`. */
+const USERNAME_PATTERN = /^[a-z0-9_.-]{3,32}$/;
+
 /**
  * Sign-in and registration for learners.
  *
@@ -38,6 +41,12 @@ export function AuthGate({ onAuthenticated, onBack }: AuthGateProps) {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+
+    if (isRegister && !USERNAME_PATTERN.test(username.trim().toLowerCase())) {
+      setError(t('auth.errors.invalid_username'));
+      return;
+    }
+
     setBusy(true);
     setError('');
 
@@ -53,7 +62,14 @@ export function AuthGate({ onAuthenticated, onBack }: AuthGateProps) {
       });
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.user) throw new Error(data.error || t('auth.failed'));
+
+      if (!response.ok || !data.user) {
+        // The server returns a coarse code rather than a sentence, so the
+        // message a person reads is translated here.
+        const code =
+          response.status === 429 ? 'rate_limited' : (data.code as string) || 'unknown';
+        throw new Error(isRegister ? t(`auth.errors.${code}`) : t('auth.failed'));
+      }
 
       localStorage.setItem('prep_auth_user', JSON.stringify(data.user));
       onAuthenticated(data.user);
@@ -140,7 +156,11 @@ export function AuthGate({ onAuthenticated, onBack }: AuthGateProps) {
                 minLength={3}
                 maxLength={32}
                 autoComplete="username"
+                pattern={isRegister ? '[A-Za-z0-9_.\-]{3,32}' : undefined}
               />
+              {isRegister && (
+                <p className="mt-1.5 text-xs text-ink-400">{t('auth.usernameHint')}</p>
+              )}
             </div>
 
             <div>
