@@ -1,20 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MockTest, SkillType, MockAttempt } from '../types';
 import { calculateOverallBand } from '../utils/ieltsScoring';
 import { ListeningSession } from './ListeningSession';
 import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
 import { SpeakingSession } from './SpeakingSession';
-import { 
-  ShieldAlert, 
-  Clock, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Award, 
-  ArrowRight,
-  RotateCcw
-} from 'lucide-react';
+import { AlertTriangle, Award, ShieldAlert } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { useT } from '../i18n';
+import { Badge, Button, Card, cx } from './ui';
 
 interface ExamModeProps {
   mockTest: MockTest;
@@ -22,58 +16,41 @@ interface ExamModeProps {
   onExitExam: () => void;
 }
 
-export const ExamMode: React.FC<ExamModeProps> = ({
-  mockTest,
-  onCompleteExam,
-  onExitExam,
-}) => {
-  const [currentSectionIndex, setCurrentSectionIndex] = useState<number>(0);
-  const [isFinished, setIsFinished] = useState<boolean>(false);
-  const [focusLossCount, setFocusLossCount] = useState<number>(0);
-  const [showFocusWarning, setShowFocusWarning] = useState<boolean>(false);
+type SectionScores = Partial<Record<SkillType, number>>;
 
-  // Stored section scores
-  const [scores, setScores] = useState<{
-    listening?: number;
-    reading?: number;
-    writing?: number;
-    speaking?: number;
-  }>({});
+const SECTIONS: SkillType[] = ['listening', 'reading', 'writing', 'speaking'];
 
-  const sections: SkillType[] = ['listening', 'reading', 'writing', 'speaking'];
-  const activeSection = sections[currentSectionIndex];
+export const ExamMode: React.FC<ExamModeProps> = ({ mockTest, onCompleteExam, onExitExam }) => {
+  const t = useT();
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [finalScores, setFinalScores] = useState<SectionScores | null>(null);
+  const [focusLossCount, setFocusLossCount] = useState(0);
+  const [showFocusWarning, setShowFocusWarning] = useState(false);
+  const [scores, setScores] = useState<SectionScores>({});
 
-  // Detect tab focus change / blur (simulating lockdown integrity)
+  const activeSection = SECTIONS[currentSectionIndex];
+  const isFinished = finalScores !== null;
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden && !isFinished) {
-        setFocusLossCount((prev) => prev + 1);
+        setFocusLossCount((count) => count + 1);
         setShowFocusWarning(true);
       }
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isFinished]);
 
-  const handleRecordSectionScore = (band: number) => {
-    setScores((prev) => {
-      const nextScores = { ...prev, [activeSection]: band };
-      return nextScores;
-    });
+  /**
+   * Builds the report from the scores passed in rather than from state: the
+   * final section is recorded and the exam finishes in the same tick, so
+   * reading `scores` here would drop the section just sat.
+   */
+  const finishExam = (completedScores: SectionScores) => {
+    setFinalScores(completedScores);
 
-    if (currentSectionIndex < sections.length - 1) {
-      setCurrentSectionIndex((prev) => prev + 1);
-    } else {
-      finishExam();
-    }
-  };
-
-  const finishExam = () => {
-    setIsFinished(true);
-    const overall = calculateOverallBand(scores);
+    const overall = calculateOverallBand(completedScores);
 
     const attempt: MockAttempt = {
       id: `attempt-${Date.now()}`,
@@ -82,10 +59,12 @@ export const ExamMode: React.FC<ExamModeProps> = ({
       isFullMock: true,
       scores: {
         overall,
-        listening: scores.listening ? { band: scores.listening, rawScore: 32 } : undefined,
-        reading: scores.reading ? { band: scores.reading, rawScore: 31 } : undefined,
-        writing: scores.writing ? { band: scores.writing } : undefined,
-        speaking: scores.speaking ? { band: scores.speaking } : undefined,
+        // Only sections that were actually sat carry a band, and the raw score
+        // is left to the section that computed it.
+        listening: completedScores.listening ? { band: completedScores.listening } : undefined,
+        reading: completedScores.reading ? { band: completedScores.reading } : undefined,
+        writing: completedScores.writing ? { band: completedScores.writing } : undefined,
+        speaking: completedScores.speaking ? { band: completedScores.speaking } : undefined,
       },
       durationMinutes: 165,
     };
@@ -93,157 +72,158 @@ export const ExamMode: React.FC<ExamModeProps> = ({
     onCompleteExam(attempt);
 
     if (overall >= 7.0) {
-      confetti({
-        particleCount: 120,
-        spread: 80,
-        origin: { y: 0.5 },
-      });
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 } });
     }
   };
 
-  const overallScore = calculateOverallBand(scores);
+  const handleRecordSectionScore = (band: number) => {
+    const nextScores: SectionScores = { ...scores, [activeSection]: band };
+    setScores(nextScores);
+
+    if (currentSectionIndex < SECTIONS.length - 1) {
+      setCurrentSectionIndex((index) => index + 1);
+    } else {
+      finishExam(nextScores);
+    }
+  };
 
   if (isFinished) {
+    const overallScore = calculateOverallBand(finalScores);
+
     return (
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="bg-white rounded-3xl p-8 border border-ink-200 shadow-xl text-center space-y-6">
-          <div className="w-16 h-16 bg-success-50 text-success-700 rounded-2xl mx-auto flex items-center justify-center font-black text-2xl shadow-sm">
-            <Award className="w-8 h-8" />
+      <div className="mx-auto max-w-3xl">
+        <Card className="space-y-6 p-8 text-center">
+          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-success-50 text-success-700">
+            <Award className="h-8 w-8" />
+          </span>
+
+          <div>
+            <Badge tone="success">{t('exam.doneEyebrow')}</Badge>
+            <h1 className="mt-3 text-display-sm text-ink-900">{t('exam.doneTitle')}</h1>
+            <p className="mt-1.5 text-sm text-ink-500">{t('exam.doneSubtitle')}</p>
           </div>
 
-          <div className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-success-700 bg-success-50 px-3 py-1 rounded-full border border-success-50">
-              Simulation Completed
-            </span>
-            <h1 className="text-2xl font-extrabold text-ink-900 mt-2">
-              Official IELTS Academic Test Report
-            </h1>
-            <p className="text-xs text-ink-500">
-              Completed under strict sequential time and tab monitoring rules.
+          <div className="es-ink-surface mx-auto max-w-sm space-y-1.5 rounded-[var(--radius-card)] p-6">
+            <p className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
+              {t('exam.overall')}
             </p>
-          </div>
-
-          {/* Big Overall Band */}
-          <div className="p-6 rounded-2xl bg-ink-900 text-white max-w-sm mx-auto space-y-2">
-            <div className="text-xs uppercase font-bold text-ink-400">Overall Band Score</div>
-            <div className="text-5xl font-extrabold text-success-500">{overallScore.toFixed(1)}</div>
-            <p className="text-[11px] text-ink-400">
-              Rounded according to the official IELTS averaging algorithm.
+            <p className="font-mono text-display-lg font-bold tabular text-white">
+              {overallScore.toFixed(1)}
             </p>
+            <p className="text-xs text-white/45">{t('exam.roundingNote')}</p>
           </div>
 
-          {/* Breakdown Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-            {[
-              { label: 'Listening', band: scores.listening || 6.5 },
-              { label: 'Reading', band: scores.reading || 6.5 },
-              { label: 'Writing', band: scores.writing || 6.5 },
-              { label: 'Speaking', band: scores.speaking || 6.5 },
-            ].map((s) => (
-              <div key={s.label} className="p-4 rounded-xl border border-ink-200 bg-ink-50">
-                <div className="text-[10px] uppercase font-bold text-ink-500">{s.label}</div>
-                <div className="text-2xl font-extrabold text-ink-900 mt-1">
-                  Band {s.band.toFixed(1)}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {SECTIONS.map((section) => {
+              const band = finalScores[section];
+              return (
+                <div
+                  key={section}
+                  className="rounded-[var(--radius-control)] border border-ink-100 bg-ink-50 p-4"
+                >
+                  <p className="text-[0.625rem] font-bold uppercase tracking-[0.1em] text-ink-400">
+                    {t(`skills.${section}`)}
+                  </p>
+                  <p
+                    className={cx(
+                      'mt-1 font-mono text-2xl font-bold tabular',
+                      band === undefined ? 'text-ink-300' : 'text-ink-900',
+                    )}
+                  >
+                    {band === undefined ? '—' : band.toFixed(1)}
+                  </p>
+                  {band === undefined && (
+                    <p className="mt-0.5 text-[0.625rem] text-ink-400">{t('exam.notSat')}</p>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {focusLossCount > 0 && (
-            <div className="p-3 bg-warning-50 border border-warning-50 rounded-xl text-xs text-warning-700 flex items-center justify-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-warning-500 shrink-0" />
-              <span>
-                Tab focus was lost <strong>{focusLossCount} time(s)</strong> during testing. In a real exam, this would prompt proctor intervention.
-              </span>
-            </div>
+            <p className="flex items-center justify-center gap-2 rounded-[var(--radius-control)] border border-warning-500/25 bg-warning-50 p-3 text-sm text-warning-700">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {t('exam.focusSummary', { count: focusLossCount })}
+            </p>
           )}
 
-          <div className="pt-4 flex justify-center space-x-3">
-            <button
-              onClick={onExitExam}
-              className="px-6 py-3 rounded-xl bg-ink-900 hover:bg-ink-800 text-white font-bold text-xs transition-all shadow-md"
-            >
-              Return to Adaptive Plan & Recalculate
-            </button>
+          <div className="flex justify-center pt-2">
+            <Button size="lg" onClick={onExitExam}>
+              {t('exam.backToPlan')}
+            </Button>
           </div>
-        </div>
+        </Card>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Strict Exam Lockdown HUD */}
-      <div className="bg-warning-500 text-white p-4 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center font-bold">
-            <ShieldAlert className="w-5 h-5" />
-          </div>
+      <div className="flex flex-col justify-between gap-3 rounded-[var(--radius-card)] bg-warning-500 p-4 text-white sm:flex-row sm:items-center">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-white/20">
+            <ShieldAlert className="h-5 w-5" />
+          </span>
           <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded">
-                Official Exam Mode Active
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded bg-white/20 px-2 py-0.5 text-[0.6875rem] font-bold uppercase tracking-[0.1em]">
+                {t('exam.banner')}
               </span>
-              <span className="text-xs font-medium text-warning-50">
-                Section {currentSectionIndex + 1} of 4: {activeSection.toUpperCase()}
+              <span className="text-xs font-medium">
+                {t('exam.section', {
+                  current: currentSectionIndex + 1,
+                  total: SECTIONS.length,
+                  name: t(`skills.${activeSection}`),
+                })}
               </span>
             </div>
-            <p className="text-[11px] text-warning-50 mt-0.5">
-              Lockdown active: Do not switch browser tabs or reload the session.
-            </p>
+            <p className="mt-1 text-xs text-white/85">{t('exam.lockdown')}</p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
-          {/* Progress dots */}
-          <div className="flex items-center space-x-1.5">
-            {sections.map((s, idx) => (
-              <div
-                key={s}
-                className={`w-3 h-3 rounded-full ${
-                  idx === currentSectionIndex
-                    ? 'bg-white ring-2 ring-warning-500'
-                    : idx < currentSectionIndex
-                    ? 'bg-success-500'
-                    : 'bg-white/30'
-                }`}
-                title={s}
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            {SECTIONS.map((section, index) => (
+              <span
+                key={section}
+                title={t(`skills.${section}`)}
+                className={cx(
+                  'h-2.5 w-2.5 rounded-full',
+                  index === currentSectionIndex
+                    ? 'bg-white'
+                    : index < currentSectionIndex
+                      ? 'bg-white/70'
+                      : 'bg-white/25',
+                )}
               />
             ))}
           </div>
 
           <button
             onClick={() => {
-              if (confirm('Cancel and exit official exam mode? Progress will not be saved.')) {
-                onExitExam();
-              }
+              if (window.confirm(t('exam.abortConfirm'))) onExitExam();
             }}
-            className="text-xs text-warning-50 hover:text-white px-2.5 py-1 rounded bg-black/20 hover:bg-black/30 transition-colors font-medium"
+            className="rounded-[var(--radius-control)] bg-black/20 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-black/30"
           >
-            Abort Exam
+            {t('exam.abort')}
           </button>
         </div>
       </div>
 
-      {/* Focus warning popover */}
       {showFocusWarning && (
-        <div className="bg-danger-50 border border-danger-500 p-4 rounded-2xl text-xs text-danger-700 flex items-center justify-between shadow-lg animate-bounce">
-          <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 text-danger-500 shrink-0" />
+        <div className="flex flex-col justify-between gap-3 rounded-[var(--radius-card)] border border-danger-500/30 bg-danger-50 p-4 text-danger-700 sm:flex-row sm:items-center">
+          <p className="flex items-start gap-2 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              <strong>Warning: Window focus lost!</strong> On a real computerized IELTS exam, tab switching causes test invalidation.
+              <strong>{t('exam.focusLostTitle')}.</strong> {t('exam.focusLostBody')}
             </span>
-          </div>
-          <button
-            onClick={() => setShowFocusWarning(false)}
-            className="text-xs font-bold text-danger-700 bg-danger-50/60 px-3 py-1 rounded-lg"
-          >
-            Acknowledge & Continue
-          </button>
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => setShowFocusWarning(false)}>
+            {t('exam.acknowledge')}
+          </Button>
         </div>
       )}
 
-      {/* Active Section Engine */}
       {activeSection === 'listening' && (
         <ListeningSession
           listeningData={mockTest.listening}
