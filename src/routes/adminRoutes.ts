@@ -32,7 +32,14 @@ export function deepSanitizeHtml(obj:any):any{if(!obj||typeof obj!=='object')ret
 export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{const token=readCookie(req,ADMIN_AUTH_COOKIE);if(!token)return res.status(403).json({error:'Forbidden.'});const session=await authService.validateSession(token);if(!session||(session.role!== 'admin'&&session.role!== 'examiner'))return res.status(403).json({error:'Forbidden.'});req.adminSessionToken=token;req.adminUser={id:session.userId,username:session.username,displayName:session.name,role:session.role};return next();}catch{return res.status(403).json({error:'Forbidden.'});}}
 export function requireAdminRole(req:AdminRequest,res:Response,next:NextFunction){if(req.adminUser?.role!=='admin')return res.status(403).json({error:'Administrator role required.'});return next();}
 const diskStorage=multer.diskStorage({destination:(_r,_f,cb)=>cb(null,PRIVATE_UPLOADS_DIR),filename:(_r,file,cb)=>{const ext=path.extname(file.originalname).toLowerCase();const base=path.basename(file.originalname,ext).replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,80)||'upload';cb(null,`${base}_${Date.now()}-${nanoid(8)}${ext}`);}});
-const fileFilter:multer.Options['fileFilter']=(_r,file,cb)=>cb(['.mp3','.wav','.ogg','.png','.jpg','.jpeg','.webp','.pdf','.docx','.txt','.html','.htm'].includes(path.extname(file.originalname).toLowerCase())?null:new Error('Unsupported file type.'));
+const ALLOWED_UPLOAD_EXTENSIONS=['.mp3','.wav','.ogg','.png','.jpg','.jpeg','.webp','.pdf','.docx','.txt','.html','.htm'];
+// multer reads the SECOND argument as "accept this file"; cb(null) leaves it
+// undefined, which silently rejects every upload.
+const fileFilter:multer.Options['fileFilter']=(_r,file,cb)=>{
+  const ext=path.extname(file.originalname).toLowerCase();
+  if(ALLOWED_UPLOAD_EXTENSIONS.includes(ext))return cb(null,true);
+  return cb(new Error(`Unsupported file type: ${ext||'unknown'}`));
+};
 const upload=multer({storage:diskStorage,fileFilter,limits:{fileSize:35*1024*1024,files:1,fields:20,fieldNameSize:100,fieldSize:256*1024,parts:22}});
 adminRouter.post('/login',async(req,res)=>{try{const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch{return res.status(401).json({error:'Invalid credentials.'});}});
 adminRouter.get('/me',requireAdminAuth,(req:AdminRequest,res)=>res.json({admin:req.adminUser}));

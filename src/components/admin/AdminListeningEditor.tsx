@@ -63,6 +63,8 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
     ]
   );
 
+  /** An imported CDI page, sanitised server-side, shown to the learner as-is. */
+  const [htmlContent, setHtmlContent] = useState(initialData?.content.htmlContent || '');
   const [saving, setSaving] = useState(false);
 
   const addQuestion = (type: ListeningEditorQuestion['type']) => {
@@ -95,11 +97,13 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
             title: sectionTitle,
             contextDescription,
             audioTranscript: transcript,
+            htmlContent: htmlContent || undefined,
             questions,
           },
           audioUrl: audioUrl || '/audio/mock_listening_demo.mp3',
           audioFileName: audioFileName || 'official_recording.mp3',
           transcript,
+          htmlContent: htmlContent || undefined,
         },
       });
     } finally {
@@ -132,6 +136,29 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
 
       {/* Audio Upload Zone */}
       <div className="space-y-3">
+        <FileUploadZone
+          accept=".html,.htm"
+          category="html"
+          label="Import the section as HTML (.html, .htm)"
+          description="The page is sanitised on the server and shown to the learner exactly as written — tables, headings and gap numbering included."
+          onUploaded={(file) => {
+            if (file.extractedHtml) {
+              setHtmlContent(file.extractedHtml);
+              setSectionTitle(file.originalName.replace(/\.[^/.]+$/, ''));
+              if (file.extractedText && !transcript.trim()) {
+                setTranscript(file.extractedText);
+              }
+            }
+          }}
+        />
+
+        {htmlContent && (
+          <p className="text-xs text-success-700">
+            HTML imported — {htmlContent.length.toLocaleString()} characters. It will render in the
+            player above the questions.
+          </p>
+        )}
+
         <FileUploadZone
           accept=".mp3,.wav,.ogg"
           category="audio"
