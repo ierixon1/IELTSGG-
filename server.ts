@@ -51,6 +51,8 @@ async function gradeWithFallback<T>(call:(model:string)=>Promise<T>,quotaOperati
 
 const MIN_GRADABLE_WORDS=40;
 const MIN_REWRITABLE_WORDS=15;
+/** Roughly 6 MB of image once base64 expands it. */
+const MAX_IMAGE_BASE64=8_000_000;
 const MIN_GRADABLE_SPOKEN_WORDS=15;
 const MIN_GRADABLE_SPEECH_SECONDS=10;
 const RATE_LIMIT_GENERATIONS=parseInt(process.env.RATE_LIMIT_GENERATIONS||'10',10);
@@ -195,6 +197,25 @@ app.post('/api/writing/improve',async(req:AuthenticatedRequest,res)=>{
     const response=await gradeWithFallback((model)=>getGenAI().models.generateContent({model,contents:userContent,config:{systemInstruction,temperature:0.3,responseMimeType:'application/json',responseSchema:rewriteSchema}}),'writing_grade');
     return res.json(JSON.parse(response.text||'{}'));
   }catch(error){console.error('[Rewrite]',error);if(error instanceof AiUnavailableError)return res.status(503).json({error:'The model is busy right now.',code:'ai_unavailable'});return res.status(500).json({error:'Failed to rewrite the paragraph.',code:'grading_failed'});}
+});
+
+/**
+ * Transcribes a photograph of handwriting. Returns the text exactly as
+ * written — including errors — so the grader sees the candidate's own essay.
+ */
+app.post('/api/writing/transcribe',async(req:AuthenticatedRequest,res)=>{
+  try{
+    if(!req.userId)return res.status(401).json({error:'Unauthorized.'});
+    const{imageBase64,mimeType}=req.body||{};
+    if(typeof imageBase64!=='string'||!imageBase64)return res.status(400).json({error:'Image is required.'});
+    if(imageBase64.length>MAX_IMAGE_BASE64)return res.status(413).json({error:'Image is too large.',code:'too_large'});
+    const type=typeof mimeType==='string'?mimeType.slice(0,100):'image/jpeg';
+    if(!/^image\/(png|jpeg|jpg|webp|heic|heif)$/i.test(type))return res.status(400).json({error:'Unsupported image type.',code:'bad_image_type'});
+    if(!process.env.GEMINI_API_KEY)return res.status(503).json({error:'AI transcription is not configured on this server.',code:'ai_not_configured'});
+    const systemInstruction='You transcribe photographed handwriting for an IELTS practice platform. Reproduce the text exactly as written, preserving the candidate spelling, grammar and paragraph breaks; never correct, improve or complete anything. If a word is genuinely illegible write [?]. Return only the transcription as plain text.';
+    const response=await gradeWithFallback((model)=>getGenAI().models.generateContent({model,contents:{parts:[{inlineData:{mimeType:type,data:imageBase64}},{text:'Transcribe this handwritten essay verbatim.'}]},config:{systemInstruction,temperature:0}}),'writing_grade');
+    return res.json({text:(response.text||'').trim()});
+  }catch(error){console.error('[Transcribe]',error);if(error instanceof AiUnavailableError)return res.status(503).json({error:'The model is busy right now.',code:'ai_unavailable'});return res.status(500).json({error:'Failed to read the image.',code:'grading_failed'});}
 });
 
 app.post('/api/preppy/chat',async(req:AuthenticatedRequest,res)=>{

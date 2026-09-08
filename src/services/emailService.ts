@@ -25,8 +25,8 @@ export async function sendPasswordResetEmail(params: { to: string; token: string
     body: JSON.stringify({
       from,
       to: [params.to],
-      subject: 'Reset your PrepIELTS password',
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.6;max-width:600px"><h2>Reset your password</h2><p>We received a request to reset your PrepIELTS password.</p><p><a href="${resetUrl}" style="display:inline-block;padding:10px 16px;background:#0f172a;color:#fff;text-decoration:none;border-radius:8px">Reset password</a></p><p>This link expires in 15 minutes. If you did not request this, you can ignore this email.</p></div>`,
+      subject: 'Reset your Ever Study password',
+      html: `<div style="font-family:Arial,sans-serif;line-height:1.6;max-width:600px"><h2>Reset your password</h2><p>We received a request to reset your Ever Study password.</p><p><a href="${resetUrl}" style="display:inline-block;padding:10px 16px;background:#6c4dff;color:#fff;text-decoration:none;border-radius:8px">Reset password</a></p><p>This link expires in 15 minutes. If you did not request this, you can ignore this email.</p></div>`,
     }),
     signal: AbortSignal.timeout(10000),
   });

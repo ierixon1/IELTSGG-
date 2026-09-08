@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { WritingTaskData, WritingGradingResult, TextAnnotation, RewriteResult } from '../types';
-import { GradingError, requestWritingGrading, requestParagraphRewrite } from '../services/api';
+import { GradingError, requestWritingGrading, requestParagraphRewrite, requestHandwritingTranscription } from '../services/api';
 import {
   AlertTriangle,
   BarChart2,
@@ -9,6 +9,7 @@ import {
   Lightbulb,
   PenTool,
   RefreshCw,
+  ImagePlus,
   Sparkles,
   Wand2,
 } from 'lucide-react';
@@ -135,6 +136,7 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
   const [rewrite, setRewrite] = useState<RewriteResult | null>(null);
   const [rewriteFor, setRewriteFor] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
+  const [isReadingImage, setIsReadingImage] = useState(false);
   const lexis = useMemo(() => analyseLexis(gradedEssay), [gradedEssay]);
   const grammarFlags = result?.annotated_text?.filter(
     (annotation) => annotation.issue_type === 'grammar',
@@ -154,6 +156,39 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
     if (paragraphs.length === 0) return gradedEssay.trim();
     return paragraphs.reduce((longest, block) => (block.length > longest.length ? block : longest));
   }, [gradedEssay]);
+
+  /**
+   * Reads a photographed essay into the editor. The transcription is appended
+   * rather than replacing the box, so a half-typed draft is never destroyed by
+   * a mis-click.
+   */
+  const handleEssayPhoto = async (file: File) => {
+    setErrorMsg(null);
+    setIsReadingImage(true);
+
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = String(reader.result || '');
+          resolve(result.slice(result.indexOf(',') + 1));
+        };
+        reader.onerror = () => reject(new Error('read failed'));
+        reader.readAsDataURL(file);
+      });
+
+      const text = await requestHandwritingTranscription({
+        imageBase64: base64,
+        mimeType: file.type || 'image/jpeg',
+      });
+
+      setEssayText((current) => (current.trim() ? `${current.trim()}\n\n${text}` : text));
+    } catch (error) {
+      setErrorMsg(describeGradingError(error, t));
+    } finally {
+      setIsReadingImage(false);
+    }
+  };
 
   const handleRewrite = async () => {
     if (!targetParagraph) return;
@@ -318,6 +353,25 @@ ${activeTaskData.prompt}`,
                 >
                   {isTimerRunning ? t('writing.pauseTimer') : t('writing.startTimer')}
                 </Button>
+
+                <label
+                  id="label-import-essay-photo"
+                  className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[var(--radius-control)] border border-ink-200 bg-white px-3.5 text-[0.8125rem] font-semibold text-ink-800 transition-colors hover:border-ink-300 hover:bg-ink-50"
+                >
+                  <ImagePlus className="h-4 w-4 text-brand-500" />
+                  {isReadingImage ? t('writing.photo.reading') : t('writing.photo.action')}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    disabled={isReadingImage}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) handleEssayPhoto(file);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
               </div>
             </div>
 

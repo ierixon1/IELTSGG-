@@ -290,6 +290,22 @@ export const en: Dictionary = {
     signOut: 'Sign out',
     checking: 'Checking your session…',
     backToSite: 'Back to the site',
+    forgotLink: 'Forgot your password?',
+    forgotTitle: 'Recover your account',
+    forgotSubtitle: 'Enter the email you signed up with and we will send a reset link.',
+    forgotSent:
+      'If an account exists for that address, a reset link is on its way. The link works for 15 minutes.',
+    sendReset: 'Send reset link',
+    resetTitle: 'Set a new password',
+    resetSubtitle: 'Paste the code from your email and choose a new password.',
+    resetCode: 'Reset code',
+    resetCodeHint: 'From the reset email. It expires 15 minutes after it was requested.',
+    newPassword: 'New password',
+    setPassword: 'Save new password',
+    resetDone: 'Password changed. Sign in with the new one.',
+    resetFailed: 'That code is invalid or has expired. Request a new one.',
+    devTokenFilled: 'Development mode: the code has been filled in for you.',
+    backToSignIn: 'Back to sign in',
   },
 
   writing: {
@@ -308,6 +324,10 @@ export const en: Dictionary = {
     pauseTimer: 'Pause',
     placeholder:
       'Write or paste your response here.\n\nA workable shape:\n– Introduction: paraphrase the prompt, state your overview or position\n– Body 1: the main trend or argument, with evidence\n– Body 2: the secondary trend or the counter-argument',
+    photo: {
+      action: 'From a photo',
+      reading: 'Reading…',
+    },
     clearDraft: 'Clear draft',
     clearConfirm: 'Clear your draft? This cannot be undone.',
     grade: 'Grade with the AI examiner',

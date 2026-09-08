@@ -287,6 +287,22 @@ export const uz: Dictionary = {
     signOut: 'Chiqish',
     checking: 'Sessiya tekshirilmoqda…',
     backToSite: 'Saytga qaytish',
+    forgotLink: 'Parolni unutdingizmi?',
+    forgotTitle: 'Hisobni tiklash',
+    forgotSubtitle: 'Ro‘yxatdan o‘tgan emailingizni kiriting — tiklash havolasini yuboramiz.',
+    forgotSent:
+      'Agar bunday manzilda hisob bo‘lsa, tiklash havolasi yuborildi. Havola 15 daqiqa amal qiladi.',
+    sendReset: 'Havola yuborish',
+    resetTitle: 'Yangi parol',
+    resetSubtitle: 'Xatdagi kodni joylashtiring va yangi parol tanlang.',
+    resetCode: 'Tiklash kodi',
+    resetCodeHint: 'Xatdan olinadi. So‘ralgandan keyin 15 daqiqa amal qiladi.',
+    newPassword: 'Yangi parol',
+    setPassword: 'Parolni saqlash',
+    resetDone: 'Parol o‘zgartirildi. Yangisi bilan kiring.',
+    resetFailed: 'Kod noto‘g‘ri yoki muddati o‘tgan. Yangisini so‘rang.',
+    devTokenFilled: 'Ishlab chiqish rejimi: kod avtomatik qo‘yildi.',
+    backToSignIn: 'Kirishga qaytish',
   },
 
   writing: {
@@ -305,6 +321,10 @@ export const uz: Dictionary = {
     pauseTimer: 'Pauza',
     placeholder:
       'Javobingizni yozing yoki joylashtiring.\n\nIshlaydigan tuzilma:\n– Kirish: topshiriqni qayta ifodalang, umumiy fikr yoki pozitsiyani bildiring\n– 1-abzats: asosiy tendensiya yoki dalil, misollar bilan\n– 2-abzats: ikkinchi tendensiya yoki qarshi dalil',
+    photo: {
+      action: 'Rasmdan',
+      reading: 'O‘qilmoqda…',
+    },
     clearDraft: 'Qoralamani tozalash',
     clearConfirm: 'Qoralama tozalansinmi? Buni qaytarib bo‘lmaydi.',
     grade: 'AI-imtihonchida tekshirish',
