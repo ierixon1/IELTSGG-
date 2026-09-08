@@ -16,10 +16,39 @@ export class AudioVolumeDetector {
   private onVolumeUpdate?: (volume: number, isSpeaking: boolean) => void;
   private onSilenceThresholdReached?: (silenceDurationMs: number) => void;
 
+  /**
+   * Completed hesitation pauses, measured rather than estimated. A pause is
+   * only counted once it ends (speech resumes or the recording stops), so a
+   * segment is never double-counted while it is still running.
+   */
+  private longPauseCount = 0;
+  private longPauseTotalMs = 0;
+
   constructor(
     private threshold = 0.025, // RMS amplitude threshold for speech
-    private debounceMs = 300 // debounce to bridge natural pauses between words
+    private debounceMs = 300, // debounce to bridge natural pauses between words
+    private longPauseMs = 2000 // silence this long reads as hesitation, not breath
   ) {}
+
+  /**
+   * Measured pause statistics for the session so far. Call after `stop()` for
+   * the final numbers — `stop()` closes any pause still in progress.
+   */
+  public getPauseStats(): { count: number; totalMs: number } {
+    return { count: this.longPauseCount, totalMs: Math.round(this.longPauseTotalMs) };
+  }
+
+  /** Closes the pause currently in progress, if it qualifies as a long one. */
+  private closeOpenPause(): void {
+    if (this.silenceStartTime === null) return;
+
+    const duration = performance.now() - this.silenceStartTime;
+    if (duration >= this.longPauseMs) {
+      this.longPauseCount += 1;
+      this.longPauseTotalMs += duration;
+    }
+    this.silenceStartTime = null;
+  }
 
   public async start(callbacks: {
     onVolumeUpdate?: (volume: number, isSpeaking: boolean) => void;
@@ -66,7 +95,8 @@ export class AudioVolumeDetector {
 
       if (rawSpeaking) {
         this.lastSpeechTimestamp = now;
-        this.silenceStartTime = null;
+        // Speech resumed: the silence that just ended is now measurable.
+        this.closeOpenPause();
 
         if (!this.isSpeaking) {
           this.isSpeaking = true;
@@ -120,8 +150,9 @@ export class AudioVolumeDetector {
       this.stream.getTracks().forEach(t => t.stop());
       this.stream = null;
     }
+    // A recording that ends mid-silence still ended on a real pause.
+    this.closeOpenPause();
     this.isSpeaking = false;
-    this.silenceStartTime = null;
   }
 }
 

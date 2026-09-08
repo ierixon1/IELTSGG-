@@ -16,7 +16,16 @@ export default defineConfig(() => {
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      watch:
+        process.env.DISABLE_HMR === 'true'
+          ? null
+          : {
+              // `data/` is the dev server's own state store: every graded
+              // answer and synced plan writes into it. Watching it means a
+              // full page reload mid-session, which throws away the exam or
+              // interview the learner is in the middle of.
+              ignored: ['**/data/**'],
+            },
     },
   };
 });

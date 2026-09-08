@@ -17,7 +17,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 45,
-      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -27,7 +27,7 @@
       "taskType": "writing_task1",
       "dueDate": "2026-09-08",
       "completed": false,
-      "weight": 3,
+      "weight": 1,
       "durationMins": 40,
       "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
       "sectionId": "test-1"
@@ -39,9 +39,9 @@
       "taskType": "criteria_drill",
       "dueDate": "2026-09-10",
       "completed": false,
-      "weight": 4,
+      "weight": 5,
       "durationMins": 15,
-      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "arcade"
     },
     {
@@ -53,7 +53,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 60,
-      "reason": "Milestone check to measure section progress.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -65,7 +65,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 45,
-      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -75,7 +75,7 @@
       "taskType": "writing_task1",
       "dueDate": "2026-09-15",
       "completed": false,
-      "weight": 3,
+      "weight": 1,
       "durationMins": 40,
       "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
       "sectionId": "test-1"
@@ -87,9 +87,9 @@
       "taskType": "criteria_drill",
       "dueDate": "2026-09-17",
       "completed": false,
-      "weight": 4,
+      "weight": 5,
       "durationMins": 15,
-      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "arcade"
     },
     {
@@ -101,7 +101,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 165,
-      "reason": "Simulation of actual test conditions without pauses.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "exam-mode"
     },
     {
@@ -113,7 +113,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 45,
-      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -123,7 +123,7 @@
       "taskType": "writing_task1",
       "dueDate": "2026-09-22",
       "completed": false,
-      "weight": 3,
+      "weight": 1,
       "durationMins": 40,
       "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
       "sectionId": "test-1"
@@ -135,9 +135,9 @@
       "taskType": "criteria_drill",
       "dueDate": "2026-09-24",
       "completed": false,
-      "weight": 4,
+      "weight": 5,
       "durationMins": 15,
-      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "arcade"
     },
     {
@@ -149,7 +149,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 60,
-      "reason": "Milestone check to measure section progress.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -161,7 +161,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 45,
-      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -171,7 +171,7 @@
       "taskType": "writing_task1",
       "dueDate": "2026-09-29",
       "completed": false,
-      "weight": 3,
+      "weight": 1,
       "durationMins": 40,
       "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
       "sectionId": "test-1"
@@ -183,9 +183,9 @@
       "taskType": "criteria_drill",
       "dueDate": "2026-10-01",
       "completed": false,
-      "weight": 4,
+      "weight": 5,
       "durationMins": 15,
-      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "arcade"
     },
     {
@@ -197,7 +197,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 165,
-      "reason": "Simulation of actual test conditions without pauses.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "exam-mode"
     },
     {
@@ -209,7 +209,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 45,
-      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -219,7 +219,7 @@
       "taskType": "writing_task1",
       "dueDate": "2026-10-06",
       "completed": false,
-      "weight": 3,
+      "weight": 1,
       "durationMins": 40,
       "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
       "sectionId": "test-1"
@@ -231,9 +231,9 @@
       "taskType": "criteria_drill",
       "dueDate": "2026-10-08",
       "completed": false,
-      "weight": 4,
+      "weight": 5,
       "durationMins": 15,
-      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "arcade"
     },
     {
@@ -245,7 +245,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 60,
-      "reason": "Milestone check to measure section progress.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -257,7 +257,7 @@
       "completed": false,
       "weight": 5,
       "durationMins": 45,
-      "reason": "Targeting your identified weakest section (SPEAKING) for rapid score uplift.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "test-1"
     },
     {
@@ -267,7 +267,7 @@
       "taskType": "writing_task1",
       "dueDate": "2026-10-13",
       "completed": false,
-      "weight": 3,
+      "weight": 1,
       "durationMins": 40,
       "reason": "Building balanced competency in WRITING to secure target Band 7.5.",
       "sectionId": "test-1"
@@ -279,9 +279,9 @@
       "taskType": "criteria_drill",
       "dueDate": "2026-10-15",
       "completed": false,
-      "weight": 4,
+      "weight": 5,
       "durationMins": 15,
-      "reason": "Eliminate hesitation pauses and overcome fear of silence under pressure.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "arcade"
     },
     {
@@ -293,11 +293,38 @@
       "completed": false,
       "weight": 5,
       "durationMins": 165,
-      "reason": "Simulation of actual test conditions without pauses.",
+      "reason": "Priority elevated: identified as your critical bottleneck (SPEAKING).",
       "sectionId": "exam-mode"
     }
   ],
-  "attempts": [],
+  "attempts": [
+    {
+      "id": "attempt-1788869669367",
+      "testId": "test-1",
+      "date": "2026-09-08",
+      "isFullMock": false,
+      "scores": {
+        "overall": 6.5,
+        "speaking": {
+          "band": 6.5
+        }
+      },
+      "durationMinutes": 30
+    },
+    {
+      "id": "attempt-1788869740483",
+      "testId": "test-1",
+      "date": "2026-09-08",
+      "isFullMock": false,
+      "scores": {
+        "overall": 6.5,
+        "speaking": {
+          "band": 6.5
+        }
+      },
+      "durationMinutes": 30
+    }
+  ],
   "checklist": {
     "weekNumber": 1,
     "weekStart": "2026-09-05",
@@ -305,7 +332,7 @@
     "mocksTarget": 2,
     "essaysDone": 0,
     "essaysTarget": 4,
-    "speakingDone": 0,
+    "speakingDone": 2,
     "speakingTarget": 5
   },
   "users": {
