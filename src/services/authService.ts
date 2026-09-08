@@ -36,12 +36,35 @@ const useFirestoreAuth=()=>process.env.NODE_ENV==='production'||process.env.STOR
 const hashToken=(token:string)=>crypto.createHash('sha256').update(token).digest('hex');
 const explicitDevAuth=()=>process.env.EXPLICIT_DEV_AUTH==='true';
 class AuthService{
- constructor(){if(!useFirestoreAuth()){fs.mkdirSync(DATA_DIR,{recursive:true});if(!fs.existsSync(USERS_FILE))fs.writeFileSync(USERS_FILE,'[]','utf8');if(!fs.existsSync(SESSIONS_FILE))fs.writeFileSync(SESSIONS_FILE,'{}','utf8');this.seedInitialAccounts();}}
+ constructor(){if(!useFirestoreAuth()){fs.mkdirSync(DATA_DIR,{recursive:true});if(!fs.existsSync(USERS_FILE))fs.writeFileSync(USERS_FILE,'[]','utf8');if(!fs.existsSync(SESSIONS_FILE))fs.writeFileSync(SESSIONS_FILE,'{}','utf8');this.seedInitialAccounts();this.promoteFromEnv();}}
  private readUsers():UserAccount[]{try{return JSON.parse(fs.readFileSync(USERS_FILE,'utf8'));}catch{return[]}}
  private writeUsers(users:UserAccount[]){const t=`${USERS_FILE}.tmp.${process.pid}.${Date.now()}`;fs.writeFileSync(t,JSON.stringify(users,null,2),'utf8');fs.renameSync(t,USERS_FILE);}
  private readSessions():Record<string,UserSession>{try{return JSON.parse(fs.readFileSync(SESSIONS_FILE,'utf8'));}catch{return{}}}
  private writeSessions(s:Record<string,UserSession>){const t=`${SESSIONS_FILE}.tmp.${process.pid}.${Date.now()}`;fs.writeFileSync(t,JSON.stringify(s,null,2),'utf8');fs.renameSync(t,SESSIONS_FILE);}
  private makeUser(p:{id:string;email:string;username:string;name:string;password:string;role:UserRole}):UserAccount{const now=new Date().toISOString();return{id:p.id,email:p.email.trim().toLowerCase(),username:p.username.trim().toLowerCase(),name:p.name.trim().slice(0,80),passwordHash:bcrypt.hashSync(p.password,bcrypt.genSaltSync(12)),role:p.role,createdAt:now,updatedAt:now,failedLoginAttempts:0,sessionVersion:0};}
+ /**
+  * Grants a role to an account that already exists, named by
+  * `ADMIN_PROMOTE_USERNAME` (with `ADMIN_PROMOTE_ROLE` defaulting to admin).
+  * Bumps the session version so any session the account already holds is
+  * invalidated and re-issued with the new role, rather than carrying the old
+  * one until it expires.
+  */
+ private promoteFromEnv(){
+  const username=(process.env.ADMIN_PROMOTE_USERNAME||'').trim().toLowerCase();
+  if(!username)return;
+  const role=(process.env.ADMIN_PROMOTE_ROLE||'admin').trim().toLowerCase();
+  if(role!=='admin'&&role!=='examiner'){console.error(`[Auth] ADMIN_PROMOTE_ROLE must be admin or examiner, got: ${role}`);return;}
+  const users=this.readUsers();
+  const user=users.find(u=>u.username===username);
+  if(!user){console.error(`[Auth] ADMIN_PROMOTE_USERNAME set to "${username}" but no such account exists.`);return;}
+  if(user.role===role){console.log(`[Auth] ${username} already has role ${role}.`);return;}
+  user.role=role as UserRole;
+  user.sessionVersion=(user.sessionVersion||0)+1;
+  user.updatedAt=new Date().toISOString();
+  this.writeUsers(users);
+  this.invalidateLocalSessions(user.id);
+  console.log(`[Auth] Promoted ${username} to ${role}. Sign in again to pick up the new role.`);
+ }
  private seedInitialAccounts(){if(process.env.SEED_DEFAULT_ACCOUNTS!=='true')return;const username=(process.env.ADMIN_USER||'').trim().toLowerCase();const password=process.env.ADMIN_PASSWORD||'';if(!username||password.length<12)throw new Error('SEED_DEFAULT_ACCOUNTS=true requires ADMIN_USER and ADMIN_PASSWORD (minimum 12 characters).');const users=this.readUsers();let changed=false;if(!users.some(u=>u.username===username||u.role==='admin')){users.push(this.makeUser({id:`usr_admin_${nanoid(8)}`,username,email:process.env.ADMIN_EMAIL||'admin@prepielts.local',name:'Administrator',password,role:'admin'}));changed=true;}if(process.env.EXAMINER_SEED_PASSWORD&&!users.some(u=>u.username==='examiner')){users.push(this.makeUser({id:`usr_exam_${nanoid(8)}`,username:'examiner',email:process.env.EXAMINER_EMAIL||'examiner@prepielts.local',name:'IELTS Examiner',password:process.env.EXAMINER_SEED_PASSWORD,role:'examiner'}));changed=true;}if(changed)this.writeUsers(users);}
  private publicUser(user:UserAccount):Omit<UserAccount,'passwordHash'>{const{passwordHash:_passwordHash,...safe}=user;return safe;}
  private async invalidateFirestoreSessions(userId:string){const db=getFirestoreDb(),snap=await db.collection('auth_sessions').where('userId','==',userId).get();if(snap.empty)return;const batch=db.batch();snap.docs.forEach(d=>batch.delete(d.ref));await batch.commit();}
