@@ -19,10 +19,10 @@ import confetti from 'canvas-confetti';
 type Difficulty = 'easy' | 'medium' | 'hard' | 'extra_hard';
 
 const DIFFICULTY_CONFIG: Record<Difficulty, { label: string; silenceLimitSecs: number; color: string }> = {
-  easy: { label: 'Easy', silenceLimitSecs: 12, color: 'text-emerald-500 border-emerald-500' },
-  medium: { label: 'Medium', silenceLimitSecs: 10, color: 'text-blue-500 border-blue-500' },
-  hard: { label: 'Hard', silenceLimitSecs: 5, color: 'text-amber-500 border-amber-500' },
-  extra_hard: { label: 'Extra Hard', silenceLimitSecs: 2.5, color: 'text-rose-500 border-rose-500' },
+  easy: { label: 'Easy', silenceLimitSecs: 12, color: 'text-success-500 border-success-500' },
+  medium: { label: 'Medium', silenceLimitSecs: 10, color: 'text-brand-500 border-brand-500' },
+  hard: { label: 'Hard', silenceLimitSecs: 5, color: 'text-warning-500 border-warning-500' },
+  extra_hard: { label: 'Extra Hard', silenceLimitSecs: 2.5, color: 'text-danger-500 border-danger-500' },
 };
 
 export const SpeakOrDieArcade: React.FC = () => {
@@ -198,39 +198,39 @@ export const SpeakOrDieArcade: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-slate-900 text-white p-6 rounded-3xl border border-rose-900/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-danger-700 via-ink-900 to-ink-900 text-white p-6 rounded-3xl border border-danger-700/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
-            <span className="w-8 h-8 rounded-xl bg-rose-600 flex items-center justify-center font-bold text-white shadow-md">
+            <span className="w-8 h-8 rounded-xl bg-danger-500 flex items-center justify-center font-bold text-white shadow-md">
               <Flame className="w-5 h-5 fill-current" />
             </span>
             <h1 className="text-xl font-extrabold tracking-tight">Speak or Die: Anti-Hesitation Arcade</h1>
           </div>
-          <p className="text-xs text-slate-300">
+          <p className="text-xs text-ink-300">
             Overcome fear of silence in IELTS Speaking Part 2. Keep speaking or the saw descends!
           </p>
         </div>
 
         <div className="flex items-center space-x-3 bg-white/5 p-3 rounded-2xl border border-white/10 shrink-0">
-          <Trophy className="w-5 h-5 text-amber-400" />
+          <Trophy className="w-5 h-5 text-warning-500" />
           <div>
-            <div className="text-[10px] text-slate-400 uppercase font-semibold">Best Record</div>
+            <div className="text-[10px] text-ink-400 uppercase font-semibold">Best Record</div>
             <div className="text-sm font-bold text-white">{bestRecordSecs.toFixed(1)}s / 120s</div>
           </div>
         </div>
       </div>
 
       {/* Cue Card Prompt & Controls */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+      <div className="bg-white p-6 rounded-2xl border border-ink-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-ink-100">
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-rose-700 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-200">
+            <span className="text-xs font-bold uppercase tracking-wider text-danger-700 bg-danger-50 px-2.5 py-1 rounded-md border border-danger-50">
               Part 2 Cue Card
             </span>
             <button
               onClick={handleNextTopic}
               disabled={gameState === 'playing'}
-              className="text-xs text-slate-500 hover:text-slate-800 font-semibold underline decoration-slate-300"
+              className="text-xs text-ink-500 hover:text-ink-800 font-semibold underline decoration-ink-300"
             >
               Shuffle Card
             </button>
@@ -238,7 +238,7 @@ export const SpeakOrDieArcade: React.FC = () => {
 
           {/* Difficulty selector */}
           <div className="flex items-center space-x-1.5">
-            <span className="text-[11px] font-semibold text-slate-400 mr-1">Tolerance:</span>
+            <span className="text-[11px] font-semibold text-ink-400 mr-1">Tolerance:</span>
             {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map((diff) => (
               <button
                 key={diff}
@@ -246,8 +246,8 @@ export const SpeakOrDieArcade: React.FC = () => {
                 onClick={() => setDifficulty(diff)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
                   difficulty === diff
-                    ? DIFFICULTY_CONFIG[diff].color + ' bg-slate-900 text-white'
-                    : 'text-slate-500 border-slate-200 hover:bg-slate-50'
+                    ? DIFFICULTY_CONFIG[diff].color + ' bg-ink-900 text-white'
+                    : 'text-ink-500 border-ink-200 hover:bg-ink-50'
                 }`}
               >
                 {DIFFICULTY_CONFIG[diff].label} ({DIFFICULTY_CONFIG[diff].silenceLimitSecs}s)
@@ -257,32 +257,32 @@ export const SpeakOrDieArcade: React.FC = () => {
         </div>
 
         {/* The Selected Cue Card */}
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-          <h2 className="text-sm font-bold text-slate-900">{currentTopic.topic}</h2>
-          <div className="text-xs text-slate-600">
-            <span className="font-semibold text-slate-700">You should say: </span>
+        <div className="bg-ink-50 p-4 rounded-xl border border-ink-200 space-y-2">
+          <h2 className="text-sm font-bold text-ink-900">{currentTopic.topic}</h2>
+          <div className="text-xs text-ink-600">
+            <span className="font-semibold text-ink-700">You should say: </span>
             {currentTopic.bulletPoints.join(' • ')}
           </div>
         </div>
       </div>
 
       {/* Main Arcade Stage */}
-      <div className="bg-slate-950 text-white rounded-3xl p-6 sm:p-10 border border-slate-800 shadow-2xl relative overflow-hidden min-h-[380px] flex flex-col justify-between">
+      <div className="bg-ink-950 text-white rounded-3xl p-6 sm:p-10 border border-ink-800 shadow-2xl relative overflow-hidden min-h-[380px] flex flex-col justify-between">
         {/* Top HUD: Survival Timer & Danger Meter */}
         <div className="flex items-center justify-between z-10">
           <div>
-            <div className="text-[11px] text-slate-400 uppercase font-mono">Survival Time</div>
-            <div className="text-3xl sm:text-4xl font-black font-mono text-emerald-400 tracking-tight">
+            <div className="text-[11px] text-ink-400 uppercase font-mono">Survival Time</div>
+            <div className="text-3xl sm:text-4xl font-black font-mono text-success-500 tracking-tight">
               {survivalTimeSecs.toFixed(1)}s
-              <span className="text-xs text-slate-500 font-normal ml-1">/ 120s</span>
+              <span className="text-xs text-ink-500 font-normal ml-1">/ 120s</span>
             </div>
           </div>
 
           <div className="text-right">
-            <div className="text-[11px] text-slate-400 uppercase font-mono">Silence Countdown</div>
+            <div className="text-[11px] text-ink-400 uppercase font-mono">Silence Countdown</div>
             <div
               className={`text-2xl font-black font-mono ${
-                consecutiveSilenceSecs > silenceLimit * 0.6 ? 'text-rose-500 animate-pulse' : 'text-slate-200'
+                consecutiveSilenceSecs > silenceLimit * 0.6 ? 'text-danger-500 animate-pulse' : 'text-ink-200'
               }`}
             >
               {(silenceLimit - consecutiveSilenceSecs).toFixed(1)}s left
@@ -293,7 +293,7 @@ export const SpeakOrDieArcade: React.FC = () => {
         {/* Center Arena: Interactive Mechanical Saw Blade & Avatar */}
         <div className="relative my-8 h-48 w-full max-w-md mx-auto flex flex-col items-center justify-center">
           {/* Warning Track */}
-          <div className="absolute inset-y-0 w-1 bg-red-900/40 rounded-full" />
+          <div className="absolute inset-y-0 w-1 bg-danger-700/40 rounded-full" />
 
           {/* The Spinning Saw Blade */}
           <div
@@ -302,14 +302,14 @@ export const SpeakOrDieArcade: React.FC = () => {
           >
             {/* Saw Blade Graphic */}
             <div
-              className={`w-16 h-16 rounded-full border-4 border-dashed border-rose-500 bg-rose-600/90 shadow-[0_0_20px_rgba(244,63,94,0.7)] flex items-center justify-center text-white ${
+              className={`w-16 h-16 rounded-full border-4 border-dashed border-danger-500 bg-danger-500/90 shadow-[0_0_20px_rgba(244,63,94,0.7)] flex items-center justify-center text-white ${
                 gameState === 'playing' ? 'animate-spin' : ''
               }`}
             >
               <Zap className="w-8 h-8 fill-current" />
             </div>
             {consecutiveSilenceSecs > 1 && (
-              <span className="text-[10px] font-mono font-bold text-rose-400 bg-black/80 px-1.5 py-0.5 rounded mt-1">
+              <span className="text-[10px] font-mono font-bold text-danger-500 bg-black/80 px-1.5 py-0.5 rounded mt-1">
                 SILENCE DANGER
               </span>
             )}
@@ -320,13 +320,13 @@ export const SpeakOrDieArcade: React.FC = () => {
             <div
               className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-lg border-2 transition-transform ${
                 isSpeaking
-                  ? 'bg-emerald-600 border-emerald-400 scale-110'
-                  : 'bg-slate-800 border-slate-700'
+                  ? 'bg-success-500 border-success-500 scale-110'
+                  : 'bg-ink-800 border-ink-700'
               }`}
             >
               {gameState === 'dead' ? '💀' : gameState === 'survived' ? '🏆' : isSpeaking ? '🗣️' : '🤐'}
             </div>
-            <span className="text-[10px] text-slate-400 font-semibold mt-1">
+            <span className="text-[10px] text-ink-400 font-semibold mt-1">
               {isSpeaking ? 'SPEAKING' : 'SILENT'}
             </span>
           </div>
@@ -336,16 +336,16 @@ export const SpeakOrDieArcade: React.FC = () => {
         <div className="z-10 space-y-4">
           {/* Audio Volume Bar */}
           <div className="space-y-1 max-w-sm mx-auto">
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+            <div className="flex justify-between text-[10px] text-ink-400 font-mono">
               <span>Mic Voice Level</span>
-              <span className={isSpeaking ? 'text-emerald-400 font-bold' : ''}>
+              <span className={isSpeaking ? 'text-success-500 font-bold' : ''}>
                 {isSpeaking ? 'VOICE SAFE' : 'PAUSED'}
               </span>
             </div>
-            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-ink-800 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-75 ${
-                  isSpeaking ? 'bg-emerald-500' : 'bg-slate-600'
+                  isSpeaking ? 'bg-success-500' : 'bg-ink-600'
                 }`}
                 style={{ width: `${Math.min(100, volumeLevel * 100)}%` }}
               />
@@ -358,7 +358,7 @@ export const SpeakOrDieArcade: React.FC = () => {
               <button
                 id="btn-start-arcade"
                 onClick={startGame}
-                className="inline-flex items-center space-x-2 px-8 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-sm shadow-xl transition-all cursor-pointer transform hover:scale-105"
+                className="inline-flex items-center space-x-2 px-8 py-3.5 rounded-2xl bg-danger-500 hover:bg-danger-700 text-white font-extrabold text-sm shadow-xl transition-all cursor-pointer transform hover:scale-105"
               >
                 <Mic className="w-4 h-4" />
                 <span>Start Speaking Now</span>
@@ -369,9 +369,9 @@ export const SpeakOrDieArcade: React.FC = () => {
               <button
                 id="btn-give-up-arcade"
                 onClick={handleDeath}
-                className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all"
+                className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-ink-800 hover:bg-ink-700 text-ink-300 font-bold text-xs transition-all"
               >
-                <Skull className="w-4 h-4 text-slate-400" />
+                <Skull className="w-4 h-4 text-ink-400" />
                 <span>Give Up</span>
               </button>
             )}
@@ -381,14 +381,14 @@ export const SpeakOrDieArcade: React.FC = () => {
                 <button
                   id="btn-restart-arcade"
                   onClick={startGame}
-                  className="inline-flex items-center space-x-2 px-8 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-sm shadow-xl transition-all cursor-pointer"
+                  className="inline-flex items-center space-x-2 px-8 py-3.5 rounded-2xl bg-danger-500 hover:bg-danger-700 text-white font-extrabold text-sm shadow-xl transition-all cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Try Again (1-Click Restart)</span>
                 </button>
                 <button
                   onClick={handleNextTopic}
-                  className="px-4 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs"
+                  className="px-4 py-3.5 rounded-2xl bg-ink-800 hover:bg-ink-700 text-ink-200 font-bold text-xs"
                 >
                   New Card
                 </button>
@@ -399,17 +399,17 @@ export const SpeakOrDieArcade: React.FC = () => {
 
         {/* Victory Overlay */}
         {gameState === 'survived' && (
-          <div className="absolute inset-0 bg-emerald-950/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-6 text-center space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-emerald-500 text-white flex items-center justify-center text-3xl shadow-xl">
+          <div className="absolute inset-0 bg-success-700/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-6 text-center space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-success-500 text-white flex items-center justify-center text-3xl shadow-xl">
               🏆
             </div>
             <h2 className="text-2xl font-black text-white">Full 2-Minute Monologue Conquered!</h2>
-            <p className="text-xs text-emerald-200 max-w-sm">
+            <p className="text-xs text-success-50 max-w-sm">
               You maintained continuous speech without freezing beyond the {silenceLimit}s limit! Your hesitation barrier is broken.
             </p>
             <button
               onClick={startGame}
-              className="px-6 py-2.5 rounded-xl bg-white text-slate-900 font-bold text-xs shadow-lg hover:bg-emerald-50 transition-colors"
+              className="px-6 py-2.5 rounded-xl bg-white text-ink-900 font-bold text-xs shadow-lg hover:bg-success-50 transition-colors"
             >
               Play Again with Another Card
             </button>
@@ -418,18 +418,18 @@ export const SpeakOrDieArcade: React.FC = () => {
 
         {/* Death Overlay */}
         {gameState === 'dead' && (
-          <div className="absolute inset-0 bg-rose-950/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-6 text-center space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-rose-600 text-white flex items-center justify-center text-3xl shadow-xl animate-bounce">
+          <div className="absolute inset-0 bg-danger-700/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-6 text-center space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-danger-500 text-white flex items-center justify-center text-3xl shadow-xl animate-bounce">
               ⚡
             </div>
             <h2 className="text-2xl font-black text-white tracking-wide uppercase">Hesitation Strike!</h2>
-            <p className="text-xs text-rose-200 max-w-sm">
+            <p className="text-xs text-danger-50 max-w-sm">
               Silence exceeded {silenceLimit} seconds! On the actual exam, this pause would drop your Fluency score.
               You survived <strong>{survivalTimeSecs.toFixed(1)} seconds</strong>.
             </p>
             <button
               onClick={startGame}
-              className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-lg transition-colors cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-danger-500 hover:bg-danger-700 text-white font-bold text-xs shadow-lg transition-colors cursor-pointer"
             >
               Immediate Revenge (1-Click Restart)
             </button>

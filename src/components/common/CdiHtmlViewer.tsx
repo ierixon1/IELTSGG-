@@ -26,7 +26,7 @@ export const CdiHtmlViewer: React.FC<CdiHtmlViewerProps> = ({
   return (
     <div
       id={id || 'cdi-html-viewer'}
-      className={`cdi-html-content prose prose-slate max-w-none text-slate-800 leading-relaxed font-sans text-sm md:text-base selection:bg-amber-100 ${className}`}
+      className={`cdi-html-content prose prose-slate max-w-none text-ink-800 leading-relaxed font-sans text-sm md:text-base selection:bg-warning-50 ${className}`}
       dangerouslySetInnerHTML={{ __html: safeHtml }}
     />
   );

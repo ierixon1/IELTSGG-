@@ -98,12 +98,12 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+      <div className="flex items-center justify-between border-b border-ink-200 pb-4">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">
+          <h3 className="text-lg font-bold text-ink-900">
             {initialData ? 'Edit Speaking Material' : 'Create New Speaking Material'}
           </h3>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-500">
             Configure Cue Cards, Part 1/3 questions, and audio benchmark demonstrations.
           </p>
         </div>
@@ -111,7 +111,7 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value as any)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-ink-300 bg-white"
           >
             <option value="published">Status: Published (Active)</option>
             <option value="draft">Status: Draft (Unpublished)</option>
@@ -122,43 +122,43 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
       {/* Basic Settings */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Material Title</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Material Title</label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg focus:bg-white"
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Theme / Domain</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Theme / Domain</label>
           <input
             type="text"
             value={theme}
             onChange={(e) => setTheme(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg focus:bg-white"
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Target Band Benchmark</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Target Band Benchmark</label>
           <input
             type="text"
             value={targetBand}
             onChange={(e) => setTargetBand(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg focus:bg-white"
           />
         </div>
       </div>
 
       {/* Part 1 */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+      <div className="p-4 bg-ink-50 rounded-xl border border-ink-200 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <span className="text-xs font-bold text-ink-900 uppercase tracking-wider">
             Part 1: Introduction & Interview
           </span>
           <button
             onClick={() => setPart1Questions([...part1Questions, ''])}
-            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center space-x-1"
+            className="text-xs text-brand-600 hover:text-brand-800 font-semibold flex items-center space-x-1"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Question</span>
@@ -169,12 +169,12 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
           value={part1Topic}
           placeholder="Topic name (e.g. Work, Studies, Hometown)"
           onChange={(e) => setPart1Topic(e.target.value)}
-          className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg font-semibold"
+          className="w-full text-xs p-2 bg-white border border-ink-200 rounded-lg font-semibold"
         />
         <div className="space-y-2">
           {part1Questions.map((q, idx) => (
             <div key={idx} className="flex items-center space-x-2">
-              <span className="text-xs text-slate-400 font-mono w-5">{idx + 1}.</span>
+              <span className="text-xs text-ink-400 font-mono w-5">{idx + 1}.</span>
               <input
                 type="text"
                 value={q}
@@ -183,12 +183,12 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
                   copy[idx] = e.target.value;
                   setPart1Questions(copy);
                 }}
-                className="flex-1 text-xs p-2 bg-white border border-slate-200 rounded-lg"
+                className="flex-1 text-xs p-2 bg-white border border-ink-200 rounded-lg"
                 placeholder="Question text"
               />
               <button
                 onClick={() => setPart1Questions(part1Questions.filter((_, i) => i !== idx))}
-                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md"
+                className="p-1.5 text-ink-400 hover:text-danger-500 rounded-md"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -198,14 +198,14 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
       </div>
 
       {/* Part 2: Cue Card */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+      <div className="p-4 bg-ink-50 rounded-xl border border-ink-200 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <span className="text-xs font-bold text-ink-900 uppercase tracking-wider">
             Part 2: Long Turn (Cue Card)
           </span>
           <button
             onClick={() => setCueCardBullets([...cueCardBullets, ''])}
-            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center space-x-1"
+            className="text-xs text-brand-600 hover:text-brand-800 font-semibold flex items-center space-x-1"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Bullet Point</span>
@@ -216,13 +216,13 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
           value={cueCardTopic}
           placeholder="Cue Card Prompt (Describe a...)"
           onChange={(e) => setCueCardTopic(e.target.value)}
-          className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg font-semibold text-slate-900"
+          className="w-full text-xs p-2.5 bg-white border border-ink-200 rounded-lg font-semibold text-ink-900"
         />
         <div className="space-y-2">
-          <label className="block text-[11px] font-bold text-slate-500">Prompts & Guidelines (You should say):</label>
+          <label className="block text-[11px] font-bold text-ink-500">Prompts & Guidelines (You should say):</label>
           {cueCardBullets.map((b, idx) => (
             <div key={idx} className="flex items-center space-x-2">
-              <span className="text-xs text-slate-400">•</span>
+              <span className="text-xs text-ink-400">•</span>
               <input
                 type="text"
                 value={b}
@@ -231,11 +231,11 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
                   copy[idx] = e.target.value;
                   setCueCardBullets(copy);
                 }}
-                className="flex-1 text-xs p-2 bg-white border border-slate-200 rounded-lg"
+                className="flex-1 text-xs p-2 bg-white border border-ink-200 rounded-lg"
               />
               <button
                 onClick={() => setCueCardBullets(cueCardBullets.filter((_, i) => i !== idx))}
-                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md"
+                className="p-1.5 text-ink-400 hover:text-danger-500 rounded-md"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -245,14 +245,14 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
       </div>
 
       {/* Part 3: Two-way Discussion */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+      <div className="p-4 bg-ink-50 rounded-xl border border-ink-200 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <span className="text-xs font-bold text-ink-900 uppercase tracking-wider">
             Part 3: Discussion Questions
           </span>
           <button
             onClick={() => setPart3Questions([...part3Questions, ''])}
-            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center space-x-1"
+            className="text-xs text-brand-600 hover:text-brand-800 font-semibold flex items-center space-x-1"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Question</span>
@@ -261,7 +261,7 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
         <div className="space-y-2">
           {part3Questions.map((q, idx) => (
             <div key={idx} className="flex items-center space-x-2">
-              <span className="text-xs text-slate-400 font-mono w-5">{idx + 1}.</span>
+              <span className="text-xs text-ink-400 font-mono w-5">{idx + 1}.</span>
               <input
                 type="text"
                 value={q}
@@ -270,12 +270,12 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
                   copy[idx] = e.target.value;
                   setPart3Questions(copy);
                 }}
-                className="flex-1 text-xs p-2 bg-white border border-slate-200 rounded-lg"
+                className="flex-1 text-xs p-2 bg-white border border-ink-200 rounded-lg"
                 placeholder="Abstract/in-depth debate question"
               />
               <button
                 onClick={() => setPart3Questions(part3Questions.filter((_, i) => i !== idx))}
-                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md"
+                className="p-1.5 text-ink-400 hover:text-danger-500 rounded-md"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -285,10 +285,10 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
       </div>
 
       {/* Optional Audio Model Answer */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+      <div className="p-4 bg-ink-50 rounded-xl border border-ink-200 space-y-3">
         <div className="flex items-center space-x-2">
-          <Volume2 className="w-4 h-4 text-indigo-600" />
-          <span className="text-xs font-bold text-slate-900">Attach Audio Model Answer (Optional Benchmark)</span>
+          <Volume2 className="w-4 h-4 text-brand-600" />
+          <span className="text-xs font-bold text-ink-900">Attach Audio Model Answer (Optional Benchmark)</span>
         </div>
         <FileUploadZone
           accept=".mp3,.wav,.ogg"
@@ -309,25 +309,25 @@ export const AdminSpeakingEditor: React.FC<AdminSpeakingEditorProps> = ({
           }}
         />
         {audioModels.length > 0 && (
-          <div className="text-xs text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200 flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <div className="text-xs text-success-700 bg-success-50 p-2 rounded-lg border border-success-50 flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-success-500" />
             <span>{audioModels.length} audio model answer(s) attached.</span>
           </div>
         )}
       </div>
 
       {/* Buttons */}
-      <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200">
+      <div className="flex items-center justify-end space-x-3 pt-4 border-t border-ink-200">
         <button
           onClick={onCancel}
-          className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-lg"
+          className="px-4 py-2 text-xs font-semibold text-ink-600 hover:text-ink-900 rounded-lg"
         >
           Cancel
         </button>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow-sm"
+          className="px-5 py-2 text-xs font-bold bg-ink-900 hover:bg-ink-800 text-white rounded-lg shadow-sm"
         >
           {saving ? 'Saving...' : 'Save Material'}
         </button>

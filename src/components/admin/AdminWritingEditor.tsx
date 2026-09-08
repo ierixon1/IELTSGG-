@@ -115,12 +115,12 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+      <div className="flex items-center justify-between border-b border-ink-200 pb-4">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">
+          <h3 className="text-lg font-bold text-ink-900">
             {initialData ? 'Edit Writing Tasks' : 'Upload & Create Writing Exam Tasks'}
           </h3>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-500">
             Upload Task 1 diagram/chart image, configure Task 2 essay prompt, and define scoring criteria.
           </p>
         </div>
@@ -128,7 +128,7 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
           <select
             value={module}
             onChange={(e) => setModule(e.target.value as any)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-ink-300 bg-white"
           >
             <option value="academic">Academic Module (Graph / Report)</option>
             <option value="general">General Training Module (Letter)</option>
@@ -136,7 +136,7 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value as any)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-ink-300 bg-white"
           >
             <option value="published">Status: Published</option>
             <option value="draft">Status: Draft</option>
@@ -147,38 +147,38 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
       {/* Metadata */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Writing Test Title</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Writing Test Title</label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg"
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Theme / Domain</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Theme / Domain</label>
           <input
             type="text"
             value={theme}
             onChange={(e) => setTheme(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg"
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Target Band</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Target Band</label>
           <input
             type="text"
             value={targetBand}
             onChange={(e) => setTargetBand(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg"
           />
         </div>
       </div>
 
       {/* Task 1 Section */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+      <div className="p-4 bg-ink-50 rounded-xl border border-ink-200 space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <span className="text-xs font-bold text-ink-900 uppercase tracking-wider">
             {module === 'academic' ? 'Task 1: Graphic / Report (150 words • 20 mins)' : 'Task 1: Letter (150 words • 20 mins)'}
           </span>
         </div>
@@ -196,18 +196,18 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
             />
 
             {task1ImageUrl && (
-              <div className="p-2.5 bg-white border border-slate-200 rounded-xl flex items-center space-x-3">
+              <div className="p-2.5 bg-white border border-ink-200 rounded-xl flex items-center space-x-3">
                 <img
                   src={task1ImageUrl}
                   alt="Task 1 diagram preview"
-                  className="w-24 h-16 object-contain rounded-lg border border-slate-100 bg-slate-50"
+                  className="w-24 h-16 object-contain rounded-lg border border-ink-100 bg-ink-50"
                 />
                 <div className="text-xs">
-                  <div className="font-bold text-slate-800 flex items-center space-x-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <div className="font-bold text-ink-800 flex items-center space-x-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-success-500" />
                     <span>Diagram Attached</span>
                   </div>
-                  <span className="text-slate-500 truncate block max-w-sm">{task1ImageUrl}</span>
+                  <span className="text-ink-500 truncate block max-w-sm">{task1ImageUrl}</span>
                 </div>
               </div>
             )}
@@ -217,13 +217,13 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
         {/* Task 1 Prompt Format Mode */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <label className="block text-[11px] font-bold text-slate-700">Task 1 Prompt Formulation</label>
-            <div className="inline-flex p-0.5 bg-slate-200/70 rounded-lg text-xs">
+            <label className="block text-[11px] font-bold text-ink-700">Task 1 Prompt Formulation</label>
+            <div className="inline-flex p-0.5 bg-ink-200/70 rounded-lg text-xs">
               <button
                 type="button"
                 onClick={() => setTask1Mode('text')}
                 className={`px-2.5 py-0.5 rounded-md font-semibold transition-all ${
-                  task1Mode === 'text' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                  task1Mode === 'text' ? 'bg-white text-ink-900 shadow-2xs' : 'text-ink-600'
                 }`}
               >
                 Plain Text
@@ -232,7 +232,7 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
                 type="button"
                 onClick={() => setTask1Mode('html')}
                 className={`flex items-center space-x-1 px-2.5 py-0.5 rounded-md font-semibold transition-all ${
-                  task1Mode === 'html' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-600'
+                  task1Mode === 'html' ? 'bg-brand-600 text-white shadow-2xs' : 'text-ink-600'
                 }`}
               >
                 <FileCode className="w-3 h-3" />
@@ -246,7 +246,7 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
               rows={3}
               value={task1Prompt}
               onChange={(e) => setTask1Prompt(e.target.value)}
-              className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-900"
+              className="w-full text-xs p-2.5 bg-white border border-ink-200 rounded-lg focus:ring-2 focus:ring-ink-900"
             />
           ) : (
             <div className="space-y-2">
@@ -265,11 +265,11 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
                 value={task1Html}
                 onChange={(e) => setTask1Html(e.target.value)}
                 placeholder="Paste HTML source for Task 1..."
-                className="w-full text-xs p-2 font-mono bg-slate-900 text-emerald-400 rounded-lg border border-slate-700"
+                className="w-full text-xs p-2 font-mono bg-ink-900 text-success-500 rounded-lg border border-ink-700"
               />
               {task1Html && (
-                <div className="p-3 bg-white rounded-lg border border-slate-200">
-                  <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">CDI Live Preview:</div>
+                <div className="p-3 bg-white rounded-lg border border-ink-200">
+                  <div className="text-[10px] text-ink-400 font-bold uppercase mb-1">CDI Live Preview:</div>
                   <CdiHtmlViewer html={task1Html} />
                 </div>
               )}
@@ -278,29 +278,29 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
         </div>
 
         <div>
-          <label className="block text-[11px] font-bold text-slate-600 mb-1">Chart Data Visualization Description</label>
+          <label className="block text-[11px] font-bold text-ink-600 mb-1">Chart Data Visualization Description</label>
           <input
             type="text"
             value={task1ChartDescription}
             onChange={(e) => setTask1ChartDescription(e.target.value)}
             placeholder="Brief visual summary of axes, units, and data trends"
-            className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg"
+            className="w-full text-xs p-2.5 bg-white border border-ink-200 rounded-lg"
           />
         </div>
       </div>
 
       {/* Task 2 Section */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+      <div className="p-4 bg-ink-50 rounded-xl border border-ink-200 space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <span className="text-xs font-bold text-ink-900 uppercase tracking-wider">
             Task 2: Discursive Essay (250 words • 40 mins)
           </span>
-          <div className="inline-flex p-0.5 bg-slate-200/70 rounded-lg text-xs">
+          <div className="inline-flex p-0.5 bg-ink-200/70 rounded-lg text-xs">
             <button
               type="button"
               onClick={() => setTask2Mode('text')}
               className={`px-2.5 py-0.5 rounded-md font-semibold transition-all ${
-                task2Mode === 'text' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                task2Mode === 'text' ? 'bg-white text-ink-900 shadow-2xs' : 'text-ink-600'
               }`}
             >
               Plain Text
@@ -309,7 +309,7 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
               type="button"
               onClick={() => setTask2Mode('html')}
               className={`flex items-center space-x-1 px-2.5 py-0.5 rounded-md font-semibold transition-all ${
-                task2Mode === 'html' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-600'
+                task2Mode === 'html' ? 'bg-brand-600 text-white shadow-2xs' : 'text-ink-600'
               }`}
             >
               <FileCode className="w-3 h-3" />
@@ -320,12 +320,12 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
 
         {task2Mode === 'text' ? (
           <div>
-            <label className="block text-[11px] font-bold text-slate-600 mb-1">Task 2 Essay Prompt</label>
+            <label className="block text-[11px] font-bold text-ink-600 mb-1">Task 2 Essay Prompt</label>
             <textarea
               rows={3}
               value={task2Prompt}
               onChange={(e) => setTask2Prompt(e.target.value)}
-              className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-900"
+              className="w-full text-xs p-2.5 bg-white border border-ink-200 rounded-lg focus:ring-2 focus:ring-ink-900"
             />
           </div>
         ) : (
@@ -345,11 +345,11 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
               value={task2Html}
               onChange={(e) => setTask2Html(e.target.value)}
               placeholder="Paste HTML source for Task 2..."
-              className="w-full text-xs p-2 font-mono bg-slate-900 text-emerald-400 rounded-lg border border-slate-700"
+              className="w-full text-xs p-2 font-mono bg-ink-900 text-success-500 rounded-lg border border-ink-700"
             />
             {task2Html && (
-              <div className="p-3 bg-white rounded-lg border border-slate-200">
-                <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">CDI Live Preview:</div>
+              <div className="p-3 bg-white rounded-lg border border-ink-200">
+                <div className="text-[10px] text-ink-400 font-bold uppercase mb-1">CDI Live Preview:</div>
                 <CdiHtmlViewer html={task2Html} />
               </div>
             )}
@@ -359,10 +359,10 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
         {/* Band 8 Vocabulary Hints */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-[11px] font-bold text-slate-600">Band 8+ Lexical Vocabulary Hints</label>
+            <label className="block text-[11px] font-bold text-ink-600">Band 8+ Lexical Vocabulary Hints</label>
             <button
               onClick={() => setTask2Hints([...task2Hints, ''])}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center space-x-1"
+              className="text-xs text-brand-600 hover:text-brand-800 font-semibold flex items-center space-x-1"
             >
               <Plus className="w-3 h-3" />
               <span>Add Phrase</span>
@@ -379,12 +379,12 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
                     copy[idx] = e.target.value;
                     setTask2Hints(copy);
                   }}
-                  className="flex-1 text-xs p-1.5 bg-white border border-slate-200 rounded"
+                  className="flex-1 text-xs p-1.5 bg-white border border-ink-200 rounded"
                   placeholder="e.g. socioeconomic divide"
                 />
                 <button
                   onClick={() => setTask2Hints(task2Hints.filter((_, i) => i !== idx))}
-                  className="text-slate-400 hover:text-rose-600 p-1"
+                  className="text-ink-400 hover:text-danger-500 p-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -395,7 +395,7 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
 
         {/* Custom Grading Rubric Guide */}
         <div>
-          <label className="block text-[11px] font-bold text-slate-600 mb-1">
+          <label className="block text-[11px] font-bold text-ink-600 mb-1">
             Custom Examiner Evaluation Guide (Fed into AI Grading System)
           </label>
           <textarea
@@ -403,23 +403,23 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
             value={taskResponseGuide}
             onChange={(e) => setTaskResponseGuide(e.target.value)}
             placeholder="Special rubric focus points (e.g. must explicitly discuss both government and personal duties)"
-            className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg font-medium text-slate-700"
+            className="w-full text-xs p-2 bg-white border border-ink-200 rounded-lg font-medium text-ink-700"
           />
         </div>
       </div>
 
       {/* Buttons */}
-      <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200">
+      <div className="flex items-center justify-end space-x-3 pt-4 border-t border-ink-200">
         <button
           onClick={onCancel}
-          className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-lg"
+          className="px-4 py-2 text-xs font-semibold text-ink-600 hover:text-ink-900 rounded-lg"
         >
           Cancel
         </button>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow-sm"
+          className="px-5 py-2 text-xs font-bold bg-ink-900 hover:bg-ink-800 text-white rounded-lg shadow-sm"
         >
           {saving ? 'Saving...' : 'Save Writing Tasks'}
         </button>

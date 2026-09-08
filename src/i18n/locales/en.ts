@@ -201,6 +201,48 @@ export const en: Dictionary = {
     },
   },
 
+  onboarding: {
+    title: 'Set up your study plan',
+    subtitle: 'Four answers and the plan writes itself around your target and your weakest skill.',
+    currentLevel: 'Current level',
+    targetBand: 'Target band',
+    focusLabel: 'Weakest skill',
+    focus: {
+      writing: 'Task 1 & 2',
+      speaking: 'Fluency & pronunciation',
+      reading: 'Timing & headings',
+      listening: 'Multiple accents',
+    },
+    examDate: 'Exam date (optional)',
+    examDateHint: 'Left blank, the plan assumes a six-week schedule.',
+    hours: 'Hours per week',
+    hoursValue: '{count}h',
+    pace: { casual: 'Casual', recommended: 'Recommended', intensive: 'Intensive' },
+    rule:
+      'After every graded mock the plan recalculates: whichever skill scores lowest gets the heavier share of next week’s drills.',
+    submit: 'Generate my plan',
+    resubmit: 'Update my plan',
+  },
+
+  preppy: {
+    title: 'Preppy AI',
+    subtitle: 'Your IELTS mentor',
+    placeholder: 'Ask about a band, a criterion, or what to do next…',
+    send: 'Send',
+    thinking: 'Thinking…',
+    greeting:
+      'Hi! Ask me why a band was given, how to lift a specific criterion, or what to practise today.',
+    contextNote: 'Answers use your target band and weakest skill as context.',
+    error: 'Preppy could not answer just now. Try again in a moment.',
+    suggested: 'Try asking',
+    prompts: {
+      p1: 'How do I structure a Band 8 Task 2 essay?',
+      p2: 'Give me Band 8 collocations for environment topics',
+      p3: 'How do I stop pausing in Speaking Part 2?',
+      p4: 'What is the difference between FALSE and NOT GIVEN?',
+    },
+  },
+
   landing: {
     nav: {
       platform: 'Platform',

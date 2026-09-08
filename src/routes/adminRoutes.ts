@@ -186,7 +186,7 @@ export const sanitizeHtmlServer = (rawHtml: string): string => {
           return {
             tagName: 'span',
             attribs: {
-              class: 'cdi-blocked-img text-slate-400 italic text-xs block my-2 p-2 border border-dashed border-slate-300 rounded bg-slate-50'
+              class: 'cdi-blocked-img text-ink-400 italic text-xs block my-2 p-2 border border-dashed border-ink-300 rounded bg-ink-50'
             },
             text: '[External image blocked: only internal uploads or inline base64 data are allowed]'
           };

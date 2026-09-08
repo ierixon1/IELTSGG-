@@ -117,12 +117,12 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+      <div className="flex items-center justify-between border-b border-ink-200 pb-4">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">
+          <h3 className="text-lg font-bold text-ink-900">
             {initialData ? 'Edit Reading Material' : 'Upload & Create Reading Passage'}
           </h3>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-500">
             Upload text documents (.txt, .docx, .pdf) or paste passage text with question benchmarks.
           </p>
         </div>
@@ -130,7 +130,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
           <select
             value={module}
             onChange={(e) => setModule(e.target.value as any)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-ink-300 bg-white"
           >
             <option value="academic">Academic Module</option>
             <option value="general">General Training Module</option>
@@ -138,7 +138,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value as any)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-ink-300 bg-white"
           >
             <option value="published">Status: Published</option>
             <option value="draft">Status: Draft</option>
@@ -187,47 +187,47 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
       {/* Metadata */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Passage Display Title</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Passage Display Title</label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg"
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Theme / Academic Topic</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Theme / Academic Topic</label>
           <input
             type="text"
             value={theme}
             onChange={(e) => setTheme(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg"
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Target Band</label>
+          <label className="block text-xs font-bold text-ink-700 mb-1">Target Band</label>
           <input
             type="text"
             value={targetBand}
             onChange={(e) => setTargetBand(e.target.value)}
-            className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg"
+            className="w-full text-xs p-2.5 bg-ink-50 border border-ink-200 rounded-lg"
           />
         </div>
       </div>
 
       {/* Passage Format Mode Selector */}
-      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+      <div className="border border-ink-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+        <div className="flex items-center justify-between px-4 py-3 bg-ink-50 border-b border-ink-200">
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold text-slate-800">Passage Content Mode:</span>
-            <div className="inline-flex p-0.5 bg-slate-200/70 rounded-lg text-xs">
+            <span className="text-xs font-bold text-ink-800">Passage Content Mode:</span>
+            <div className="inline-flex p-0.5 bg-ink-200/70 rounded-lg text-xs">
               <button
                 type="button"
                 onClick={() => setEditorMode('text')}
                 className={`px-3 py-1 rounded-md font-semibold transition-all ${
                   editorMode === 'text'
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white text-ink-900 shadow-2xs'
+                    : 'text-ink-600 hover:text-ink-900'
                 }`}
               >
                 Plain Text
@@ -237,8 +237,8 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                 onClick={() => setEditorMode('html')}
                 className={`flex items-center space-x-1.5 px-3 py-1 rounded-md font-semibold transition-all ${
                   editorMode === 'html'
-                    ? 'bg-indigo-600 text-white shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-brand-600 text-white shadow-2xs'
+                    : 'text-ink-600 hover:text-ink-900'
                 }`}
               >
                 <FileCode className="w-3.5 h-3.5" />
@@ -249,14 +249,14 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
 
           {editorMode === 'html' && (
             <div className="flex items-center space-x-2">
-              <span className="text-[11px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
+              <span className="text-[11px] text-success-700 font-semibold bg-success-50 px-2 py-0.5 rounded border border-success-50 flex items-center space-x-1">
                 <CheckCircle2 className="w-3 h-3" />
                 <span>XSS Sanitized</span>
               </span>
               <button
                 type="button"
                 onClick={() => setShowLiveHtmlPreview(!showLiveHtmlPreview)}
-                className="flex items-center space-x-1 text-xs text-indigo-600 hover:text-indigo-800 font-semibold bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                className="flex items-center space-x-1 text-xs text-brand-600 hover:text-brand-800 font-semibold bg-brand-50 hover:bg-brand-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
               >
                 {showLiveHtmlPreview ? (
                   <>
@@ -281,10 +281,10 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                 rows={8}
                 value={passageText}
                 onChange={(e) => setPassageText(e.target.value)}
-                className="w-full text-xs p-3 font-serif leading-relaxed bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-slate-900"
+                className="w-full text-xs p-3 font-serif leading-relaxed bg-ink-50 border border-ink-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-ink-900"
                 placeholder="Paste or write the plain text reading passage here..."
               />
-              <div className="text-[11px] text-slate-400 text-right">
+              <div className="text-[11px] text-ink-400 text-right">
                 Word count: {passageText.trim() ? passageText.trim().split(/\s+/).length : 0} words
               </div>
             </div>
@@ -292,37 +292,37 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
             <div className="space-y-4">
               {showLiveHtmlPreview ? (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-semibold text-slate-700 flex items-center space-x-1.5">
-                      <Eye className="w-3.5 h-3.5 text-indigo-600" />
+                  <div className="flex items-center justify-between text-xs text-ink-500">
+                    <span className="font-semibold text-ink-700 flex items-center space-x-1.5">
+                      <Eye className="w-3.5 h-3.5 text-brand-600" />
                       <span>Live Candidate Simulation Preview:</span>
                     </span>
                     <span>{htmlContent.length} characters</span>
                   </div>
 
                   {htmlContent.trim() ? (
-                    <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-2xs max-h-96 overflow-y-auto">
+                    <div className="p-5 bg-white rounded-xl border border-ink-200 shadow-2xs max-h-96 overflow-y-auto">
                       <CdiHtmlViewer html={htmlContent} />
                     </div>
                   ) : (
-                    <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">
+                    <div className="p-8 text-center bg-ink-50 rounded-xl border border-dashed border-ink-300 text-xs text-ink-500">
                       No HTML content uploaded yet. Upload an .html file above or switch to "View / Edit HTML Source" to paste markup.
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700">
+                  <label className="block text-xs font-bold text-ink-700">
                     HTML Source Markup (Sanitized upon save & upload)
                   </label>
                   <textarea
                     rows={10}
                     value={htmlContent}
                     onChange={(e) => setHtmlContent(e.target.value)}
-                    className="w-full text-xs p-3 font-mono leading-relaxed bg-slate-900 text-emerald-400 rounded-xl border border-slate-700 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-xs p-3 font-mono leading-relaxed bg-ink-900 text-success-500 rounded-xl border border-ink-700 focus:ring-2 focus:ring-brand-500"
                     placeholder="Paste valid HTML markup here (e.g. <h2>Passage Header</h2><p>Article body...</p><table>...</table>)..."
                   />
-                  <div className="flex justify-between text-[11px] text-slate-400">
+                  <div className="flex justify-between text-[11px] text-ink-400">
                     <span>Includes safe formatting: headers, tables, lists, blockquotes, images</span>
                     <span>{htmlContent.length} chars</span>
                   </div>
@@ -334,33 +334,33 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
       </div>
 
       {/* Questions Builder */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+      <div className="p-4 bg-ink-50 rounded-xl border border-ink-200 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <span className="text-xs font-bold text-ink-900 uppercase tracking-wider">
             Questions ({questions.length})
           </span>
           <div className="flex items-center space-x-1.5 overflow-x-auto">
             <button
               onClick={() => addQuestion('multiple_choice')}
-              className="text-[11px] bg-white border border-slate-200 hover:border-slate-400 px-2.5 py-1 rounded-md font-semibold text-slate-700 shadow-2xs"
+              className="text-[11px] bg-white border border-ink-200 hover:border-ink-400 px-2.5 py-1 rounded-md font-semibold text-ink-700 shadow-2xs"
             >
               + Multiple Choice
             </button>
             <button
               onClick={() => addQuestion('true_false_not_given')}
-              className="text-[11px] bg-white border border-slate-200 hover:border-slate-400 px-2.5 py-1 rounded-md font-semibold text-slate-700 shadow-2xs"
+              className="text-[11px] bg-white border border-ink-200 hover:border-ink-400 px-2.5 py-1 rounded-md font-semibold text-ink-700 shadow-2xs"
             >
               + True / False / NG
             </button>
             <button
               onClick={() => addQuestion('fill_in_the_blank')}
-              className="text-[11px] bg-white border border-slate-200 hover:border-slate-400 px-2.5 py-1 rounded-md font-semibold text-slate-700 shadow-2xs"
+              className="text-[11px] bg-white border border-ink-200 hover:border-ink-400 px-2.5 py-1 rounded-md font-semibold text-ink-700 shadow-2xs"
             >
               + Fill in the Blank
             </button>
             <button
               onClick={() => addQuestion('matching_headings')}
-              className="text-[11px] bg-white border border-slate-200 hover:border-slate-400 px-2.5 py-1 rounded-md font-semibold text-slate-700 shadow-2xs"
+              className="text-[11px] bg-white border border-ink-200 hover:border-ink-400 px-2.5 py-1 rounded-md font-semibold text-ink-700 shadow-2xs"
             >
               + Matching Headings
             </button>
@@ -369,14 +369,14 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
 
         <div className="space-y-3">
           {questions.map((q, idx) => (
-            <div key={idx} className="p-3 bg-white rounded-lg border border-slate-200 space-y-2">
+            <div key={idx} className="p-3 bg-white rounded-lg border border-ink-200 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800">
-                  Q{idx + 1} • <span className="uppercase text-[10px] text-slate-500 font-mono">{q.type.replace(/_/g, ' ')}</span>
+                <span className="text-xs font-bold text-ink-800">
+                  Q{idx + 1} • <span className="uppercase text-[10px] text-ink-500 font-mono">{q.type.replace(/_/g, ' ')}</span>
                 </span>
                 <button
                   onClick={() => setQuestions(questions.filter((_, i) => i !== idx))}
-                  className="text-slate-400 hover:text-rose-600 p-1"
+                  className="text-ink-400 hover:text-danger-500 p-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -390,7 +390,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                   copy[idx].questionText = e.target.value;
                   setQuestions(copy);
                 }}
-                className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-md font-medium"
+                className="w-full text-xs p-2 bg-ink-50 border border-ink-200 rounded-md font-medium"
                 placeholder="Question text"
               />
 
@@ -407,7 +407,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                         copy[idx].options![optIdx] = e.target.value;
                         setQuestions(copy);
                       }}
-                      className="text-xs p-1.5 bg-slate-50 border border-slate-200 rounded"
+                      className="text-xs p-1.5 bg-ink-50 border border-ink-200 rounded"
                       placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
                     />
                   ))}
@@ -417,7 +417,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
               {/* Correct Answer field */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                 <div>
-                  <label className="block text-[10px] font-bold text-emerald-700 uppercase">
+                  <label className="block text-[10px] font-bold text-success-700 uppercase">
                     Official Correct Answer (Auto-grading)
                   </label>
                   {q.type === 'true_false_not_given' ? (
@@ -428,7 +428,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                         copy[idx].correctAnswer = e.target.value;
                         setQuestions(copy);
                       }}
-                      className="w-full text-xs p-1.5 bg-emerald-50 border border-emerald-200 rounded font-semibold text-emerald-900"
+                      className="w-full text-xs p-1.5 bg-success-50 border border-success-50 rounded font-semibold text-success-700"
                     >
                       <option value="TRUE">TRUE</option>
                       <option value="FALSE">FALSE</option>
@@ -444,13 +444,13 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                         setQuestions(copy);
                       }}
                       placeholder="e.g. Excessive upfront capital costs"
-                      className="w-full text-xs p-1.5 bg-emerald-50 border border-emerald-200 rounded font-semibold text-emerald-900"
+                      className="w-full text-xs p-1.5 bg-success-50 border border-success-50 rounded font-semibold text-success-700"
                     />
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase">
+                  <label className="block text-[10px] font-bold text-ink-500 uppercase">
                     Explanation / Text Citation
                   </label>
                   <input
@@ -462,7 +462,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                       setQuestions(copy);
                     }}
                     placeholder="Why this answer is verified by Cambridge IELTS"
-                    className="w-full text-xs p-1.5 bg-slate-50 border border-slate-200 rounded text-slate-600"
+                    className="w-full text-xs p-1.5 bg-ink-50 border border-ink-200 rounded text-ink-600"
                   />
                 </div>
               </div>
@@ -472,17 +472,17 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200">
+      <div className="flex items-center justify-end space-x-3 pt-4 border-t border-ink-200">
         <button
           onClick={onCancel}
-          className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-lg"
+          className="px-4 py-2 text-xs font-semibold text-ink-600 hover:text-ink-900 rounded-lg"
         >
           Cancel
         </button>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow-sm"
+          className="px-5 py-2 text-xs font-bold bg-ink-900 hover:bg-ink-800 text-white rounded-lg shadow-sm"
         >
           {saving ? 'Saving...' : 'Save Reading Material'}
         </button>

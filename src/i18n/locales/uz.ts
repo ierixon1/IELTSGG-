@@ -198,6 +198,48 @@ export const uz: Dictionary = {
     },
   },
 
+  onboarding: {
+    title: 'Tayyorgarlik rejasini sozlash',
+    subtitle: 'To‘rtta javob — va reja maqsadingiz hamda eng zaif ko‘nikmangiz atrofida tuziladi.',
+    currentLevel: 'Hozirgi daraja',
+    targetBand: 'Maqsadli ball',
+    focusLabel: 'Eng zaif ko‘nikma',
+    focus: {
+      writing: 'Task 1 va 2',
+      speaking: 'Ravonlik va talaffuz',
+      reading: 'Vaqt va sarlavhalar',
+      listening: 'Turli talaffuzlar',
+    },
+    examDate: 'Imtihon sanasi (ixtiyoriy)',
+    examDateHint: 'Ko‘rsatilmasa, reja olti haftaga mo‘ljallanadi.',
+    hours: 'Haftasiga soat',
+    hoursValue: '{count} soat',
+    pace: { casual: 'Yengil', recommended: 'Tavsiya etiladi', intensive: 'Intensiv' },
+    rule:
+      'Har bir baholangan testdan keyin reja qayta hisoblanadi: eng past ball olgan ko‘nikma keyingi haftada ko‘proq mashq oladi.',
+    submit: 'Rejani tuzish',
+    resubmit: 'Rejani yangilash',
+  },
+
+  preppy: {
+    title: 'Preppy AI',
+    subtitle: 'IELTS bo‘yicha mentoringiz',
+    placeholder: 'Ball, mezon yoki keyingi qadam haqida so‘rang…',
+    send: 'Yuborish',
+    thinking: 'O‘ylayapti…',
+    greeting:
+      'Salom! Nega shu ball qo‘yilganini, muayyan mezonni qanday ko‘tarishni yoki bugun nimani mashq qilishni so‘rang.',
+    contextNote: 'Javoblar maqsadli balingiz va eng zaif ko‘nikmangizni hisobga oladi.',
+    error: 'Preppy hozir javob bera olmadi. Bir ozdan keyin qayta urinib ko‘ring.',
+    suggested: 'So‘rab ko‘ring',
+    prompts: {
+      p1: 'Band 8 darajasidagi Task 2 essesi qanday tuziladi?',
+      p2: 'Ekologiya mavzusi uchun Band 8 kollokatsiyalari',
+      p3: 'Speaking Part 2 da pauza qilishni qanday to‘xtataman?',
+      p4: 'FALSE va NOT GIVEN o‘rtasidagi farq nima?',
+    },
+  },
+
   landing: {
     nav: {
       platform: 'Platforma',

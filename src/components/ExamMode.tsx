@@ -106,28 +106,28 @@ export const ExamMode: React.FC<ExamModeProps> = ({
   if (isFinished) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
-        <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xl text-center space-y-6">
-          <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-2xl mx-auto flex items-center justify-center font-black text-2xl shadow-sm">
+        <div className="bg-white rounded-3xl p-8 border border-ink-200 shadow-xl text-center space-y-6">
+          <div className="w-16 h-16 bg-success-50 text-success-700 rounded-2xl mx-auto flex items-center justify-center font-black text-2xl shadow-sm">
             <Award className="w-8 h-8" />
           </div>
 
           <div className="space-y-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+            <span className="text-xs font-bold uppercase tracking-wider text-success-700 bg-success-50 px-3 py-1 rounded-full border border-success-50">
               Simulation Completed
             </span>
-            <h1 className="text-2xl font-extrabold text-slate-900 mt-2">
+            <h1 className="text-2xl font-extrabold text-ink-900 mt-2">
               Official IELTS Academic Test Report
             </h1>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-500">
               Completed under strict sequential time and tab monitoring rules.
             </p>
           </div>
 
           {/* Big Overall Band */}
-          <div className="p-6 rounded-2xl bg-slate-900 text-white max-w-sm mx-auto space-y-2">
-            <div className="text-xs uppercase font-bold text-slate-400">Overall Band Score</div>
-            <div className="text-5xl font-extrabold text-emerald-400">{overallScore.toFixed(1)}</div>
-            <p className="text-[11px] text-slate-400">
+          <div className="p-6 rounded-2xl bg-ink-900 text-white max-w-sm mx-auto space-y-2">
+            <div className="text-xs uppercase font-bold text-ink-400">Overall Band Score</div>
+            <div className="text-5xl font-extrabold text-success-500">{overallScore.toFixed(1)}</div>
+            <p className="text-[11px] text-ink-400">
               Rounded according to the official IELTS averaging algorithm.
             </p>
           </div>
@@ -140,9 +140,9 @@ export const ExamMode: React.FC<ExamModeProps> = ({
               { label: 'Writing', band: scores.writing || 6.5 },
               { label: 'Speaking', band: scores.speaking || 6.5 },
             ].map((s) => (
-              <div key={s.label} className="p-4 rounded-xl border border-slate-200 bg-slate-50">
-                <div className="text-[10px] uppercase font-bold text-slate-500">{s.label}</div>
-                <div className="text-2xl font-extrabold text-slate-900 mt-1">
+              <div key={s.label} className="p-4 rounded-xl border border-ink-200 bg-ink-50">
+                <div className="text-[10px] uppercase font-bold text-ink-500">{s.label}</div>
+                <div className="text-2xl font-extrabold text-ink-900 mt-1">
                   Band {s.band.toFixed(1)}
                 </div>
               </div>
@@ -150,8 +150,8 @@ export const ExamMode: React.FC<ExamModeProps> = ({
           </div>
 
           {focusLossCount > 0 && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center justify-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <div className="p-3 bg-warning-50 border border-warning-50 rounded-xl text-xs text-warning-700 flex items-center justify-center space-x-2">
+              <AlertTriangle className="w-4 h-4 text-warning-500 shrink-0" />
               <span>
                 Tab focus was lost <strong>{focusLossCount} time(s)</strong> during testing. In a real exam, this would prompt proctor intervention.
               </span>
@@ -161,7 +161,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({
           <div className="pt-4 flex justify-center space-x-3">
             <button
               onClick={onExitExam}
-              className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-all shadow-md"
+              className="px-6 py-3 rounded-xl bg-ink-900 hover:bg-ink-800 text-white font-bold text-xs transition-all shadow-md"
             >
               Return to Adaptive Plan & Recalculate
             </button>
@@ -174,7 +174,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({
   return (
     <div className="space-y-6">
       {/* Strict Exam Lockdown HUD */}
-      <div className="bg-amber-600 text-white p-4 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-warning-500 text-white p-4 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center font-bold">
             <ShieldAlert className="w-5 h-5" />
@@ -184,11 +184,11 @@ export const ExamMode: React.FC<ExamModeProps> = ({
               <span className="text-xs font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded">
                 Official Exam Mode Active
               </span>
-              <span className="text-xs font-medium text-amber-100">
+              <span className="text-xs font-medium text-warning-50">
                 Section {currentSectionIndex + 1} of 4: {activeSection.toUpperCase()}
               </span>
             </div>
-            <p className="text-[11px] text-amber-100 mt-0.5">
+            <p className="text-[11px] text-warning-50 mt-0.5">
               Lockdown active: Do not switch browser tabs or reload the session.
             </p>
           </div>
@@ -202,9 +202,9 @@ export const ExamMode: React.FC<ExamModeProps> = ({
                 key={s}
                 className={`w-3 h-3 rounded-full ${
                   idx === currentSectionIndex
-                    ? 'bg-white ring-2 ring-amber-300'
+                    ? 'bg-white ring-2 ring-warning-500'
                     : idx < currentSectionIndex
-                    ? 'bg-emerald-300'
+                    ? 'bg-success-500'
                     : 'bg-white/30'
                 }`}
                 title={s}
@@ -218,7 +218,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({
                 onExitExam();
               }
             }}
-            className="text-xs text-amber-100 hover:text-white px-2.5 py-1 rounded bg-black/20 hover:bg-black/30 transition-colors font-medium"
+            className="text-xs text-warning-50 hover:text-white px-2.5 py-1 rounded bg-black/20 hover:bg-black/30 transition-colors font-medium"
           >
             Abort Exam
           </button>
@@ -227,16 +227,16 @@ export const ExamMode: React.FC<ExamModeProps> = ({
 
       {/* Focus warning popover */}
       {showFocusWarning && (
-        <div className="bg-rose-50 border border-rose-300 p-4 rounded-2xl text-xs text-rose-800 flex items-center justify-between shadow-lg animate-bounce">
+        <div className="bg-danger-50 border border-danger-500 p-4 rounded-2xl text-xs text-danger-700 flex items-center justify-between shadow-lg animate-bounce">
           <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-danger-500 shrink-0" />
             <span>
               <strong>Warning: Window focus lost!</strong> On a real computerized IELTS exam, tab switching causes test invalidation.
             </span>
           </div>
           <button
             onClick={() => setShowFocusWarning(false)}
-            className="text-xs font-bold text-rose-700 bg-rose-200/60 px-3 py-1 rounded-lg"
+            className="text-xs font-bold text-danger-700 bg-danger-50/60 px-3 py-1 rounded-lg"
           >
             Acknowledge & Continue
           </button>

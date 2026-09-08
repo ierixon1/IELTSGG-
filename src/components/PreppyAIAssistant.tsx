@@ -1,17 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { UserProfile } from '../types';
 import { sendPreppyMessage } from '../services/api';
-import { 
-  Sparkles, 
-  X, 
-  Send, 
-  Bot, 
-  User, 
-  HelpCircle, 
-  BookOpen, 
-  Zap,
-  Lightbulb
-} from 'lucide-react';
+import { Bot, Lightbulb, Send, Sparkles, User, X } from 'lucide-react';
+import { useT } from '../i18n';
+import { Badge, Button, cx } from './ui';
 
 interface PreppyAIAssistantProps {
   isOpen: boolean;
@@ -26,72 +18,86 @@ interface ChatMessage {
   timestamp: string;
 }
 
+const QUICK_PROMPT_KEYS = ['p1', 'p2', 'p3', 'p4'] as const;
+
+function clockLabel(): string {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export const PreppyAIAssistant: React.FC<PreppyAIAssistantProps> = ({
   isOpen,
   onClose,
   profile,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'm-1',
-      role: 'assistant',
-      content: `Hello! I am Preppy AI, your personal Academic IELTS mentor.
-I see your current target is **Band ${profile.targetBand.toFixed(1)}**, focusing on **${profile.weakSection.toUpperCase()}**.
-Ask me about essay structures, Band 8+ academic collocations, or test day timing strategies!`,
-      timestamp: 'Just now',
-    },
-  ]);
-  const [input, setInput] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const t = useT();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const greeting = useMemo<ChatMessage>(
+    () => ({
+      id: 'greeting',
+      role: 'assistant',
+      content: t('preppy.greeting'),
+      timestamp: clockLabel(),
+    }),
+    [t],
+  );
+
+  // The greeting follows the interface language, so switching locale mid-chat
+  // does not leave a stray English opener above translated replies.
+  const thread = messages.length > 0 ? messages : [greeting];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   const handleSend = async (textToSend?: string) => {
-    const text = textToSend || input;
-    if (!text.trim() || isLoading) return;
+    const text = (textToSend ?? input).trim();
+    if (!text || isLoading) return;
 
-    const userMsg: ChatMessage = {
+    const userMessage: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
       content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: clockLabel(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const nextThread = [...thread, userMessage];
+    setMessages(nextThread);
     setInput('');
     setIsLoading(true);
 
     try {
-      const history = [...messages, userMsg].map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const reply = await sendPreppyMessage(
+        nextThread.map((message) => ({ role: message.role, content: message.content })),
+        { targetBand: profile.targetBand, weakSection: profile.weakSection },
+      );
 
-      const reply = await sendPreppyMessage(history, {
-        targetBand: profile.targetBand,
-        weakSection: profile.weakSection,
-      });
-
-      const assistantMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
-        role: 'assistant',
-        content: reply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
+      setMessages((previous) => [
+        ...previous,
+        { id: `a-${Date.now()}`, role: 'assistant', content: reply, timestamp: clockLabel() },
+      ]);
+    } catch {
+      setMessages((previous) => [
+        ...previous,
         {
           id: `err-${Date.now()}`,
           role: 'assistant',
-          content: 'Sorry, I encountered a temporary connection glitch. Please check your query or try again.',
-          timestamp: 'Just now',
+          content: t('preppy.error'),
+          timestamp: clockLabel(),
         },
       ]);
     } finally {
@@ -99,128 +105,134 @@ Ask me about essay structures, Band 8+ academic collocations, or test day timing
     }
   };
 
-  const quickPrompts = [
-    'How do I structure a Band 8 Task 2 essay?',
-    '5 Band 8+ academic collocations for environmental topics',
-    'How to eliminate long pauses in Speaking Part 2',
-    'What is the difference between FALSE and NOT GIVEN?',
-  ];
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-end bg-slate-900/40 backdrop-blur-xs p-2 sm:p-4">
-      <div className="bg-white rounded-3xl w-full max-w-lg h-[90vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
-        {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md">
-              <Sparkles className="w-5 h-5" />
-            </div>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-end bg-ink-950/45 p-2 backdrop-blur-sm sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="preppy-title"
+    >
+      <div className="es-card flex h-[90vh] w-full max-w-lg flex-col overflow-hidden p-0 shadow-[var(--shadow-lg)]">
+        <header className="es-ink-surface flex items-center justify-between gap-3 p-5">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius-control)] bg-brand-500 text-white">
+              <Sparkles className="h-5 w-5" />
+            </span>
             <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="font-bold text-sm">Preppy AI Mentor</h3>
-                <span className="text-[10px] font-semibold bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded-full">
-                  Examiner Logic
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">Target Band {profile.targetBand.toFixed(1)} Strategy</p>
+              <h3 id="preppy-title" className="font-display text-base font-bold text-white">
+                {t('preppy.title')}
+              </h3>
+              <p className="text-xs text-white/55">
+                {t('preppy.subtitle')} · {t('common.target')} {profile.targetBand.toFixed(1)}
+              </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
+            aria-label={t('common.close')}
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
-        </div>
+        </header>
 
-        {/* Quick Prompts Bar */}
-        <div className="p-3 bg-slate-50 border-b border-slate-100 overflow-x-auto flex items-center space-x-2 no-scrollbar">
-          <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0 flex items-center space-x-1">
-            <Lightbulb className="w-3 h-3 text-amber-500" />
-            <span>Suggested:</span>
+        <div className="es-scroll flex items-center gap-2 overflow-x-auto border-b border-ink-100 bg-ink-50 p-3">
+          <span className="inline-flex shrink-0 items-center gap-1 text-[0.625rem] font-bold uppercase tracking-[0.1em] text-ink-400">
+            <Lightbulb className="h-3 w-3 text-warning-500" />
+            {t('preppy.suggested')}
           </span>
-          {quickPrompts.map((prompt, i) => (
+          {QUICK_PROMPT_KEYS.map((key) => (
             <button
-              key={i}
-              onClick={() => handleSend(prompt)}
-              className="text-[11px] font-medium text-slate-700 bg-white hover:bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200 whitespace-nowrap shrink-0 transition-colors shadow-2xs"
+              key={key}
+              onClick={() => handleSend(t(`preppy.prompts.${key}`))}
+              disabled={isLoading}
+              className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-ink-100 disabled:opacity-50"
             >
-              {prompt}
+              {t(`preppy.prompts.${key}`)}
             </button>
           ))}
         </div>
 
-        {/* Message Thread */}
-        <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-white">
-          {messages.map((m) => (
+        <div className="es-scroll flex-1 space-y-4 overflow-y-auto bg-white p-4">
+          {thread.map((message) => (
             <div
-              key={m.id}
-              className={`flex items-start space-x-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              key={message.id}
+              className={cx(
+                'flex items-start gap-2.5',
+                message.role === 'user' ? 'justify-end' : 'justify-start',
+              )}
             >
-              {m.role === 'assistant' && (
-                <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5 font-bold text-xs">
-                  <Bot className="w-4 h-4" />
-                </div>
+              {message.role === 'assistant' && (
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                  <Bot className="h-4 w-4" />
+                </span>
               )}
 
               <div
-                className={`p-3.5 rounded-2xl text-xs leading-relaxed max-w-[85%] whitespace-pre-wrap ${
-                  m.role === 'user'
-                    ? 'bg-slate-900 text-white rounded-br-xs'
-                    : 'bg-slate-50 border border-slate-200 text-slate-800 rounded-bl-xs'
-                }`}
+                className={cx(
+                  'max-w-[85%] whitespace-pre-wrap rounded-[var(--radius-card)] p-3.5 text-sm leading-relaxed',
+                  message.role === 'user'
+                    ? 'bg-ink-900 text-white'
+                    : 'border border-ink-100 bg-ink-50 text-ink-800',
+                )}
               >
-                {m.content}
-                <div
-                  className={`text-[9px] mt-1 text-right ${
-                    m.role === 'user' ? 'text-slate-400' : 'text-slate-400'
-                  }`}
+                {message.content}
+                <span
+                  className={cx(
+                    'mt-1.5 block text-right text-[0.625rem] tabular',
+                    message.role === 'user' ? 'text-white/40' : 'text-ink-400',
+                  )}
                 >
-                  {m.timestamp}
-                </div>
+                  {message.timestamp}
+                </span>
               </div>
 
-              {m.role === 'user' && (
-                <div className="w-7 h-7 rounded-lg bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 mt-0.5 font-bold text-xs">
-                  <User className="w-4 h-4" />
-                </div>
+              {message.role === 'user' && (
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-600">
+                  <User className="h-4 w-4" />
+                </span>
               )}
             </div>
           ))}
 
           {isLoading && (
-            <div className="flex items-center space-x-2 text-xs text-slate-400 p-2">
-              <Sparkles className="w-4 h-4 animate-spin text-indigo-500" />
-              <span>Preppy is consulting IELTS descriptors...</span>
+            <div className="flex items-center gap-2 p-2 text-sm text-ink-400">
+              <Sparkles className="h-4 w-4 animate-spin text-brand-500" />
+              {t('preppy.thinking')}
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Footer */}
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
+          onSubmit={(event) => {
+            event.preventDefault();
             handleSend();
           }}
-          className="p-3 border-t border-slate-100 bg-slate-50 flex items-center space-x-2"
+          className="flex items-center gap-2 border-t border-ink-100 bg-ink-50 p-3"
         >
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask Preppy about IELTS structure, timing, or criteria..."
-            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={t('preppy.placeholder')}
+            aria-label={t('preppy.placeholder')}
+            className="flex-1 rounded-[var(--radius-control)] border border-ink-200 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-brand-400"
           />
-          <button
+          <Button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="w-10 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-sm"
+            className="h-10 w-10 shrink-0 p-0"
+            aria-label={t('preppy.send')}
           >
-            <Send className="w-4 h-4" />
-          </button>
+            <Send className="h-4 w-4" />
+          </Button>
         </form>
+
+        <p className="border-t border-ink-100 bg-white px-4 py-2 text-[0.6875rem] text-ink-400">
+          {t('preppy.contextNote')}
+        </p>
       </div>
     </div>
   );
