@@ -1,0 +1,28 @@
+[
+  {
+    "id": "attempt-1788873187110",
+    "testId": "test-1",
+    "isFullMock": false,
+    "date": "2026-09-08",
+    "scores": {
+      "overall": 5.5,
+      "writing": {
+        "band": 5.5
+      }
+    },
+    "durationMinutes": 60
+  },
+  {
+    "id": "attempt-1788873235492",
+    "testId": "test-1",
+    "isFullMock": false,
+    "date": "2026-09-08",
+    "scores": {
+      "overall": 6.5,
+      "speaking": {
+        "band": 6.5
+      }
+    },
+    "durationMinutes": 30
+  }
+]

@@ -432,6 +432,18 @@ export const uz: Dictionary = {
     },
   },
 
+  grading: {
+    errors: {
+      ai_not_configured:
+        'Bu serverda AI orqali baholash hali yoqilmagan, shuning uchun ball qo‘yib bo‘lmaydi. Hech narsa baholanmadi.',
+      too_short_writing:
+        'Bu yerda {count} ta so‘z — baholash uchun juda kam. Ball so‘rashdan oldin kamida {minimum} ta yozing.',
+      too_short_speaking:
+        'Javob baholash uchun juda qisqa. Kamida {seconds} soniya gapiring yoki kamida {words} ta so‘z yozing.',
+      unknown: 'Baholash amalga oshmadi. Qaytadan urinib ko‘ring.',
+    },
+  },
+
   landing: {
     nav: {
       platform: 'Platforma',

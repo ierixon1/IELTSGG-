@@ -435,6 +435,18 @@ export const en: Dictionary = {
     },
   },
 
+  grading: {
+    errors: {
+      ai_not_configured:
+        'AI grading is not switched on for this server yet, so no band can be given. Nothing was scored.',
+      too_short_writing:
+        'That is {count} words — too short to assess. Write at least {minimum} before asking for a band.',
+      too_short_speaking:
+        'That answer is too short to assess. Speak for at least {seconds} seconds, or type at least {words} words.',
+      unknown: 'Grading failed. Please try again.',
+    },
+  },
+
   landing: {
     nav: {
       platform: 'Platform',

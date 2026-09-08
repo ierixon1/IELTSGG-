@@ -1,5 +1,21 @@
 import { UserProfile, PlanTask, MockAttempt, ChecklistWeek, WritingGradingResult, SpeakingGradingResult } from '../types';
 
+/**
+ * A grading request the server refused, carrying the reason. The screens map
+ * `code` to a translated message; `details` holds whatever the endpoint
+ * reported about the shortfall.
+ */
+export class GradingError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'GradingError';
+  }
+}
+
 export interface SyncDataPayload { profile?: UserProfile; tasks?: PlanTask[]; attempts?: MockAttempt[]; checklist?: ChecklistWeek; }
 
 function getLocalStorageKey(): string {
@@ -42,6 +58,6 @@ export async function syncDataToServer(payload: SyncDataPayload) {
   } catch(e){console.warn('Could not sync to backend:',e);}
 }
 
-export async function requestWritingGrading(params:{taskType:'task1'|'task2';prompt:string;essay:string}):Promise<WritingGradingResult>{const res=await fetch('/api/grade/writing',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({error:'Grading failed'}));throw new Error(err.error||'Server failed to grade writing');}return res.json();}
-export async function requestSpeakingGrading(params:{topic:string;cueCard?:string;partNumber:number;audioBase64?:string;mimeType?:string;transcriptProvided?:string;clientMetrics?:any}):Promise<SpeakingGradingResult>{const res=await fetch('/api/grade/speaking',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({error:'Speaking grading failed'}));throw new Error(err.error||'Server failed to grade speaking');}return res.json();}
+export async function requestWritingGrading(params:{taskType:'task1'|'task2';prompt:string;essay:string}):Promise<WritingGradingResult>{const res=await fetch('/api/grade/writing',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({}));throw new GradingError(String(err.code||'unknown'),String(err.error||'Server failed to grade writing'),err);}return res.json();}
+export async function requestSpeakingGrading(params:{topic:string;cueCard?:string;partNumber:number;audioBase64?:string;mimeType?:string;transcriptProvided?:string;clientMetrics?:any}):Promise<SpeakingGradingResult>{const res=await fetch('/api/grade/speaking',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)}));if(!res.ok){const err=await res.json().catch(()=>({}));throw new GradingError(String(err.code||'unknown'),String(err.error||'Server failed to grade speaking'),err);}return res.json();}
 export async function sendPreppyMessage(messages:{role:'user'|'assistant';content:string}[],userContext:any):Promise<string>{const res=await fetch('/api/preppy/chat',sameOriginInit({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages,userContext})}));if(!res.ok)throw new Error('Preppy AI service temporarily unavailable');return(await res.json()).reply;}

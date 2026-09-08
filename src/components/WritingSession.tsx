@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { WritingTaskData, WritingGradingResult, TextAnnotation } from '../types';
-import { requestWritingGrading } from '../services/api';
+import { GradingError, requestWritingGrading } from '../services/api';
 import {
   AlertTriangle,
   BarChart2,
@@ -21,6 +21,24 @@ interface WritingSessionProps {
   task2Data: WritingTaskData;
   onRecordScore?: (taskNumber: 1 | 2, band: number) => void;
   onBackToMocks?: () => void;
+}
+
+/**
+ * Turns a refused grading request into something a learner can act on. The
+ * server never returns a band it cannot justify, so "no score" has to explain
+ * itself.
+ */
+function describeGradingError(error: unknown, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  if (error instanceof GradingError) {
+    if (error.code === 'ai_not_configured') return t('grading.errors.ai_not_configured');
+    if (error.code === 'too_short') {
+      return t('grading.errors.too_short_writing', {
+        count: Number(error.details?.wordCount ?? 0),
+        minimum: Number(error.details?.minimum ?? 40),
+      });
+    }
+  }
+  return t('grading.errors.unknown');
 }
 
 /** Recommended minutes per task, as printed on the real paper. */
@@ -94,7 +112,7 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
       }
     } catch (error) {
-      setErrorMsg(error instanceof Error ? error.message : 'Failed to grade writing.');
+      setErrorMsg(describeGradingError(error, t));
     } finally {
       setIsGrading(false);
     }
