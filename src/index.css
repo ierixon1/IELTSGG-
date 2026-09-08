@@ -1,20 +1,289 @@
 @import "tailwindcss";
 
+/* ===========================================================================
+   EVER STUDY — DESIGN TOKENS
+   Single source of truth for colour, type, radius, elevation and motion.
+   Never hard-code a hex value in a component: reach for a token below.
+   =========================================================================== */
+
+@theme {
+  /* --- Typography ------------------------------------------------------- */
+  --font-display: "Outfit", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Display scale — used for hero and section headlines only. */
+  --text-display-2xl: 4.5rem;
+  --text-display-2xl--line-height: 1.02;
+  --text-display-2xl--letter-spacing: -0.045em;
+  --text-display-2xl--font-weight: 800;
+
+  --text-display-xl: 3.5rem;
+  --text-display-xl--line-height: 1.05;
+  --text-display-xl--letter-spacing: -0.04em;
+  --text-display-xl--font-weight: 800;
+
+  --text-display-lg: 2.75rem;
+  --text-display-lg--line-height: 1.1;
+  --text-display-lg--letter-spacing: -0.035em;
+  --text-display-lg--font-weight: 800;
+
+  --text-display-md: 2rem;
+  --text-display-md--line-height: 1.15;
+  --text-display-md--letter-spacing: -0.03em;
+  --text-display-md--font-weight: 700;
+
+  --text-display-sm: 1.5rem;
+  --text-display-sm--line-height: 1.2;
+  --text-display-sm--letter-spacing: -0.02em;
+  --text-display-sm--font-weight: 700;
+
+  /* --- Neutrals (the 90% of every screen) -------------------------------- */
+  --color-ink-950: #08070f;
+  --color-ink-900: #0f0e1c;
+  --color-ink-800: #1b1930;
+  --color-ink-700: #2c2946;
+  --color-ink-600: #45415f;
+  --color-ink-500: #6a6684;
+  --color-ink-400: #8f8ba6;
+  --color-ink-300: #b6b3c7;
+  --color-ink-200: #d9d7e4;
+  --color-ink-100: #ebeaf2;
+  --color-ink-50: #f6f5fa;
+
+  --color-canvas: #fbfaff;
+  --color-surface: #ffffff;
+
+  /* --- Brand accent — ONE accent, used for action and focus only --------- */
+  --color-brand-50: #f1eeff;
+  --color-brand-100: #e4deff;
+  --color-brand-200: #cabdff;
+  --color-brand-300: #ab97ff;
+  --color-brand-400: #8b6dff;
+  --color-brand-500: #6c4dff;
+  --color-brand-600: #5a35f0;
+  --color-brand-700: #4a27cc;
+  --color-brand-800: #3c20a5;
+  --color-brand-900: #2f1a7d;
+
+  /* --- Signal colours — meaning, never decoration ------------------------ */
+  --color-success-50: #e8f9f1;
+  --color-success-500: #10b981;
+  --color-success-700: #047857;
+
+  --color-warning-50: #fff5e6;
+  --color-warning-500: #f59e0b;
+  --color-warning-700: #b45309;
+
+  --color-danger-50: #ffeded;
+  --color-danger-500: #ef4444;
+  --color-danger-700: #b91c1c;
+
+  /* --- Skill hues — one per IELTS module, tint + ink pair each ----------- */
+  --color-listening-tint: #eaf2ff;
+  --color-listening-ink: #1d4ed8;
+  --color-reading-tint: #e9f7f1;
+  --color-reading-ink: #047857;
+  --color-writing-tint: #fdf0e6;
+  --color-writing-ink: #b45309;
+  --color-speaking-tint: #f3edff;
+  --color-speaking-ink: #5a35f0;
+
+  /* --- Radius ----------------------------------------------------------- */
+  --radius-card: 1.25rem;
+  --radius-control: 0.75rem;
+  --radius-pill: 999px;
+
+  /* --- Elevation — soft, brand-tinted, never grey ------------------------ */
+  --shadow-xs: 0 1px 2px rgba(15, 14, 28, 0.04);
+  --shadow-sm: 0 2px 8px rgba(15, 14, 28, 0.05);
+  --shadow-md: 0 8px 24px -6px rgba(15, 14, 28, 0.1);
+  --shadow-lg: 0 24px 56px -16px rgba(15, 14, 28, 0.16);
+  --shadow-brand: 0 12px 32px -10px rgba(108, 77, 255, 0.5);
+
+  /* --- Motion ----------------------------------------------------------- */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ===========================================================================
+   BASE
+   =========================================================================== */
+
 @layer base {
   * {
-    border-color: rgba(226, 232, 240, 0.8);
+    border-color: var(--color-ink-100);
   }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #0f172a;
-    background-color: #f8fafc;
+    font-family: var(--font-sans);
+    color: var(--color-ink-900);
+    background-color: var(--color-canvas);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Display face applies to headline elements by default. */
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--color-brand-200);
+    color: var(--color-ink-900);
   }
 }
 
-/* Authentic IELTS Computer-Delivered Format HTML Rendering Styles */
+/* ===========================================================================
+   COMPONENT UTILITIES
+   Small, composable classes for patterns repeated across many screens.
+   =========================================================================== */
+
+@layer components {
+  /* Band scores and timers read as data, not prose. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .es-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-ink-100);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .es-card-interactive {
+    transition: box-shadow 0.25s var(--ease-out-soft),
+                transform 0.25s var(--ease-out-soft),
+                border-color 0.25s var(--ease-out-soft);
+  }
+
+  .es-card-interactive:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--color-ink-200);
+    transform: translateY(-2px);
+  }
+
+  /* Frosted panel used over the dark hero surfaces. */
+  .es-glass {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(12px);
+  }
+
+  /* The single dark surface of the product: hero cards, exam chrome. */
+  .es-ink-surface {
+    background:
+      radial-gradient(120% 120% at 85% 0%, rgba(108, 77, 255, 0.35) 0%, transparent 55%),
+      radial-gradient(90% 90% at 0% 100%, rgba(90, 53, 240, 0.22) 0%, transparent 60%),
+      var(--color-ink-900);
+    color: #ffffff;
+  }
+
+  .es-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-400);
+  }
+
+  /* --- Entrance motion ---------------------------------------------------
+     Two rules, one hard constraint: content is VISIBLE by default and motion
+     is layered on top. A reveal must never be the thing that decides whether
+     a learner can read the page — if the animation never runs, the section is
+     simply there.
+     ---------------------------------------------------------------------- */
+
+  @keyframes es-rise-in {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* Plays once on load. Stagger with an inline `animation-delay`. */
+  .es-enter {
+    animation: es-rise-in 0.7s var(--ease-out-soft) both;
+  }
+
+  /* Scroll-linked where the browser supports it, inert everywhere else. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .es-reveal {
+        animation: es-rise-in linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 60%;
+      }
+    }
+  }
+
+  /* Marquee used by the landing social-proof strip. */
+  .es-marquee {
+    display: flex;
+    width: max-content;
+    animation: es-marquee-scroll 42s linear infinite;
+  }
+
+  .es-marquee:hover {
+    animation-play-state: paused;
+  }
+
+  @keyframes es-marquee-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  .es-fade-mask {
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+
+  /* Thin, unobtrusive scrollbars inside panels. */
+  .es-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .es-scroll::-webkit-scrollbar-track { background: transparent; }
+  .es-scroll::-webkit-scrollbar-thumb {
+    background: var(--color-ink-200);
+    border-radius: var(--radius-pill);
+  }
+  .es-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-ink-300); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .es-marquee { animation: none; }
+
+  /* Kill the motion, keep the content: entrance animations resolve straight to
+     their end state rather than leaving anything at zero opacity. */
+  .es-enter, .es-reveal {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===========================================================================
+   AUTHENTIC IELTS COMPUTER-DELIVERED FORMAT (CDI) CONTENT
+   Exam content must look like the real test, so it deliberately opts out of
+   the marketing type scale and stays close to the Cambridge CDI rendering.
+   =========================================================================== */
+
 .cdi-html-content {
   line-height: 1.7;
+  font-family: var(--font-sans);
 }
 
 .cdi-html-content p {
@@ -25,15 +294,17 @@
 .cdi-html-content h2,
 .cdi-html-content h3,
 .cdi-html-content h4 {
+  font-family: var(--font-sans);
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-ink-900);
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
   line-height: 1.3;
+  letter-spacing: 0;
 }
 
 .cdi-html-content h1 { font-size: 1.5rem; }
-.cdi-html-content h2 { font-size: 1.25rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem; }
+.cdi-html-content h2 { font-size: 1.25rem; border-bottom: 1px solid var(--color-ink-100); padding-bottom: 0.25rem; }
 .cdi-html-content h3 { font-size: 1.1rem; }
 .cdi-html-content h4 { font-size: 1rem; }
 
@@ -58,59 +329,56 @@
   border-collapse: collapse;
   margin: 1.25rem 0;
   font-size: 0.875rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-ink-200);
 }
 
 .cdi-html-content th,
 .cdi-html-content td {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-ink-200);
   padding: 0.6rem 0.85rem;
   text-align: left;
   vertical-align: top;
 }
 
 .cdi-html-content th {
-  background-color: #f1f5f9;
+  background-color: var(--color-ink-50);
   font-weight: 700;
-  color: #1e293b;
+  color: var(--color-ink-800);
 }
 
 .cdi-html-content tr:nth-child(even) td {
-  background-color: #f8fafc;
+  background-color: var(--color-ink-50);
 }
 
 .cdi-html-content blockquote {
-  border-left: 4px solid #3b82f6;
-  padding-left: 1rem;
+  border-left: 4px solid var(--color-brand-500);
+  padding: 0.5rem 0 0.5rem 1rem;
   margin: 1rem 0;
-  color: #475569;
+  color: var(--color-ink-600);
   font-style: italic;
-  background-color: #f8fafc;
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
+  background-color: var(--color-ink-50);
 }
 
 .cdi-html-content img {
   max-width: 100%;
   height: auto;
   border-radius: 0.5rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-ink-100);
   margin: 1rem auto;
   display: block;
 }
 
 .cdi-html-content code {
-  background-color: #f1f5f9;
+  background-color: var(--color-ink-50);
   padding: 0.15rem 0.35rem;
   border-radius: 0.25rem;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
 }
 
 .cdi-html-content hr {
   border: 0;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--color-ink-100);
   margin: 1.5rem 0;
 }
-

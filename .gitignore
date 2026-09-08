@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local runtime state written by the dev server. `users.json` holds password
+# hashes and `sessions.json` holds live tokens — neither belongs in the repo.
+data/users.json
+data/sessions.json
+
+# The project's lockfile is bun.lock; a second lockfile from a local npm
+# install would only fight with it.
+package-lock.json

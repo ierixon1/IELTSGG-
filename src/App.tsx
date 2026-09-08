@@ -21,8 +21,35 @@ import { PreppyAIAssistant } from './components/PreppyAIAssistant';
 import { AdminLogin } from './components/admin/AdminLogin';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminUser } from './types/admin';
+import { LandingPage } from './components/landing/LandingPage';
+import { useT } from './i18n';
+
+/**
+ * The public marketing page and the product live at the same origin: `#/app`
+ * is the product, everything else is the landing page. Returning learners skip
+ * the landing entirely, so the app never gets in the way of daily practice.
+ */
+type View = 'landing' | 'app';
+
+const ENTERED_KEY = 'ever_study_entered';
+
+function readEnteredFlag(): boolean {
+  try {
+    return window.localStorage.getItem(ENTERED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function resolveInitialView(): View {
+  if (typeof window === 'undefined') return 'landing';
+  if (window.location.hash.startsWith('#/app')) return 'app';
+  return readEnteredFlag() ? 'app' : 'landing';
+}
 
 export default function App() {
+  const t = useT();
+  const [view, setView] = useState<View>(() => resolveInitialView());
   const [activeTab, setActiveTab] = useState<NavTab>('plan');
   const [profile, setProfile] = useState<UserProfile>({
     id: 'user_local',
@@ -83,6 +110,31 @@ export default function App() {
     }
     init();
   }, []);
+
+  // Keep the view in sync with the address bar so back/forward behave.
+  useEffect(() => {
+    const onHashChange = () => {
+      setView(window.location.hash.startsWith('#/app') ? 'app' : 'landing');
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const handleEnterApp = () => {
+    try {
+      window.localStorage.setItem(ENTERED_KEY, '1');
+    } catch {
+      /* Remembering the choice is a convenience, not a requirement. */
+    }
+    window.location.hash = '#/app';
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    setView('app');
+  };
+
+  const handleBackToLanding = () => {
+    window.location.hash = '';
+    setView('landing');
+  };
 
   const handleSaveProfile = (updatedProfile: UserProfile) => {
     setProfile(updatedProfile);
@@ -173,8 +225,12 @@ export default function App() {
     });
   };
 
+  if (view === 'landing') {
+    return <LandingPage onEnterApp={handleEnterApp} />;
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased">
+    <div className="min-h-screen bg-canvas text-ink-900 flex flex-col font-sans antialiased">
       {/* Navbar */}
       <Navbar
         activeTab={activeTab}
@@ -185,6 +241,7 @@ export default function App() {
         profile={profile}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
         onOpenPreppy={() => setIsPreppyOpen(true)}
+        onGoHome={handleBackToLanding}
         isAdminAuthenticated={Boolean(adminToken && adminUser)}
       />
 
@@ -256,21 +313,22 @@ export default function App() {
       </main>
 
       {/* Legal & Educational Disclaimer Footer */}
-      <footer className="bg-white border-t border-slate-200 mt-12 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3 text-center sm:text-left">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center space-x-2 justify-center sm:justify-start">
-              <span className="font-bold text-slate-900 text-sm">PrepIELTS AI Studio</span>
-              <span className="text-xs text-slate-400">• Personal IELTS® Preparation Platform</span>
-            </div>
-            <div className="text-xs text-slate-500 font-medium">
-              Single-User Private Architecture • Local & Cloud Storage • Zero Third-Party Tracking
-            </div>
+      <footer className="bg-white border-t border-ink-100 mt-12 py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <button
+              onClick={handleBackToLanding}
+              className="inline-flex items-center gap-2 text-sm font-bold text-ink-900 hover:text-brand-600 transition-colors"
+            >
+              Ever Study
+              <span className="text-xs font-medium text-ink-400">· {t('brand.tagline')}</span>
+            </button>
+            <p className="text-xs text-ink-400">
+              © {new Date().getFullYear()} Ever Study. {t('landing.footer.rights')}
+            </p>
           </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed max-w-4xl">
-            IELTS® is a registered trademark of University of Cambridge, British Council, and IDP Education Australia.
-            This application is an independent educational tool designed exclusively for personal non-commercial study.
-            All academic passages, listening dialogues, questions, and cue cards are original synthetic materials crafted for skill mastery and are not affiliated with or endorsed by Cambridge, British Council, or IDP.
+          <p className="text-[11px] text-ink-400 leading-relaxed max-w-4xl">
+            {t('landing.footer.disclaimer')}
           </p>
         </div>
       </footer>
