@@ -8,6 +8,7 @@ import React from 'react';
 
 export { Logo, LogoMark } from './Logo';
 export { LanguageSwitcher } from './LanguageSwitcher';
+export { LexisPanel } from './LexisPanel';
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');

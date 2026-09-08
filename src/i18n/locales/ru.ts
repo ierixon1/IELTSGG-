@@ -458,6 +458,17 @@ export const ru: Dictionary = {
     },
   },
 
+  lexis: {
+    title: 'Измерено по вашему тексту',
+    note: 'Посчитано из слов, а не оценено моделью',
+    complexity: 'Богатство лексики',
+    repetition: 'Повторы',
+    variety: 'Разных слов',
+    flagged: 'Отмечено ошибок',
+    leaningOn: 'На что опирались',
+    level: { low: 'Мало', mid: 'Средне', high: 'Хорошо' },
+  },
+
   landing: {
     nav: {
       platform: 'Платформа',

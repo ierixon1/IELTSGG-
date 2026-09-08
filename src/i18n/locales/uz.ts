@@ -458,6 +458,17 @@ export const uz: Dictionary = {
     },
   },
 
+  lexis: {
+    title: 'O‘z matningizdan o‘lchandi',
+    note: 'So‘zlardan hisoblandi, model bahosi emas',
+    complexity: 'Lug‘at boyligi',
+    repetition: 'Takrorlar',
+    variety: 'Turli so‘zlar',
+    flagged: 'Belgilangan xatolar',
+    leaningOn: 'Nimaga tayandingiz',
+    level: { low: 'Kam', mid: 'O‘rtacha', high: 'Yaxshi' },
+  },
+
   landing: {
     nav: {
       platform: 'Platforma',

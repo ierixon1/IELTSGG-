@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { WritingTaskData, WritingGradingResult, TextAnnotation } from '../types';
 import { GradingError, requestWritingGrading } from '../services/api';
 import {
@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
-import { Badge, Button, Card, cx } from './ui';
+import { Badge, Button, Card, LexisPanel, cx } from './ui';
+import { analyseLexis } from '../utils/textMetrics';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 
 interface WritingSessionProps {
@@ -107,6 +108,7 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
       });
 
       setResult(grading);
+      setGradedEssay(essayText);
       onRecordScore?.(selectedTask, grading.band_overall);
 
       if (grading.band_overall >= 7.0) {
@@ -118,6 +120,16 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
       setIsGrading(false);
     }
   };
+
+  /**
+   * Measured from the essay that was graded, not from whatever is in the box
+   * now — the learner may have kept typing after submitting.
+   */
+  const [gradedEssay, setGradedEssay] = useState('');
+  const lexis = useMemo(() => analyseLexis(gradedEssay), [gradedEssay]);
+  const grammarFlags = result?.annotated_text?.filter(
+    (annotation) => annotation.issue_type === 'grammar',
+  ).length;
 
   const promptLooksLikeHtml = /<[a-z][\s\S]*>/i.test(activeTaskData.prompt);
 
@@ -346,6 +358,8 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
             <span className="font-bold text-ink-900">{t('writing.result.summary')}: </span>
             {result.general_commentary}
           </div>
+
+          <LexisPanel metrics={lexis} flaggedIssues={grammarFlags} />
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {result.criteria.map((criterion, index) => (

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SpeakingData, SpeakingGradingResult, CriterionFeedback } from '../types';
 import { GradingError, requestSpeakingGrading } from '../services/api';
 import { AudioVolumeDetector, blobToBase64 } from '../utils/audioAnalyzer';
+import { analyseLexis } from '../utils/textMetrics';
 import {
   Activity,
   AlertCircle,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
-import { Badge, Button, Card, Progress, cx } from './ui';
+import { Badge, Button, Card, LexisPanel, Progress, cx } from './ui';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 
 interface SpeakingSessionProps {
@@ -733,6 +734,9 @@ const PartResult: React.FC<{
         </p>
         <p className="mt-2 text-sm italic leading-relaxed text-ink-800">“{result.transcript}”</p>
       </div>
+
+      {/* The same arithmetic as Writing, run over what the candidate actually said. */}
+      <LexisPanel metrics={analyseLexis(result.transcript || '')} />
 
       {metrics ? (
         <div>

@@ -461,6 +461,17 @@ export const en: Dictionary = {
     },
   },
 
+  lexis: {
+    title: 'Measured from your own words',
+    note: 'Counted from the text, not judged by the AI',
+    complexity: 'Lexical reach',
+    repetition: 'Repetition',
+    variety: 'Distinct words',
+    flagged: 'Issues flagged',
+    leaningOn: 'Words you leaned on',
+    level: { low: 'Low', mid: 'Fair', high: 'Strong' },
+  },
+
   landing: {
     nav: {
       platform: 'Platform',
