@@ -106,7 +106,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
 
   return (
     <div className="space-y-6">
-      <Card className="flex flex-col justify-between gap-6 p-6 sm:p-8 md:flex-row md:items-center">
+      <Card className="es-enter flex flex-col justify-between gap-6 p-6 sm:p-8 md:flex-row md:items-center">
         <div className="max-w-xl">
           <Badge tone="neutral">
             <BarChart3 className="h-3 w-3" />
@@ -155,8 +155,12 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {bands.map((entry) => (
-          <Card key={entry.skill} className="p-5">
+        {bands.map((entry, index) => (
+          <Card
+            key={entry.skill}
+            className="es-enter p-5"
+            style={{ animationDelay: `${index * 70}ms` }}
+          >
             <p className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-ink-400">
               {t(`skills.${entry.skill}`)}
             </p>

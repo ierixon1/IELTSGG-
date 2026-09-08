@@ -71,6 +71,18 @@ export const en: Dictionary = {
     review: 'Retake',
     emptyTitle: 'No tasks yet',
     emptyBody: 'Set your target band to generate a study plan.',
+    nextUp: 'Do this next',
+    nextUpEmpty: 'Everything in your plan is done',
+    nextUpEmptyBody: 'Recalculate from your recent results to get the next block of work.',
+    week: 'Week {number}',
+    thisWeek: 'This week',
+    weekProgress: '{done}/{total}',
+    overdue: 'Overdue',
+    today: 'Today',
+    tomorrow: 'Tomorrow',
+    allDone: 'All done',
+    collapse: 'Collapse',
+    expand: 'Expand',
   },
 
   mocks: {

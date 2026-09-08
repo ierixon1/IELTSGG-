@@ -68,6 +68,18 @@ export const ru: Dictionary = {
     review: 'Пройти снова',
     emptyTitle: 'Задач пока нет',
     emptyBody: 'Укажите целевой балл, чтобы построить план подготовки.',
+    nextUp: 'Сейчас делаем это',
+    nextUpEmpty: 'Всё из плана выполнено',
+    nextUpEmptyBody: 'Пересчитайте план по последним результатам, чтобы получить следующий блок работы.',
+    week: 'Неделя {number}',
+    thisWeek: 'Эта неделя',
+    weekProgress: '{done}/{total}',
+    overdue: 'Просрочено',
+    today: 'Сегодня',
+    tomorrow: 'Завтра',
+    allDone: 'Всё сделано',
+    collapse: 'Свернуть',
+    expand: 'Развернуть',
   },
 
   mocks: {

@@ -78,7 +78,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
 
   return (
     <div className="space-y-6">
-      <Card className="flex flex-col justify-between gap-6 p-6 sm:p-8 md:flex-row md:items-center">
+      <Card className="es-enter flex flex-col justify-between gap-6 p-6 sm:p-8 md:flex-row md:items-center">
         <div className="max-w-xl">
           <Badge tone="neutral">
             <Layers className="h-3 w-3" />
@@ -100,8 +100,13 @@ export const MocksHub: React.FC<MocksHubProps> = ({
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {SECTIONS.map(({ skill, icon: Icon, iconClass }) => (
-          <Card key={skill} interactive className="flex flex-col justify-between gap-5">
+        {SECTIONS.map(({ skill, icon: Icon, iconClass }, index) => (
+          <Card
+            key={skill}
+            interactive
+            className="es-enter flex flex-col justify-between gap-5"
+            style={{ animationDelay: `${index * 70}ms` }}
+          >
             <div>
               <div className="flex items-start justify-between gap-3">
                 <span

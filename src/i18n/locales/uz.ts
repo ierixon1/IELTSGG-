@@ -68,6 +68,18 @@ export const uz: Dictionary = {
     review: 'Qayta topshirish',
     emptyTitle: 'Hozircha vazifa yo‘q',
     emptyBody: 'Tayyorgarlik rejasini tuzish uchun maqsadli ballni belgilang.',
+    nextUp: 'Keyingi qadam',
+    nextUpEmpty: 'Rejadagi hamma narsa bajarildi',
+    nextUpEmptyBody: 'Keyingi ish blokini olish uchun rejani oxirgi natijalar bo‘yicha qayta hisoblang.',
+    week: '{number}-hafta',
+    thisWeek: 'Shu hafta',
+    weekProgress: '{done}/{total}',
+    overdue: 'Muddati o‘tgan',
+    today: 'Bugun',
+    tomorrow: 'Ertaga',
+    allDone: 'Hammasi bajarildi',
+    collapse: 'Yig‘ish',
+    expand: 'Ochish',
   },
 
   mocks: {

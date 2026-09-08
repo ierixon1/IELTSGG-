@@ -270,7 +270,11 @@ export default function App() {
         onSignOut={handleSignOut}
         isAdminAuthenticated={Boolean(adminUser)}
       />
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      {/* Keyed on the tab so each screen replays its entrance on arrival. */}
+      <main
+        key={activeTab}
+        className="es-enter flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8"
+      >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
         {activeTab === 'mocks' && <MocksHub mockTest={MOCK_TEST_1} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} />}
         {activeTab === 'exam' && <ExamMode mockTest={MOCK_TEST_1} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
