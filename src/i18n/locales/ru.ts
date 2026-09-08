@@ -240,6 +240,27 @@ export const ru: Dictionary = {
     },
   },
 
+  auth: {
+    signInTitle: 'С возвращением',
+    signInSubtitle: 'Войдите, чтобы продолжить с того места, где остановились.',
+    registerTitle: 'Создание аккаунта',
+    registerSubtitle: 'План, результаты и записи хранятся в вашем аккаунте.',
+    name: 'Имя',
+    email: 'Email',
+    username: 'Логин',
+    password: 'Пароль',
+    passwordHint: 'Минимум 10 символов.',
+    signIn: 'Войти',
+    register: 'Создать аккаунт',
+    toRegister: 'Впервые здесь? Создайте аккаунт',
+    toSignIn: 'У меня уже есть аккаунт',
+    working: 'Подождите…',
+    failed: 'Войти не удалось. Проверьте данные и попробуйте снова.',
+    signOut: 'Выйти',
+    checking: 'Проверяем сессию…',
+    backToSite: 'Вернуться на сайт',
+  },
+
   landing: {
     nav: {
       platform: 'Платформа',

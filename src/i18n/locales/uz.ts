@@ -240,6 +240,27 @@ export const uz: Dictionary = {
     },
   },
 
+  auth: {
+    signInTitle: 'Xush kelibsiz',
+    signInSubtitle: 'To‘xtagan joyingizdan davom etish uchun kiring.',
+    registerTitle: 'Hisob yaratish',
+    registerSubtitle: 'Reja, natijalar va yozuvlar hisobingizda saqlanadi.',
+    name: 'Ism',
+    email: 'Email',
+    username: 'Login',
+    password: 'Parol',
+    passwordHint: 'Kamida 10 ta belgi.',
+    signIn: 'Kirish',
+    register: 'Hisob yaratish',
+    toRegister: 'Birinchi martami? Hisob yarating',
+    toSignIn: 'Menda hisob bor',
+    working: 'Kuting…',
+    failed: 'Kirish amalga oshmadi. Ma’lumotlarni tekshirib, qayta urinib ko‘ring.',
+    signOut: 'Chiqish',
+    checking: 'Sessiya tekshirilmoqda…',
+    backToSite: 'Saytga qaytish',
+  },
+
   landing: {
     nav: {
       platform: 'Platforma',

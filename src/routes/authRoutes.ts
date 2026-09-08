@@ -1,102 +1,20 @@
 import { Router, Request, Response } from 'express';
 import { authService } from '../services/authService';
-import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { requestRateLimitService, AuthRateLimitOperation } from '../services/requestRateLimitService';
+import { AUTH_COOKIE } from '../middleware/authMiddleware';
 
 export const authRouter = Router();
+const isObj=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null&&!Array.isArray(v);
+const readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};
+const clientKey=(req:Request,operation:AuthRateLimitOperation)=>`${operation}:${req.ip||'unknown'}`;
+const enforceRateLimit=async(req:Request,res:Response,operation:AuthRateLimitOperation)=>{const result=await requestRateLimitService.check(clientKey(req,operation),operation);if(result.allowed)return true;res.setHeader('Retry-After',String(Math.max(1,Math.ceil(result.retryAfterMs/1000))));res.status(429).json({error:'Too many requests. Please try again later.'});return false;};
+const setAuthCookie=(res:Response,token:string,maxAge:number)=>res.cookie(AUTH_COOKIE,token,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/',maxAge});
+const clearAuthCookie=(res:Response)=>res.clearCookie(AUTH_COOKIE,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/'});
+const sessionMaxAge=(role:string)=>role==='student'?7*24*60*60*1000:24*60*60*1000;
 
-// Registration endpoint
-authRouter.post('/register', (req: Request, res: Response) => {
-  try {
-    const { email, username, password, name } = req.body;
-    const result = authService.register({
-      email,
-      username,
-      password,
-      name,
-      role: 'student',
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Account created successfully.',
-      user: result.user,
-      token: result.token,
-    });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Registration failed.' });
-  }
-});
-
-// Login endpoint (with brute-force protection)
-authRouter.post('/login', (req: Request, res: Response) => {
-  try {
-    const { username, password } = req.body;
-    const result = authService.login(username, password);
-
-    res.json({
-      success: true,
-      message: 'Logged in successfully.',
-      user: result.user,
-      token: result.token,
-    });
-  } catch (error: any) {
-    const isLocked = error.message?.includes('locked');
-    res.status(isLocked ? 429 : 401).json({ error: error.message || 'Login failed.' });
-  }
-});
-
-// Logout endpoint
-authRouter.post('/logout', (req: AuthenticatedRequest, res: Response) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split('Bearer ')[1]?.trim();
-    if (token) {
-      authService.logout(token);
-    }
-  }
-  res.json({ success: true, message: 'Logged out successfully.' });
-});
-
-// Current User profile info
-authRouter.get('/me', (req: AuthenticatedRequest, res: Response) => {
-  if (!req.userId) {
-    return res.status(401).json({ error: 'Not authenticated.' });
-  }
-
-  const user = authService.getUserById(req.userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User profile not found.' });
-  }
-
-  res.json({ user });
-});
-
-// Forgot Password request
-authRouter.post('/forgot-password', (req: Request, res: Response) => {
-  try {
-    const { email } = req.body;
-    const { code, expiresMinutes } = authService.requestPasswordReset(email);
-    // In production, this would be emailed; in dev/preview, return verification code for seamless UX
-    res.json({
-      success: true,
-      message: `Password reset code sent. Valid for ${expiresMinutes} minutes.`,
-      code, // Helpful preview code for immediate testing
-    });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Password reset request failed.' });
-  }
-});
-
-// Reset Password confirmation
-authRouter.post('/reset-password', (req: Request, res: Response) => {
-  try {
-    const { email, code, newPassword } = req.body;
-    authService.resetPassword(email, code, newPassword);
-    res.json({
-      success: true,
-      message: 'Password successfully reset. You can now log in with your new password.',
-    });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Password reset failed.' });
-  }
-});
+authRouter.post('/register',async(req,res)=>{try{if(!await enforceRateLimit(req,res,'register'))return;if(!isObj(req.body))return res.status(400).json({error:'Invalid request.'});const r=await authService.register({email:String(req.body.email||''),username:String(req.body.username||''),password:String(req.body.password||''),name:req.body.name==null?undefined:String(req.body.name)});setAuthCookie(res,r.token,sessionMaxAge(r.user.role));return res.status(201).json({success:true,message:'Account created successfully.',user:r.user});}catch{return res.status(400).json({error:'Unable to create account.'});}});
+authRouter.post('/login',async(req,res)=>{try{if(!await enforceRateLimit(req,res,'login'))return;if(!isObj(req.body))return res.status(400).json({error:'Invalid request.'});const r=await authService.login(String(req.body.username||''),String(req.body.password||''));setAuthCookie(res,r.token,sessionMaxAge(r.user.role));return res.json({success:true,message:'Logged in successfully.',user:r.user});}catch{return res.status(401).json({error:'Invalid credentials.'});}});
+authRouter.post('/logout',async(req,res)=>{try{const cookie=readCookie(req,AUTH_COOKIE);if(cookie)await authService.logout(cookie);}catch{}clearAuthCookie(res);return res.json({success:true,message:'Logged out successfully.'});});
+authRouter.get('/me',async(req,res)=>{try{const sessionToken=readCookie(req,AUTH_COOKIE);const session=sessionToken?await authService.validateSession(sessionToken):null;if(!session)return res.status(401).json({error:'Unauthorized.'});const user=await authService.getUserById(session.userId);if(!user)return res.status(404).json({error:'User profile not found.'});return res.json({user});}catch{return res.status(401).json({error:'Unauthorized.'});}});
+authRouter.post('/forgot-password',async(req,res)=>{try{if(!await enforceRateLimit(req,res,'forgot_password'))return;const email=isObj(req.body)?String(req.body.email||''):'';const r=await authService.requestPasswordReset(email);const out:Record<string,unknown>={success:true,message:'If an account exists for this email, recovery instructions will be sent.',expiresMinutes:r.expiresMinutes};if(process.env.NODE_ENV!=='production'&&process.env.EXPLICIT_DEV_AUTH==='true'&&r.resetToken)out.devResetToken=r.resetToken;return res.json(out);}catch{return res.json({success:true,message:'If an account exists for this email, recovery instructions will be sent.'});}});
+authRouter.post('/reset-password',async(req,res)=>{try{if(!await enforceRateLimit(req,res,'reset_password'))return;if(!isObj(req.body))return res.status(400).json({error:'Invalid request.'});await authService.resetPassword(String(req.body.email||''),String(req.body.token||''),String(req.body.newPassword||''));clearAuthCookie(res);return res.json({success:true,message:'Password successfully reset.'});}catch{return res.status(400).json({error:'Invalid or expired reset token.'});}});

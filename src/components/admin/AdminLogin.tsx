@@ -3,11 +3,11 @@ import { Shield, Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
 import { AdminUser } from '../../types/admin';
 
 interface AdminLoginProps {
-  onLoginSuccess: (token: string, admin: AdminUser) => void;
+  onLoginSuccess: (admin: AdminUser) => void;
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,18 +20,16 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed.');
-      }
-
-      localStorage.setItem('prep_admin_token', data.token);
+      if (!res.ok) throw new Error(data.error || 'Authentication failed.');
+      if (!data.admin) throw new Error('Authentication response is invalid.');
       localStorage.setItem('prep_admin_user', JSON.stringify(data.admin));
-      onLoginSuccess(data.token, data.admin);
+      onLoginSuccess(data.admin);
     } catch (err: any) {
       setError(err.message || 'Unable to sign in as administrator.');
     } finally {
@@ -68,6 +66,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
             <input
               type="text"
               required
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="e.g. admin or examiner"
@@ -85,6 +84,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
             <input
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
@@ -112,11 +112,8 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
       </form>
 
       <div className="mt-6 pt-4 border-t border-ink-100 text-[11px] text-ink-400 text-center leading-relaxed">
-        Pre-configured seed accounts for evaluation:
-        <br />
-        <span className="font-semibold text-ink-600">admin</span> / <span className="font-semibold text-ink-600">prep2026!admin</span> (Superadmin)
-        <br />
-        <span className="font-semibold text-ink-600">examiner</span> / <span className="font-semibold text-ink-600">cambridge2026</span> (Content Manager)
+        Administrator credentials are provisioned through the server environment and are
+        never displayed in the client.
       </div>
     </div>
   );

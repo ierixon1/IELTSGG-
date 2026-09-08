@@ -1,98 +1,33 @@
+import { getApps, initializeApp, applicationDefault, cert } from 'firebase-admin/app';
+import { getFirestore, FieldValue, Firestore } from 'firebase-admin/firestore';
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek } from '../../types';
 import { DataStore, DailyQuota } from './DataStore';
 import { GeneratedTestRecord, StoredTextbook, StoredTextbookSummary, TextbookChunk } from './types';
 
-/**
- * Production Firestore DataStore implementation for Cloud Run
- * Activated when STORAGE_BACKEND=gcs_firestore
- */
-export class FirestoreDataStore implements DataStore {
-  constructor() {
-    // When enabled, connects to Firestore via firebase-admin or @google-cloud/firestore
-  }
-
-  async getUserProfile(userId: string): Promise<UserProfile | null> {
-    throw new Error('FirestoreDataStore requires FIREBASE_PROJECT_ID configuration');
-  }
-
-  async saveUserProfile(userId: string, profile: UserProfile): Promise<void> {
-    throw new Error('FirestoreDataStore requires FIREBASE_PROJECT_ID configuration');
-  }
-
-  async getUserTasks(userId: string): Promise<PlanTask[]> {
-    return [];
-  }
-
-  async saveUserTasks(userId: string, tasks: PlanTask[]): Promise<void> {
-  }
-
-  async getUserChecklist(userId: string): Promise<ChecklistWeek[]> {
-    return [];
-  }
-
-  async saveUserChecklist(userId: string, checklist: ChecklistWeek[]): Promise<void> {
-  }
-
-  async getUserAttempts(userId: string): Promise<MockAttempt[]> {
-    return [];
-  }
-
-  async saveUserAttempt(userId: string, attempt: MockAttempt): Promise<void> {
-  }
-
-  async recordGeneratedTest(userId: string, test: GeneratedTestRecord): Promise<void> {
-  }
-
-  async getRecentGenerations(userId: string, limit = 20): Promise<GeneratedTestRecord[]> {
-    return [];
-  }
-
-  async getGeneratedTestById(userId: string, testId: string): Promise<GeneratedTestRecord | null> {
-    return null;
-  }
-
-  async getDailyQuota(userId: string): Promise<DailyQuota> {
-    return {
-      dateStr: new Date().toISOString().slice(0, 10),
-      generationsCount: 0,
-      uploadsCount: 0
-    };
-  }
-
-  async incrementGenerationCount(userId: string): Promise<DailyQuota> {
-    return {
-      dateStr: new Date().toISOString().slice(0, 10),
-      generationsCount: 1,
-      uploadsCount: 0
-    };
-  }
-
-  async incrementUploadCount(userId: string): Promise<DailyQuota> {
-    return {
-      dateStr: new Date().toISOString().slice(0, 10),
-      generationsCount: 0,
-      uploadsCount: 1
-    };
-  }
-
-  async saveTextbook(textbook: StoredTextbook): Promise<void> {
-  }
-
-  async getTextbook(userId: string, textbookId: string): Promise<StoredTextbook | null> {
-    return null;
-  }
-
-  async listUserTextbooks(userId: string): Promise<StoredTextbookSummary[]> {
-    return [];
-  }
-
-  async deleteTextbook(userId: string, textbookId: string): Promise<void> {
-  }
-
-  async saveTextbookChunks(textbookId: string, chunks: TextbookChunk[]): Promise<void> {
-  }
-
-  async getTextbookChunks(textbookId: string): Promise<TextbookChunk[]> {
-    return [];
-  }
+function initFirestore(): Firestore { if(!getApps().length){const projectId=process.env.FIREBASE_PROJECT_ID,clientEmail=process.env.FIREBASE_CLIENT_EMAIL,privateKey=process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g,'\n');if(projectId&&clientEmail&&privateKey)initializeApp({credential:cert({projectId,clientEmail,privateKey}),projectId});else if(projectId)initializeApp({projectId,credential:applicationDefault()});else initializeApp({credential:applicationDefault()});}return getFirestore(); }
+function assertUserId(userId:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(userId))throw new Error('Invalid user identifier.');}
+export class FirestoreDataStore implements DataStore{
+ private readonly db:Firestore; constructor(){this.db=initFirestore();}
+ private userRef(userId:string){assertUserId(userId);return this.db.collection('users').doc(userId);} private subRef(userId:string,c:string){return this.userRef(userId).collection(c);} private quotaRef(userId:string,date:string){return this.subRef(userId,'quotas').doc(date);}
+ async getUserProfile(userId:string):Promise<UserProfile|null>{const s=await this.userRef(userId).get();return s.exists?(s.data()?.profile as UserProfile)||null:null;}
+ async saveUserProfile(userId:string,profile:UserProfile){await this.userRef(userId).set({profile:{...profile,id:userId},updatedAt:FieldValue.serverTimestamp()},{merge:true});}
+ async getUserTasks(userId:string):Promise<PlanTask[]>{const s=await this.subRef(userId,'tasks').get();return s.docs.sort((a,b)=>a.id.localeCompare(b.id)).map(d=>d.data() as PlanTask);}
+ async saveUserTasks(userId:string,tasks:PlanTask[]){const c=this.subRef(userId,'tasks');const keep=new Map(tasks.map(t=>[t.id,t]));await this.db.runTransaction(async tx=>{const old=await tx.get(c);old.docs.filter(d=>!keep.has(d.id)).forEach(d=>tx.delete(d.ref));tasks.forEach(t=>{if(!t?.id||typeof t.id!=='string'||t.id.length>128)throw new Error('Invalid task identifier.');tx.set(c.doc(t.id),t);});});}
+ async getUserChecklist(userId:string):Promise<ChecklistWeek[]>{const s=await this.subRef(userId,'checklist').get();return s.docs.sort((a,b)=>a.id.localeCompare(b.id)).map(d=>d.data() as ChecklistWeek);}
+ async saveUserChecklist(userId:string,checklist:ChecklistWeek[]){const c=this.subRef(userId,'checklist');const keep=new Map(checklist.map(x=>[String(x.weekNumber),x]));await this.db.runTransaction(async tx=>{const old=await tx.get(c);old.docs.filter(d=>!keep.has(d.id)).forEach(d=>tx.delete(d.ref));checklist.forEach(x=>{const id=String(x.weekNumber);if(!/^-?\\d+$/.test(id)||id.length>12)throw new Error('Invalid checklist week identifier.');tx.set(c.doc(id),x);});});}
+ async getUserAttempts(userId:string):Promise<MockAttempt[]>{const s=await this.subRef(userId,'attempts').get();return s.docs.map(d=>d.data() as MockAttempt);}
+ async saveUserAttempt(userId:string,attempt:MockAttempt){assertUserId(userId);if(!attempt?.id||typeof attempt.id!=='string'||attempt.id.length>128)throw new Error('Invalid attempt identifier.');await this.subRef(userId,'attempts').doc(attempt.id).set({...attempt,userId});}
+ async recordGeneratedTest(userId:string,test:GeneratedTestRecord){await this.subRef(userId,'generatedTests').doc(test.id).set({...test,userId});}
+ async getRecentGenerations(userId:string,limit=20):Promise<GeneratedTestRecord[]>{const n=Math.min(Math.max(Math.floor(limit),1),50),s=await this.subRef(userId,'generatedTests').orderBy('timestamp','desc').limit(n).get();return s.docs.map(d=>d.data() as GeneratedTestRecord);}
+ async getGeneratedTestById(userId:string,testId:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(testId))return null;const s=await this.subRef(userId,'generatedTests').doc(testId).get();return s.exists?s.data() as GeneratedTestRecord:null;}
+ async getDailyQuota(userId:string):Promise<DailyQuota>{const date=new Date().toISOString().slice(0,10),s=await this.quotaRef(userId,date).get(),d=s.data()||{};return{dateStr:date,generationsCount:Number(d.generationsCount||0),uploadsCount:Number(d.uploadsCount||0)};}
+ async incrementGenerationCount(userId:string):Promise<DailyQuota>{const date=new Date().toISOString().slice(0,10);await this.quotaRef(userId,date).set({generationsCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});return this.getDailyQuota(userId);}
+ async reserveGeneration(userId:string,maxGenerations:number):Promise<DailyQuota|null>{const date=new Date().toISOString().slice(0,10),ref=this.quotaRef(userId,date);return this.db.runTransaction(async tx=>{const snap=await tx.get(ref),d=snap.data()||{},count=Number(d.generationsCount||0);if(count>=maxGenerations)return null;const next=count+1;tx.set(ref,{generationsCount:next,updatedAt:FieldValue.serverTimestamp()},{merge:true});return{dateStr:date,generationsCount:next,uploadsCount:Number(d.uploadsCount||0)};});}
+ async incrementUploadCount(userId:string):Promise<DailyQuota>{const date=new Date().toISOString().slice(0,10);await this.quotaRef(userId,date).set({uploadsCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});return this.getDailyQuota(userId);}
+ async saveTextbook(textbook:StoredTextbook){await this.subRef(textbook.userId,'textbooks').doc(textbook.id).set({...textbook,userId:textbook.userId});}
+ async getTextbook(userId:string,textbookId:string){const s=await this.subRef(userId,'textbooks').doc(textbookId).get();return s.exists?s.data() as StoredTextbook:null;}
+ async listUserTextbooks(userId:string):Promise<StoredTextbookSummary[]>{const s=await this.subRef(userId,'textbooks').get();return s.docs.map(d=>{const v=d.data() as StoredTextbook;const{tableOfContents,...summary}=v;return{...summary,unitCount:tableOfContents?.length||0};});}
+ async deleteTextbook(userId:string,textbookId:string){await this.subRef(userId,'textbooks').doc(textbookId).delete();const c=await this.subRef(userId,'textbooks').doc(textbookId).collection('chunks').get();if(!c.empty){const b=this.db.batch();c.docs.forEach(d=>b.delete(d.ref));await b.commit();}}
+ async saveTextbookChunks(userId:string,textbookId:string,chunks:TextbookChunk[]){const c=this.subRef(userId,'textbooks').doc(textbookId).collection('chunks'),old=await c.get(),b=this.db.batch();old.docs.forEach(d=>b.delete(d.ref));chunks.forEach(x=>b.set(c.doc(x.id),x));await b.commit();}
+ async getTextbookChunks(userId:string,textbookId:string){const s=await this.subRef(userId,'textbooks').doc(textbookId).collection('chunks').orderBy('id').get();return s.docs.map(d=>d.data() as TextbookChunk);}
 }

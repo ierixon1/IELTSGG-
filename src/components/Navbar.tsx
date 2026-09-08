@@ -24,6 +24,7 @@ interface NavbarProps {
   onOpenOnboarding: () => void;
   onOpenPreppy: () => void;
   onGoHome?: () => void;
+  onSignOut?: () => void;
   isAdminAuthenticated?: boolean;
 }
 
@@ -41,6 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenOnboarding,
   onOpenPreppy,
   onGoHome,
+  onSignOut,
   isAdminAuthenticated,
 }) => {
   const t = useT();
@@ -194,16 +196,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {t('nav.admin')}
                   </button>
 
-                  {onGoHome && (
+                  {onSignOut && (
                     <button
                       onClick={() => {
-                        onGoHome();
+                        onSignOut();
                         setMenuOpen(false);
                       }}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-600 transition-colors hover:bg-ink-50"
                     >
                       <LogOut className="h-4 w-4 text-ink-400" />
-                      {t('common.back')}
+                      {t('auth.signOut')}
                     </button>
                   )}
                 </div>

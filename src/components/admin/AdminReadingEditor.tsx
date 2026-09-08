@@ -15,14 +15,12 @@ interface ReadingEditorQuestion {
 
 interface AdminReadingEditorProps {
   initialData?: AdminReadingMaterial | null;
-  adminToken: string;
   onSave: (material: Partial<AdminReadingMaterial>) => Promise<void>;
   onCancel: () => void;
 }
 
 export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
   initialData,
-  adminToken,
   onSave,
   onCancel,
 }) => {
@@ -154,7 +152,6 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
           category="document"
           label="Import Text Document (.txt, .docx, .pdf)"
           description="Extracts raw text and automatically populates the text passage editor below."
-          adminToken={adminToken}
           onUploaded={(file) => {
             if (file.extractedText) {
               setPassageText(file.extractedText);
@@ -170,7 +167,6 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
           category="html"
           label="Import HTML Passage (.html, .htm) — CDI Native"
           description="Sanitizes and renders HTML formatting (tables, headings, citations) in the CDI player."
-          adminToken={adminToken}
           onUploaded={(file) => {
             if (file.extractedHtml) {
               setHtmlContent(file.extractedHtml);

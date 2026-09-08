@@ -6,7 +6,6 @@ interface FileUploadZoneProps {
   category: 'audio' | 'image' | 'document' | 'html';
   label: string;
   description: string;
-  adminToken: string;
   onUploaded: (fileData: { url: string; originalName: string; size: number; extractedText?: string; extractedHtml?: string }) => void;
 }
 
@@ -15,7 +14,6 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
   category,
   label,
   description,
-  adminToken,
   onUploaded,
 }) => {
   const [uploading, setUploading] = useState(false);
@@ -37,9 +35,8 @@ export const FileUploadZone: React.FC<FileUploadZoneProps> = ({
 
       setProgress(45);
       const res = await fetch('/api/admin/upload', {
-        method: 'POST',
+        credentials: 'same-origin', method: 'POST',
         headers: {
-          Authorization: `Bearer ${adminToken}`,
         },
         body: formData,
       });

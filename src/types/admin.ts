@@ -3,7 +3,7 @@ export interface AdminUser {
   id: string;
   username: string;
   name: string;
-  role: 'superadmin' | 'content_manager' | 'examiner';
+  role: 'admin' | 'examiner';
 }
 
 export type AdminSectionType = 'speaking' | 'reading' | 'listening' | 'writing';
@@ -25,56 +25,24 @@ export interface AdminSpeakingMaterial extends BaseAdminMaterial {
   section: 'speaking';
   content: {
     speakingSession: {
-      part1: {
-        topic: string;
-        questions: string[];
-        htmlContent?: string;
-      };
-      part2: {
-        cueCardTopic: string;
-        bulletPoints: string[];
-        htmlContent?: string;
-      };
-      part3: {
-        questions: string[];
-        htmlContent?: string;
-      };
+      part1: { topic: string; questions: string[]; htmlContent?: string };
+      part2: { cueCardTopic: string; bulletPoints: string[]; htmlContent?: string };
+      part3: { questions: string[]; htmlContent?: string };
     };
     htmlContent?: string;
-    audioModelAnswers?: {
-      part: 'part1' | 'part2' | 'part3';
-      audioUrl: string;
-      modelBand: number;
-      transcript?: string;
-    }[];
+    audioModelAnswers?: { part: 'part1' | 'part2' | 'part3'; audioUrl: string; modelBand: number; transcript?: string }[];
   };
 }
 
 export interface AdminReadingMaterial extends BaseAdminMaterial {
   section: 'reading';
-  content: {
-    passage: {
-      passageNumber: number;
-      title: string;
-      text: string;
-      htmlContent?: string;
-      questions: any[];
-    };
-    htmlContent?: string;
-  };
+  content: { passage: { passageNumber: number; title: string; text: string; htmlContent?: string; questions: any[] }; htmlContent?: string };
 }
 
 export interface AdminListeningMaterial extends BaseAdminMaterial {
   section: 'listening';
   content: {
-    section: {
-      sectionNumber: number;
-      title: string;
-      contextDescription: string;
-      audioTranscript?: string;
-      htmlContent?: string;
-      questions: any[];
-    };
+    section: { sectionNumber: number; title: string; contextDescription: string; audioTranscript?: string; htmlContent?: string; questions: any[] };
     audioUrl?: string;
     audioFileName?: string;
     transcript?: string;
@@ -88,18 +56,11 @@ export interface AdminWritingMaterial extends BaseAdminMaterial {
     task: any;
     task1ImageUrl?: string;
     htmlContent?: string;
-    customGradingCriteria?: {
-      taskResponseGuide?: string;
-      lexicalKeyTerms?: string[];
-    };
+    customGradingCriteria?: { taskResponseGuide?: string; lexicalKeyTerms?: string[] };
   };
 }
 
-export type AdminMaterial =
-  | AdminSpeakingMaterial
-  | AdminReadingMaterial
-  | AdminListeningMaterial
-  | AdminWritingMaterial;
+export type AdminMaterial = AdminSpeakingMaterial | AdminReadingMaterial | AdminListeningMaterial | AdminWritingMaterial;
 
 export interface FullCdiBundle {
   id: string;
@@ -110,30 +71,15 @@ export interface FullCdiBundle {
   description?: string;
   createdAt: string;
   updatedAt: string;
-  timings: {
-    listeningMinutes: number;
-    readingMinutes: number;
-    writingMinutes: number;
-    speakingMinutes: number;
-  };
-  materials: {
-    listeningId?: string;
-    readingId?: string;
-    writingId?: string;
-    speakingId?: string;
-  };
+  timings: { listeningMinutes: number; readingMinutes: number; writingMinutes: number; speakingMinutes: number };
+  materials: { listeningId?: string; readingId?: string; writingId?: string; speakingId?: string };
 }
 
 export interface AdminStats {
   totalMaterials: number;
   publishedMaterials: number;
   draftMaterials: number;
-  bySection: {
-    speaking: number;
-    reading: number;
-    listening: number;
-    writing: number;
-  };
+  bySection: { speaking: number; reading: number; listening: number; writing: number };
   totalBundles: number;
   uploadedFilesCount: number;
   uploadedTotalBytes: number;

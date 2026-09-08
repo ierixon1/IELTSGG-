@@ -1,245 +1,44 @@
 import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
-import { 
-  AdminSpeakingMaterial, 
-  AdminReadingMaterial, 
-  AdminListeningMaterial, 
-  AdminWritingMaterial, 
-  FullCdiBundle,
-  AdminStats 
-} from '../types/admin';
+import { getFirestoreDb } from './firebaseAdmin';
+import { FieldValue } from 'firebase-admin/firestore';
+import { AdminSpeakingMaterial, AdminReadingMaterial, AdminListeningMaterial, AdminWritingMaterial, FullCdiBundle, AdminStats } from '../types/admin';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'admin_content');
-const UPLOADS_DIR = path.join(process.cwd(), 'data', 'uploads');
-
-// Ensure directories exist
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const PRIVATE_UPLOADS_DIR = path.join(process.cwd(), 'data', 'private_uploads');
+const PUBLIC_UPLOADS_DIR = path.join(process.cwd(), 'data', 'uploads');
+const useFirestore = () => process.env.NODE_ENV === 'production' || process.env.STORAGE_BACKEND === 'gcs_firestore';
+if (!fs.existsSync(PRIVATE_UPLOADS_DIR)) fs.mkdirSync(PRIVATE_UPLOADS_DIR, { recursive: true });
+if (!useFirestore()) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(PUBLIC_UPLOADS_DIR)) fs.mkdirSync(PUBLIC_UPLOADS_DIR, { recursive: true });
 }
 
 type SectionType = 'speaking' | 'reading' | 'listening' | 'writing';
+const assertId = (v:string) => { if (!/^[A-Za-z0-9_.-]{1,160}$/.test(v)) throw new Error('Invalid identifier.'); };
+const assertObject = (value:unknown,name:string,maxBytes=2_000_000) => { if(!value || typeof value!=='object' || Array.isArray(value)) throw new Error(`Invalid ${name}.`); const bytes=Buffer.byteLength(JSON.stringify(value),'utf8'); if(bytes>maxBytes) throw new Error(`${name} is too large.`); };
+const validateMaterial=(section:SectionType,value:any)=>{assertObject(value,'material');if(value.id!=null)assertId(String(value.id));if(value.section!=null&&value.section!==section)throw new Error('Material section mismatch.');if(value.status!=null&&!['published','draft'].includes(String(value.status)))throw new Error('Invalid material status.');if(value.module!=null&&!['academic','general'].includes(String(value.module)))throw new Error('Invalid material module.');if(value.targetBand!=null&&String(value.targetBand).length>32)throw new Error('Invalid target band.');};
+const validateBundle=(value:any)=>{assertObject(value,'bundle');if(value.id!=null)assertId(String(value.id));if(value.module!=null&&!['academic','general'].includes(String(value.module)))throw new Error('Invalid bundle module.');if(value.status!=null&&!['published','draft'].includes(String(value.status)))throw new Error('Invalid bundle status.');if(value.title!=null&&String(value.title).length>500)throw new Error('Bundle title is too long.');if(value.description!=null&&String(value.description).length>5000)throw new Error('Bundle description is too long.');};
 
 class AdminStore {
-  private getFilePath(collection: string): string {
-    return path.join(DATA_DIR, `${collection}.json`);
-  }
-
-  private readCollection<T>(collection: string): T[] {
-    const filePath = this.getFilePath(collection);
-    try {
-      if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, JSON.stringify([], null, 2), 'utf-8');
-        return [];
-      }
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(raw) as T[];
-    } catch (err) {
-      console.error(`[AdminStore] Error reading collection ${collection}:`, err);
-      return [];
-    }
-  }
-
-  private writeCollection<T>(collection: string, items: T[]): void {
-    const filePath = this.getFilePath(collection);
-    try {
-      fs.writeFileSync(filePath, JSON.stringify(items, null, 2), 'utf-8');
-    } catch (err) {
-      console.error(`[AdminStore] Error writing collection ${collection}:`, err);
-    }
-  }
-
-  // Generic CRUD for Materials
-  public listMaterials(section: SectionType, statusFilter?: 'all' | 'published' | 'draft'): any[] {
-    const items = this.readCollection<any>(section);
-    if (statusFilter && statusFilter !== 'all') {
-      return items.filter(item => item.status === statusFilter);
-    }
-    return items;
-  }
-
-  public getMaterial(section: SectionType, id: string): any | null {
-    const items = this.readCollection<any>(section);
-    return items.find(item => item.id === id) || null;
-  }
-
-  public saveMaterial(section: SectionType, materialData: any, author: string = 'Admin'): any {
-    const items = this.readCollection<any>(section);
-    const now = new Date().toISOString();
-
-    if (materialData.id) {
-      // Update
-      const index = items.findIndex(item => item.id === materialData.id);
-      if (index >= 0) {
-        const updated = {
-          ...items[index],
-          ...materialData,
-          updatedAt: now,
-        };
-        items[index] = updated;
-        this.writeCollection(section, items);
-        return updated;
-      }
-    }
-
-    // Create new
-    const newId = materialData.id || `adm-${section.substring(0, 3)}-${Date.now()}-${nanoid(5)}`;
-    const newItem = {
-      ...materialData,
-      id: newId,
-      section,
-      status: materialData.status || 'published',
-      author: materialData.author || author,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    items.unshift(newItem);
-    this.writeCollection(section, items);
-    return newItem;
-  }
-
-  public deleteMaterial(section: SectionType, id: string): boolean {
-    const items = this.readCollection<any>(section);
-    const initialLen = items.length;
-    const filtered = items.filter(item => item.id !== id);
-    if (filtered.length !== initialLen) {
-      this.writeCollection(section, filtered);
-      return true;
-    }
-    return false;
-  }
-
-  // CDI Bundles CRUD
-  public listBundles(statusFilter?: 'all' | 'published' | 'draft'): FullCdiBundle[] {
-    const items = this.readCollection<FullCdiBundle>('bundles');
-    if (statusFilter && statusFilter !== 'all') {
-      return items.filter(item => item.status === statusFilter);
-    }
-    return items;
-  }
-
-  public getBundle(id: string): FullCdiBundle | null {
-    const items = this.readCollection<FullCdiBundle>('bundles');
-    return items.find(b => b.id === id) || null;
-  }
-
-  public saveBundle(bundleData: Partial<FullCdiBundle>): FullCdiBundle {
-    const items = this.readCollection<FullCdiBundle>('bundles');
-    const now = new Date().toISOString();
-
-    if (bundleData.id) {
-      const index = items.findIndex(b => b.id === bundleData.id);
-      if (index >= 0) {
-        const updated: FullCdiBundle = {
-          ...items[index],
-          ...bundleData,
-          updatedAt: now,
-        } as FullCdiBundle;
-        items[index] = updated;
-        this.writeCollection('bundles', items);
-        return updated;
-      }
-    }
-
-    const newId = bundleData.id || `cdi-bundle-${Date.now()}-${nanoid(5)}`;
-    const newBundle: FullCdiBundle = {
-      id: newId,
-      title: bundleData.title || 'Untitled IELTS Full CDI Test',
-      module: bundleData.module || 'academic',
-      targetBand: bundleData.targetBand || '7.0-7.5',
-      status: bundleData.status || 'draft',
-      description: bundleData.description || '',
-      createdAt: now,
-      updatedAt: now,
-      timings: bundleData.timings || {
-        listeningMinutes: 30,
-        readingMinutes: 60,
-        writingMinutes: 60,
-        speakingMinutes: 15,
-      },
-      materials: bundleData.materials || {},
-    };
-
-    items.unshift(newBundle);
-    this.writeCollection('bundles', items);
-    return newBundle;
-  }
-
-  public deleteBundle(id: string): boolean {
-    const items = this.readCollection<FullCdiBundle>('bundles');
-    const initialLen = items.length;
-    const filtered = items.filter(b => b.id !== id);
-    if (filtered.length !== initialLen) {
-      this.writeCollection('bundles', filtered);
-      return true;
-    }
-    return false;
-  }
-
-  // Stats
-  public getStats(): AdminStats {
-    const speaking = this.readCollection<AdminSpeakingMaterial>('speaking');
-    const reading = this.readCollection<AdminReadingMaterial>('reading');
-    const listening = this.readCollection<AdminListeningMaterial>('listening');
-    const writing = this.readCollection<AdminWritingMaterial>('writing');
-    const bundles = this.readCollection<FullCdiBundle>('bundles');
-    
-    let fileCount = 0;
-    let totalBytes = 0;
-    if (fs.existsSync(UPLOADS_DIR)) {
-      const files = fs.readdirSync(UPLOADS_DIR);
-      fileCount = files.length;
-      for (const f of files) {
-        try {
-          const stat = fs.statSync(path.join(UPLOADS_DIR, f));
-          totalBytes += stat.size;
-        } catch {}
-      }
-    }
-
-    const allMaterials = [...speaking, ...reading, ...listening, ...writing];
-
-    return {
-      totalMaterials: allMaterials.length,
-      publishedMaterials: allMaterials.filter(m => m.status === 'published').length,
-      draftMaterials: allMaterials.filter(m => m.status === 'draft').length,
-      bySection: {
-        speaking: speaking.length,
-        reading: reading.length,
-        listening: listening.length,
-        writing: writing.length,
-      },
-      totalBundles: bundles.length,
-      uploadedFilesCount: fileCount,
-      uploadedTotalBytes: totalBytes,
-    };
-  }
-
-  // Retrieve full resolved bundle with its sub-materials for student exam taking
-  public getResolvedBundle(id: string): { bundle: FullCdiBundle; resolvedMaterials: any } | null {
-    const bundle = this.getBundle(id);
-    if (!bundle) return null;
-
-    const listening = bundle.materials.listeningId ? this.getMaterial('listening', bundle.materials.listeningId) : null;
-    const reading = bundle.materials.readingId ? this.getMaterial('reading', bundle.materials.readingId) : null;
-    const writing = bundle.materials.writingId ? this.getMaterial('writing', bundle.materials.writingId) : null;
-    const speaking = bundle.materials.speakingId ? this.getMaterial('speaking', bundle.materials.speakingId) : null;
-
-    return {
-      bundle,
-      resolvedMaterials: {
-        listening,
-        reading,
-        writing,
-        speaking,
-      },
-    };
-  }
+  private getFilePath(collection:string){return path.join(DATA_DIR,`${collection}.json`);}
+  private readCollection<T>(collection:string):T[]{const filePath=this.getFilePath(collection);try{if(!fs.existsSync(filePath)){fs.writeFileSync(filePath,'[]','utf-8');return [];}const value=JSON.parse(fs.readFileSync(filePath,'utf-8'));return Array.isArray(value)?value as T[]:[];}catch{return [];}}
+  private writeCollection<T>(collection:string,items:T[]):void{const filePath=this.getFilePath(collection),tmp=`${filePath}.tmp.${process.pid}.${Date.now()}.${nanoid(4)}`;fs.writeFileSync(tmp,JSON.stringify(items,null,2),'utf-8');fs.renameSync(tmp,filePath);}
+  private async firestoreList<T>(section:string,statusFilter?:'all'|'published'|'draft'):Promise<T[]>{let q:any=getFirestoreDb().collection('admin_content').doc(section).collection('items');if(statusFilter&&statusFilter!=='all')q=q.where('status','==',statusFilter);const s=await q.get();return s.docs.map((d:any)=>d.data() as T);}
+  public async listMaterials(section:SectionType,statusFilter?:'all'|'published'|'draft'):Promise<any[]>{return useFirestore()?this.firestoreList<any>(section,statusFilter):this.readCollection<any>(section).filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);}
+  public async getMaterial(section:SectionType,id:string):Promise<any|null>{assertId(id);if(useFirestore()){const s=await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).get();return s.exists?s.data()||null:null;}return this.readCollection<any>(section).find(item=>item.id===id)||null;}
+  public async saveMaterial(section:SectionType,materialData:any,author='Admin'):Promise<any>{assertId(section);validateMaterial(section,materialData);const now=new Date().toISOString();if(useFirestore()){const db=getFirestoreDb(),id=materialData.id?String(materialData.id):`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`;assertId(id);const ref=db.collection('admin_content').doc(section).collection('items').doc(id),existing=await ref.get();const item=existing.exists?{...(existing.data()||{}),...materialData,id,section,updatedAt:now}:{...materialData,id,section,status:materialData.status||'published',author:materialData.author||author,createdAt:now,updatedAt:now};await ref.set(item,{merge:true});return item;}const items=this.readCollection<any>(section);if(materialData.id){const index=items.findIndex(x=>x.id===materialData.id);if(index>=0){const updated={...items[index],...materialData,updatedAt:now};items[index]=updated;this.writeCollection(section,items);return updated;}}const item={...materialData,id:materialData.id||`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`,section,status:materialData.status||'published',author:materialData.author||author,createdAt:now,updatedAt:now};items.unshift(item);this.writeCollection(section,items);return item;}
+  public async deleteMaterial(section:SectionType,id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id),snap=await ref.get();if(!snap.exists)return false;await ref.delete();return true;}const items=this.readCollection<any>(section),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection(section,filtered);return true;}
+  public async listBundles(statusFilter?:'all'|'published'|'draft'):Promise<FullCdiBundle[]>{return useFirestore()?this.firestoreList<FullCdiBundle>('bundles',statusFilter):this.readCollection<FullCdiBundle>('bundles').filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);}
+  public async getBundle(id:string):Promise<FullCdiBundle|null>{assertId(id);if(useFirestore()){const s=await getFirestoreDb().collection('admin_content').doc('bundles').collection('items').doc(id).get();return s.exists?s.data() as FullCdiBundle:null;}return this.readCollection<FullCdiBundle>('bundles').find(x=>x.id===id)||null;}
+  public async saveBundle(bundleData:Partial<FullCdiBundle>):Promise<FullCdiBundle>{validateBundle(bundleData);const now=new Date().toISOString();if(useFirestore()){const db=getFirestoreDb(),id=String(bundleData.id||`cdi-bundle-${Date.now()}-${nanoid(5)}`);assertId(id);const ref=db.collection('admin_content').doc('bundles').collection('items').doc(id),existing=await ref.get();const item=(existing.exists?{...(existing.data()||{}),...bundleData,id,updatedAt:now}:{id,title:bundleData.title||'Untitled IELTS Full CDI Test',module:bundleData.module||'academic',targetBand:bundleData.targetBand||'7.0-7.5',status:bundleData.status||'draft',description:bundleData.description||'',createdAt:now,updatedAt:now,timings:bundleData.timings||{listeningMinutes:30,readingMinutes:60,writingMinutes:60,speakingMinutes:15},materials:bundleData.materials||{}}) as FullCdiBundle;await ref.set(item,{merge:true});return item;}const items=this.readCollection<FullCdiBundle>('bundles');if(bundleData.id){const index=items.findIndex(b=>b.id===bundleData.id);if(index>=0){const updated={...items[index],...bundleData,updatedAt:now} as FullCdiBundle;items[index]=updated;this.writeCollection('bundles',items);return updated;}}const item={id:bundleData.id||`cdi-bundle-${Date.now()}-${nanoid(5)}`,title:bundleData.title||'Untitled IELTS Full CDI Test',module:bundleData.module||'academic',targetBand:bundleData.targetBand||'7.0-7.5',status:bundleData.status||'draft',description:bundleData.description||'',createdAt:now,updatedAt:now,timings:bundleData.timings||{listeningMinutes:30,readingMinutes:60,writingMinutes:60,speakingMinutes:15},materials:bundleData.materials||{}} as FullCdiBundle;items.unshift(item);this.writeCollection('bundles',items);return item;}
+  public async deleteBundle(id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc('bundles').collection('items').doc(id),s=await ref.get();if(!s.exists)return false;await ref.delete();return true;}const items=this.readCollection<FullCdiBundle>('bundles'),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection('bundles',filtered);return true;}
+  public async getResolvedBundle(id:string){const bundle=await this.getBundle(id);if(!bundle)return null;const ids=bundle.materials||{};const [listening,reading,writing,speaking]=await Promise.all([ids.listeningId?this.getMaterial('listening',ids.listeningId):Promise.resolve(null),ids.readingId?this.getMaterial('reading',ids.readingId):Promise.resolve(null),ids.writingId?this.getMaterial('writing',ids.writingId):Promise.resolve(null),ids.speakingId?this.getMaterial('speaking',ids.speakingId):Promise.resolve(null)]);const resolvedMaterials={listening,reading,writing,speaking};if(bundle.status==='published'){for(const key of Object.keys(resolvedMaterials) as (keyof typeof resolvedMaterials)[]){const material=resolvedMaterials[key] as any;if(material&&material.status!=='published')resolvedMaterials[key]=null;}}return{bundle,resolvedMaterials};}
+  public async saveFileRecord(file:{filename:string;originalName:string;size:number;mimetype:string;storagePath:string;createdAt:string;createdBy:string}){if(useFirestore()){await getFirestoreDb().collection('admin_files').doc(file.filename).set({...file,updatedAt:FieldValue.serverTimestamp()});return;}const records=this.readCollection<any>('files');records.unshift(file);this.writeCollection('files',records);}
+  public async getFileRecord(filename:string){assertId(filename.replace(/\.[^.]+$/,''));if(useFirestore()){const s=await getFirestoreDb().collection('admin_files').doc(filename).get();return s.exists?s.data()||null:null;}return this.readCollection<any>('files').find(x=>x.filename===filename)||null;}
+  public async getStats():Promise<AdminStats>{const [speaking,reading,listening,writing,bundles]=await Promise.all([this.listMaterials('speaking'),this.listMaterials('reading'),this.listMaterials('listening'),this.listMaterials('writing'),this.listBundles()]);let fileCount=0,totalBytes=0;if(useFirestore()){const snap=await getFirestoreDb().collection('admin_files').get();fileCount=snap.size;snap.docs.forEach(d=>{totalBytes+=Number(d.data().size||0);});}else if(fs.existsSync(PRIVATE_UPLOADS_DIR))for(const f of fs.readdirSync(PRIVATE_UPLOADS_DIR))try{totalBytes+=fs.statSync(path.join(PRIVATE_UPLOADS_DIR,f)).size;fileCount++;}catch{}const all=[...speaking,...reading,...listening,...writing];return{totalMaterials:all.length,publishedMaterials:all.filter(m=>m.status==='published').length,draftMaterials:all.filter(m=>m.status==='draft').length,bySection:{speaking:speaking.length,reading:reading.length,listening:listening.length,writing:writing.length},totalBundles:bundles.length,uploadedFilesCount:fileCount,uploadedTotalBytes:totalBytes};}
 }
-
-export const adminStore = new AdminStore();
-export { UPLOADS_DIR };
+export const adminStore=new AdminStore();
+export const UPLOADS_DIR=PUBLIC_UPLOADS_DIR;
+export {PRIVATE_UPLOADS_DIR,PUBLIC_UPLOADS_DIR};

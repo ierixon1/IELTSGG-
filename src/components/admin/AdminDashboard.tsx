@@ -28,7 +28,6 @@ import { AdminPreviewModal } from './AdminPreviewModal';
 
 interface AdminDashboardProps {
   adminUser: AdminUser;
-  adminToken: string;
   onLogout: () => void;
 }
 
@@ -36,7 +35,6 @@ type TabKey = 'materials' | 'bundles' | 'analytics';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
-  adminToken,
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('materials');
@@ -64,9 +62,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setLoading(true);
     try {
       const [matRes, bunRes, statRes] = await Promise.all([
-        fetch('/api/admin/materials', { headers: { Authorization: `Bearer ${adminToken}` } }),
-        fetch('/api/admin/bundles', { headers: { Authorization: `Bearer ${adminToken}` } }),
-        fetch('/api/admin/stats', { headers: { Authorization: `Bearer ${adminToken}` } }),
+        fetch('/api/admin/materials', { credentials: 'same-origin', headers: { } }),
+        fetch('/api/admin/bundles', { credentials: 'same-origin', headers: { } }),
+        fetch('/api/admin/stats', { credentials: 'same-origin', headers: { } }),
       ]);
 
       if (matRes.ok) {
@@ -90,7 +88,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     fetchData();
-  }, [adminToken]);
+  }, []);
 
   const showToast = (msg: string) => {
     setNotification(msg);
@@ -104,10 +102,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const url = item.id ? `/api/admin/materials/${item.id}` : '/api/admin/materials';
 
       const res = await fetch(url, {
-        method,
+        credentials: 'same-origin', method,
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${adminToken}`,
         },
         body: JSON.stringify(item),
       });
@@ -128,8 +125,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!confirm('Are you sure you want to delete this material?')) return;
     try {
       const res = await fetch(`/api/admin/materials/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${adminToken}` },
+        credentials: 'same-origin', method: 'DELETE',
+        headers: { },
       });
       if (!res.ok) throw new Error('Deletion failed.');
       showToast('Material deleted successfully.');
@@ -146,10 +143,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const url = item.id ? `/api/admin/bundles/${item.id}` : '/api/admin/bundles';
 
       const res = await fetch(url, {
-        method,
+        credentials: 'same-origin', method,
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${adminToken}`,
         },
         body: JSON.stringify(item),
       });
@@ -170,8 +166,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!confirm('Are you sure you want to delete this CDI exam bundle?')) return;
     try {
       const res = await fetch(`/api/admin/bundles/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${adminToken}` },
+        credentials: 'same-origin', method: 'DELETE',
+        headers: { },
       });
       if (!res.ok) throw new Error('Deletion failed.');
       showToast('CDI bundle deleted successfully.');
@@ -184,7 +180,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handlePreviewBundle = async (id: string) => {
     try {
       const res = await fetch(`/api/admin/bundles/${id}`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        credentials: 'same-origin', headers: { },
       });
       if (res.ok) {
         const d = await res.json();
@@ -313,7 +309,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {editorMode === 'speaking' && (
             <AdminSpeakingEditor
               initialData={editingItem}
-              adminToken={adminToken}
               onSave={handleSaveMaterial}
               onCancel={() => {
                 setEditorMode('none');
@@ -325,7 +320,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {editorMode === 'reading' && (
             <AdminReadingEditor
               initialData={editingItem}
-              adminToken={adminToken}
               onSave={handleSaveMaterial}
               onCancel={() => {
                 setEditorMode('none');
@@ -337,7 +331,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {editorMode === 'listening' && (
             <AdminListeningEditor
               initialData={editingItem}
-              adminToken={adminToken}
               onSave={handleSaveMaterial}
               onCancel={() => {
                 setEditorMode('none');
@@ -349,7 +342,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {editorMode === 'writing' && (
             <AdminWritingEditor
               initialData={editingItem}
-              adminToken={adminToken}
               onSave={handleSaveMaterial}
               onCancel={() => {
                 setEditorMode('none');

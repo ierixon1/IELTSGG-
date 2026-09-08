@@ -243,6 +243,27 @@ export const en: Dictionary = {
     },
   },
 
+  auth: {
+    signInTitle: 'Welcome back',
+    signInSubtitle: 'Sign in to pick up your plan where you left it.',
+    registerTitle: 'Create your account',
+    registerSubtitle: 'Your plan, results and recordings stay with your account.',
+    name: 'Name',
+    email: 'Email',
+    username: 'Username',
+    password: 'Password',
+    passwordHint: 'At least 10 characters.',
+    signIn: 'Sign in',
+    register: 'Create account',
+    toRegister: 'New here? Create an account',
+    toSignIn: 'I already have an account',
+    working: 'Please wait…',
+    failed: 'Sign-in failed. Check your details and try again.',
+    signOut: 'Sign out',
+    checking: 'Checking your session…',
+    backToSite: 'Back to the site',
+  },
+
   landing: {
     nav: {
       platform: 'Platform',
