@@ -1,17 +1,8 @@
 import React from 'react';
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, SkillType } from '../types';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  CheckCircle2, 
-  AlertCircle, 
-  ShieldCheck, 
-  Target,
-  Award,
-  Sparkles,
-  Calendar,
-  Flame
-} from 'lucide-react';
+import { AlertCircle, BarChart3, ShieldCheck } from 'lucide-react';
+import { useT } from '../i18n';
+import { Badge, Button, Card, Progress, cx } from './ui';
 
 interface StatisticsViewProps {
   profile: UserProfile;
@@ -21,6 +12,30 @@ interface StatisticsViewProps {
   onOpenExamMode: () => void;
 }
 
+const SKILL_ORDER: SkillType[] = ['listening', 'reading', 'writing', 'speaking'];
+
+const SKILL_ACCENT: Record<SkillType, string> = {
+  listening: 'text-listening-ink',
+  reading: 'text-reading-ink',
+  writing: 'text-writing-ink',
+  speaking: 'text-speaking-ink',
+};
+
+/** Averages the graded attempts for one skill, or `null` when there are none. */
+function averageBand(attempts: MockAttempt[], skill: SkillType): number | null {
+  const bands = attempts
+    .map((attempt) => attempt.scores[skill]?.band)
+    .filter((band): band is number => typeof band === 'number');
+
+  if (bands.length === 0) return null;
+  return bands.reduce((sum, band) => sum + band, 0) / bands.length;
+}
+
+function ratio(done: number, target: number): number {
+  if (target <= 0) return 0;
+  return Math.min(1, done / target);
+}
+
 export const StatisticsView: React.FC<StatisticsViewProps> = ({
   profile,
   attempts,
@@ -28,223 +43,170 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
   checklist,
   onOpenExamMode,
 }) => {
-  // Compute metrics
-  const completedTasks = tasks.filter((t) => t.completed).length;
-  const totalTasks = tasks.length || 1;
-  const taskCompletionPct = Math.round((completedTasks / totalTasks) * 100);
+  const t = useT();
 
-  // Compute skill averages from attempts
-  const skillAvgs: Record<SkillType, number> = {
-    listening: 0,
-    reading: 0,
-    writing: 0,
-    speaking: 0,
-  };
-  const skillCounts: Record<SkillType, number> = {
-    listening: 0,
-    reading: 0,
-    writing: 0,
-    speaking: 0,
-  };
+  const completedTasks = tasks.filter((task) => task.completed).length;
+  const taskProgress = ratio(completedTasks, tasks.length);
 
-  attempts.forEach((att) => {
-    if (att.scores.listening) {
-      skillAvgs.listening += att.scores.listening.band;
-      skillCounts.listening += 1;
-    }
-    if (att.scores.reading) {
-      skillAvgs.reading += att.scores.reading.band;
-      skillCounts.reading += 1;
-    }
-    if (att.scores.writing) {
-      skillAvgs.writing += att.scores.writing.band;
-      skillCounts.writing += 1;
-    }
-    if (att.scores.speaking) {
-      skillAvgs.speaking += att.scores.speaking.band;
-      skillCounts.speaking += 1;
-    }
-  });
+  /**
+   * Bands fall back to the self-reported starting level until a real graded
+   * attempt exists — and the screen says so, rather than presenting a guess as
+   * a measurement.
+   */
+  const measured = SKILL_ORDER.map((skill) => ({
+    skill,
+    band: averageBand(attempts, skill),
+  }));
 
-  const listeningBand = skillCounts.listening > 0 ? (skillAvgs.listening / skillCounts.listening).toFixed(1) : profile.currentLevel.toFixed(1);
-  const readingBand = skillCounts.reading > 0 ? (skillAvgs.reading / skillCounts.reading).toFixed(1) : profile.currentLevel.toFixed(1);
-  const writingBand = skillCounts.writing > 0 ? (skillAvgs.writing / skillCounts.writing).toFixed(1) : (profile.currentLevel - 0.5).toFixed(1);
-  const speakingBand = skillCounts.speaking > 0 ? (skillAvgs.speaking / skillCounts.speaking).toFixed(1) : profile.currentLevel.toFixed(1);
+  const hasGradedAttempt = measured.some((entry) => entry.band !== null);
 
-  // Find lowest skill
-  const skillScores: { skill: SkillType; score: number }[] = [
-    { skill: 'listening', score: parseFloat(listeningBand) },
-    { skill: 'reading', score: parseFloat(readingBand) },
-    { skill: 'writing', score: parseFloat(writingBand) },
-    { skill: 'speaking', score: parseFloat(speakingBand) },
+  const bands = measured.map((entry) => ({
+    skill: entry.skill,
+    band: entry.band ?? profile.currentLevel,
+    isMeasured: entry.band !== null,
+  }));
+
+  const bottleneck = [...bands].sort((a, b) => a.band - b.band)[0];
+  const targetGap = Math.max(0, profile.targetBand - bottleneck.band);
+
+  const mockProgress = ratio(checklist.mocksDone || 0, checklist.mocksTarget || 2);
+  const essayProgress = ratio(checklist.essaysDone || 0, checklist.essaysTarget || 4);
+  const speakingProgress = ratio(checklist.speakingDone || 0, checklist.speakingTarget || 5);
+
+  const readiness = Math.round(
+    (mockProgress * 0.3 + essayProgress * 0.3 + speakingProgress * 0.2 + taskProgress * 0.2) * 100,
+  );
+
+  const milestones = [
+    {
+      label: t('stats.fullMocks'),
+      done: checklist.mocksDone || 0,
+      total: checklist.mocksTarget || 2,
+      value: mockProgress,
+    },
+    {
+      label: t('stats.essays'),
+      done: checklist.essaysDone || 0,
+      total: checklist.essaysTarget || 4,
+      value: essayProgress,
+    },
+    {
+      label: t('stats.recordings'),
+      done: checklist.speakingDone || 0,
+      total: checklist.speakingTarget || 5,
+      value: speakingProgress,
+    },
+    {
+      label: t('stats.roadmapTasks'),
+      done: completedTasks,
+      total: tasks.length,
+      value: taskProgress,
+    },
   ];
-  skillScores.sort((a, b) => a.score - b.score);
-  const lowestSkill = skillScores[0];
-  const targetGap = (profile.targetBand - lowestSkill.score).toFixed(1);
-
-  // Readiness Score calculation
-  const mockProgress = Math.min(100, Math.round(((attempts.length || 0) / (checklist.mocksTarget || 2)) * 100));
-  const essayProgress = Math.min(100, Math.round(((checklist.essaysDone || 0) / (checklist.essaysTarget || 4)) * 100));
-  const speakingProgress = Math.min(100, Math.round(((checklist.speakingDone || 0) / (checklist.speakingTarget || 5)) * 100));
-  const overallReadiness = Math.min(100, Math.round((mockProgress * 0.3 + essayProgress * 0.3 + speakingProgress * 0.2 + taskCompletionPct * 0.2)));
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-1">
-          <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">
-            <BarChart3 className="w-3.5 h-3.5 text-slate-500" />
-            <span>Preparation Diagnostics & Readiness Index</span>
-          </div>
-          <h1 className="text-2xl font-extrabold text-slate-900">Personal Performance Analytics</h1>
-          <p className="text-xs text-slate-500 max-w-xl">
-            Real-time tracking against Cambridge/IDP standards with automated bottleneck diagnosis.
-          </p>
+      <Card className="flex flex-col justify-between gap-6 p-6 sm:p-8 md:flex-row md:items-center">
+        <div className="max-w-xl">
+          <Badge tone="neutral">
+            <BarChart3 className="h-3 w-3" />
+            {t('stats.eyebrow')}
+          </Badge>
+          <h1 className="mt-3.5 text-display-sm text-ink-900">{t('stats.title')}</h1>
+          <p className="mt-2 text-sm leading-relaxed text-ink-500">{t('stats.subtitle')}</p>
         </div>
 
-        {/* Readiness Pill */}
-        <div className="bg-slate-900 text-white p-5 rounded-2xl flex items-center space-x-4 shrink-0 shadow-md">
-          <div className="w-12 h-12 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-lg">
-            {overallReadiness}%
-          </div>
+        <div className="es-ink-surface flex shrink-0 items-center gap-4 rounded-[var(--radius-card)] px-5 py-4">
+          <span className="flex h-14 w-14 items-center justify-center rounded-[var(--radius-control)] bg-brand-500 font-mono text-lg font-bold tabular text-white">
+            {readiness}%
+          </span>
           <div>
-            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-              Exam Readiness Index
-            </div>
-            <div className="text-xs font-bold text-white mt-0.5">
-              {overallReadiness >= 80 ? 'Ready for Target Band' : 'In Preparation Phase'}
-            </div>
+            <p className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
+              {t('stats.readiness')}
+            </p>
+            <p className="mt-0.5 text-sm font-bold text-white">
+              {readiness >= 80 ? t('stats.readyState') : t('stats.prepState')}
+            </p>
           </div>
         </div>
-      </div>
+      </Card>
 
-      {/* Bottleneck Diagnostic Banner */}
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start space-x-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h3 className="text-xs font-bold text-amber-900 uppercase tracking-wider">
-              Diagnostic Bottleneck Insight
+      <div className="flex flex-col justify-between gap-4 rounded-[var(--radius-card)] border border-warning-500/25 bg-warning-50 p-5 sm:flex-row sm:items-center">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-warning-700" />
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-warning-700">
+              {t('stats.bottleneckTitle')}
             </h3>
-            <p className="text-xs text-amber-800 leading-relaxed">
-              Your primary bottleneck is currently{' '}
-              <strong className="text-amber-950 uppercase">{lowestSkill.skill}</strong> (Band {lowestSkill.score.toFixed(1)}),
-              which is <strong>{targetGap} bands below your target of {profile.targetBand.toFixed(1)}</strong>.
-              The adaptive roadmap has concentrated priority drills onto this skill.
+            <p className="mt-1.5 text-sm leading-relaxed text-warning-700">
+              {t('stats.bottleneckBody', {
+                skill: t(`skills.${bottleneck.skill}`),
+                band: bottleneck.band.toFixed(1),
+                gap: targetGap.toFixed(1),
+                target: profile.targetBand.toFixed(1),
+              })}
             </p>
           </div>
         </div>
 
-        <button
-          onClick={onOpenExamMode}
-          className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shrink-0 shadow-sm"
-        >
-          Run Full Mock Test
-        </button>
+        <Button variant="secondary" size="sm" onClick={onOpenExamMode} className="shrink-0">
+          {t('stats.runMock')}
+        </Button>
       </div>
 
-      {/* Section Band Comparisons */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'Listening', current: listeningBand, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
-          { label: 'Reading', current: readingBand, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
-          { label: 'Writing', current: writingBand, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
-          { label: 'Speaking', current: speakingBand, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
-        ].map((sec) => (
-          <div key={sec.label} className={`p-5 rounded-2xl border ${sec.bg} space-y-2`}>
-            <div className="text-xs font-bold text-slate-600 uppercase tracking-wider">{sec.label}</div>
-            <div className="flex items-baseline space-x-2">
-              <span className={`text-3xl font-black ${sec.color}`}>Band {sec.current}</span>
-            </div>
-            <div className="text-[11px] text-slate-500">
-              Target: <span className="font-bold text-slate-800">Band {profile.targetBand.toFixed(1)}</span>
-            </div>
-          </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {bands.map((entry) => (
+          <Card key={entry.skill} className="p-5">
+            <p className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-ink-400">
+              {t(`skills.${entry.skill}`)}
+            </p>
+            <p
+              className={cx(
+                'mt-2 font-mono text-display-md font-bold tabular',
+                entry.isMeasured ? SKILL_ACCENT[entry.skill] : 'text-ink-300',
+              )}
+            >
+              {entry.band.toFixed(1)}
+            </p>
+            <p className="mt-1 text-xs text-ink-400 tabular">
+              {t('stats.targetLabel', { band: profile.targetBand.toFixed(1) })}
+            </p>
+          </Card>
         ))}
       </div>
 
-      {/* Preparation Checklist */}
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-          <div className="space-y-1">
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-600" />
-              <h2 className="text-base font-bold text-slate-900">Exam Success Milestone Checklist</h2>
+      {!hasGradedAttempt && <p className="text-xs text-ink-400">{t('stats.noData')}</p>}
+
+      <Card className="p-6 sm:p-8">
+        <div className="flex items-start justify-between gap-4 border-b border-ink-100 pb-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-success-500" />
+              <h2 className="font-display text-lg font-bold text-ink-900">
+                {t('stats.checklistTitle')}
+              </h2>
             </div>
-            <p className="text-xs text-slate-500">
-              GoPrep-inspired benchmark criteria to guarantee target band achievement.
-            </p>
+            <p className="mt-1 text-sm text-ink-500">{t('stats.checklistSubtitle')}</p>
           </div>
-          <span className="text-xs font-semibold text-slate-400">Week #{checklist.weekNumber}</span>
+          <span className="shrink-0 text-xs font-semibold text-ink-400">
+            {t('stats.week', { number: checklist.weekNumber })}
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Mocks Completed */}
-          <div className="p-4 rounded-xl border border-slate-100 bg-slate-50 space-y-2">
-            <div className="flex justify-between text-xs font-semibold text-slate-800">
-              <span>Full Mock Simulations</span>
-              <span>
-                {checklist.mocksDone} / {checklist.mocksTarget} completed
-              </span>
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {milestones.map((milestone) => (
+            <div key={milestone.label} className="rounded-[var(--radius-control)] bg-ink-50 p-4">
+              <div className="mb-2.5 flex items-center justify-between text-sm font-semibold text-ink-800">
+                <span>{milestone.label}</span>
+                <span className="font-mono text-xs tabular text-ink-500">
+                  {t('stats.ratio', { done: milestone.done, total: milestone.total })}
+                </span>
+              </div>
+              <Progress value={milestone.value} />
             </div>
-            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-slate-900 rounded-full"
-                style={{ width: `${mockProgress}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Essays Written */}
-          <div className="p-4 rounded-xl border border-slate-100 bg-slate-50 space-y-2">
-            <div className="flex justify-between text-xs font-semibold text-slate-800">
-              <span>Academic Essays AI-Evaluated</span>
-              <span>
-                {checklist.essaysDone} / {checklist.essaysTarget} submitted
-              </span>
-            </div>
-            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-amber-500 rounded-full"
-                style={{ width: `${essayProgress}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Speaking Sessions */}
-          <div className="p-4 rounded-xl border border-slate-100 bg-slate-50 space-y-2">
-            <div className="flex justify-between text-xs font-semibold text-slate-800">
-              <span>Speaking Recordings Assessed</span>
-              <span>
-                {checklist.speakingDone} / {checklist.speakingTarget} recorded
-              </span>
-            </div>
-            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-rose-500 rounded-full"
-                style={{ width: `${speakingProgress}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Tasks Done */}
-          <div className="p-4 rounded-xl border border-slate-100 bg-slate-50 space-y-2">
-            <div className="flex justify-between text-xs font-semibold text-slate-800">
-              <span>Adaptive Roadmap Tasks</span>
-              <span>
-                {completedTasks} / {totalTasks} executed
-              </span>
-            </div>
-            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 rounded-full"
-                style={{ width: `${taskCompletionPct}%` }}
-              />
-            </div>
-          </div>
+          ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 };

@@ -1,22 +1,18 @@
 import React from 'react';
-import { 
-  PlanTask, 
-  UserProfile, 
-  SkillType, 
-  MockAttempt 
-} from '../types';
-import { 
-  CheckCircle2, 
-  Circle, 
-  ArrowRight, 
-  Sparkles, 
-  Clock, 
+import { PlanTask, UserProfile, SkillType, MockAttempt } from '../types';
+import {
   AlertCircle,
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  Circle,
+  Clock,
   RefreshCw,
+  Sparkles,
   Zap,
-  BookOpen,
-  CalendarDays
 } from 'lucide-react';
+import { useT } from '../i18n';
+import { Badge, BadgeTone, Button, Progress, cx } from './ui';
 
 interface PlanViewProps {
   tasks: PlanTask[];
@@ -28,201 +24,197 @@ interface PlanViewProps {
   lastRecalcReason?: string;
 }
 
+/** Each IELTS module carries its own tint/ink pair from the design tokens. */
+const SKILL_TONE: Record<SkillType, BadgeTone> = {
+  listening: 'listening',
+  reading: 'reading',
+  writing: 'writing',
+  speaking: 'speaking',
+};
+
 export const PlanView: React.FC<PlanViewProps> = ({
   tasks,
   profile,
-  attempts,
   onToggleTask,
   onStartTask,
   onRecalculatePlan,
   lastRecalcReason,
 }) => {
-  const completedCount = tasks.filter((t) => t.completed).length;
-  const progressPercent = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
-
-  const getSkillColor = (skill: SkillType) => {
-    switch (skill) {
-      case 'writing':
-        return 'bg-amber-100 text-amber-800 border-amber-200';
-      case 'speaking':
-        return 'bg-rose-100 text-rose-800 border-rose-200';
-      case 'reading':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'listening':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-    }
-  };
+  const t = useT();
+  const completedCount = tasks.filter((task) => task.completed).length;
+  const progress = tasks.length > 0 ? completedCount / tasks.length : 0;
 
   return (
     <div className="space-y-6">
-      {/* Target & Metric Banner */}
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Roadmap banner — the one dark surface on this screen. */}
+      <section className="es-ink-surface relative overflow-hidden rounded-[2rem] p-6 sm:p-9">
+        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-xl">
+            <Badge tone="brand" className="bg-white/10 text-brand-100">
+              <Sparkles className="h-3 w-3" />
+              {t('plan.eyebrow')}
+            </Badge>
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div className="space-y-2 max-w-xl">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Adaptive IELTS Preparation Strategy</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Target: Band {profile.targetBand.toFixed(1)} Academic
+            <h1 className="mt-4 text-display-sm text-white sm:text-display-md">
+              {t('plan.title', { band: profile.targetBand.toFixed(1) })}
             </h1>
-            <p className="text-slate-300 text-sm leading-relaxed">
-              Your personalized roadmap focuses intensely on your critical bottleneck (
-              <span className="text-amber-400 font-semibold uppercase">{profile.weakSection}</span>
-              ) while maintaining exam readiness across all four modules.
+
+            <p className="mt-3 text-sm leading-relaxed text-ink-300">
+              {t('plan.subtitle', { skill: t(`skills.${profile.weakSection}`) })}
             </p>
           </div>
 
-          {/* Quick Metrics */}
-          <div className="grid grid-cols-3 gap-3 bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shrink-0">
-            <div className="text-center">
-              <div className="text-xs text-slate-400 font-medium">Starting</div>
-              <div className="text-lg font-bold text-white mt-0.5">Band {profile.currentLevel.toFixed(1)}</div>
+          <dl className="es-glass grid shrink-0 grid-cols-3 gap-6 rounded-[var(--radius-card)] px-6 py-5">
+            <div>
+              <dt className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
+                {t('plan.starting')}
+              </dt>
+              <dd className="mt-1 font-mono text-xl font-bold tabular text-white">
+                {profile.currentLevel.toFixed(1)}
+              </dd>
             </div>
-            <div className="text-center border-x border-white/10 px-3">
-              <div className="text-xs text-slate-400 font-medium">Target</div>
-              <div className="text-lg font-bold text-emerald-400 mt-0.5">Band {profile.targetBand.toFixed(1)}</div>
+            <div>
+              <dt className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
+                {t('plan.target')}
+              </dt>
+              <dd className="mt-1 font-mono text-xl font-bold tabular text-brand-200">
+                {profile.targetBand.toFixed(1)}
+              </dd>
             </div>
-            <div className="text-center">
-              <div className="text-xs text-slate-400 font-medium">Weekly Study</div>
-              <div className="text-lg font-bold text-indigo-300 mt-0.5">{profile.hoursPerWeek}h</div>
+            <div>
+              <dt className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
+                {t('plan.weekly')}
+              </dt>
+              <dd className="mt-1 font-mono text-xl font-bold tabular text-white">
+                {t('plan.hours', { count: profile.hoursPerWeek })}
+              </dd>
             </div>
-          </div>
+          </dl>
         </div>
 
-        {/* Progress Bar */}
-        <div className="mt-8 pt-6 border-t border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex-1 max-w-md">
-            <div className="flex justify-between text-xs text-slate-300 mb-1.5 font-medium">
-              <span>Overall Roadmap Completion</span>
-              <span>{completedCount} / {tasks.length} tasks ({progressPercent}%)</span>
+        <div className="mt-8 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-end sm:justify-between">
+          <div className="w-full max-w-md">
+            <div className="mb-2 flex items-center justify-between text-xs font-medium text-white/70">
+              <span>{t('plan.completion')}</span>
+              <span className="tabular">
+                {t('plan.tasksProgress', { done: completedCount, total: tasks.length })}
+              </span>
             </div>
-            <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
+            <Progress value={progress} tone="light" />
           </div>
 
-          <button
+          <Button
             id="btn-recalculate-plan"
+            variant="ghost"
+            size="sm"
             onClick={onRecalculatePlan}
-            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all border border-white/15 cursor-pointer shrink-0"
-            title="Recalculate tasks based on your latest mock test scores"
+            className="shrink-0 border border-white/15 text-white/85 hover:bg-white/10 hover:text-white"
           >
-            <RefreshCw className="w-3.5 h-3.5 text-indigo-300" />
-            <span>Recalculate With Recent Tests</span>
-          </button>
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t('plan.recalculate')}
+          </Button>
         </div>
-      </div>
+      </section>
 
-      {/* Recalculation Notice if trigger occurred */}
       {lastRecalcReason && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start space-x-3 text-xs text-amber-900">
-          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-bold">Dynamic Plan Update:</span> {lastRecalcReason}
-          </div>
+        <div className="flex items-start gap-3 rounded-[var(--radius-card)] border border-warning-500/25 bg-warning-50 p-4 text-sm text-warning-700">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            <span className="font-bold">{t('plan.updateNotice')}:</span> {lastRecalcReason}
+          </p>
         </div>
       )}
 
-      {/* Tasks List Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Assigned Diagnostic & Practice Tasks</h2>
-          <p className="text-xs text-slate-500">
-            Click any task to jump directly into the focused mock or interactive drill.
-          </p>
+          <h2 className="text-display-sm text-ink-900">{t('plan.tasksTitle')}</h2>
+          <p className="mt-1 text-sm text-ink-500">{t('plan.tasksSubtitle')}</p>
         </div>
-        <div className="text-xs font-semibold text-slate-500">
-          Total: {tasks.length} tasks
-        </div>
+        <span className="text-sm font-semibold text-ink-400 tabular">
+          {t('plan.totalTasks', { count: tasks.length })}
+        </span>
       </div>
 
-      {/* Tasks Grid */}
-      <div className="space-y-3">
-        {tasks.map((task) => (
-          <div
-            key={task.id}
-            className={`p-4 sm:p-5 rounded-2xl border transition-all ${
-              task.completed
-                ? 'bg-slate-50/70 border-slate-200 opacity-75'
-                : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
-            }`}
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start space-x-3 flex-1">
-                {/* Completion Checkbox */}
-                <button
-                  id={`check-task-${task.id}`}
-                  onClick={() => onToggleTask(task.id)}
-                  className="mt-0.5 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-                >
-                  {task.completed ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  ) : (
-                    <Circle className="w-5 h-5" />
-                  )}
-                </button>
-
-                <div className="space-y-1.5 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md border ${getSkillColor(
-                        task.skill
-                      )}`}
-                    >
-                      {task.skill}
-                    </span>
-
-                    {task.weight >= 4 && (
-                      <span className="inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
-                        <Zap className="w-3 h-3 text-rose-500" />
-                        <span>High Priority Focus</span>
-                      </span>
-                    )}
-
-                    <span className="text-[10px] text-slate-400 flex items-center space-x-1">
-                      <Clock className="w-3 h-3" />
-                      <span>{task.durationMins} mins</span>
-                    </span>
-
-                    <span className="text-[10px] text-slate-400 flex items-center space-x-1">
-                      <CalendarDays className="w-3 h-3" />
-                      <span>Due: {task.dueDate}</span>
-                    </span>
-                  </div>
-
-                  <h3
-                    className={`text-sm font-bold ${
-                      task.completed ? 'line-through text-slate-500' : 'text-slate-900'
-                    }`}
+      {tasks.length === 0 ? (
+        <div className="es-card p-10 text-center">
+          <h3 className="text-lg font-bold text-ink-900">{t('plan.emptyTitle')}</h3>
+          <p className="mt-2 text-sm text-ink-500">{t('plan.emptyBody')}</p>
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {tasks.map((task) => (
+            <li
+              key={task.id}
+              className={cx(
+                'es-card es-card-interactive p-5',
+                task.completed && 'bg-ink-50 shadow-none',
+              )}
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-1 items-start gap-3.5">
+                  <button
+                    id={`check-task-${task.id}`}
+                    onClick={() => onToggleTask(task.id)}
+                    className="mt-0.5 shrink-0 text-ink-300 transition-colors hover:text-ink-500"
+                    aria-pressed={task.completed}
                   >
-                    {task.title}
-                  </h3>
+                    {task.completed ? (
+                      <CheckCircle2 className="h-5 w-5 text-success-500" />
+                    ) : (
+                      <Circle className="h-5 w-5" />
+                    )}
+                  </button>
 
-                  <p className="text-xs text-slate-500 leading-relaxed">{task.reason}</p>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={SKILL_TONE[task.skill]}>{t(`skills.${task.skill}`)}</Badge>
+
+                      {task.weight >= 4 && (
+                        <Badge tone="danger">
+                          <Zap className="h-3 w-3" />
+                          {t('plan.highPriority')}
+                        </Badge>
+                      )}
+
+                      <span className="inline-flex items-center gap-1 text-xs text-ink-400">
+                        <Clock className="h-3 w-3" />
+                        {t('common.minutes', { count: task.durationMins })}
+                      </span>
+
+                      <span className="inline-flex items-center gap-1 text-xs text-ink-400 tabular">
+                        <CalendarDays className="h-3 w-3" />
+                        {t('plan.due', { date: task.dueDate })}
+                      </span>
+                    </div>
+
+                    <h3
+                      className={cx(
+                        'font-display text-base font-bold',
+                        task.completed ? 'text-ink-400 line-through' : 'text-ink-900',
+                      )}
+                    >
+                      {task.title}
+                    </h3>
+
+                    <p className="text-sm leading-relaxed text-ink-500">{task.reason}</p>
+                  </div>
                 </div>
-              </div>
 
-              {/* Action Button */}
-              <div className="flex items-center justify-end sm:shrink-0">
-                <button
+                <Button
                   id={`btn-start-task-${task.id}`}
+                  variant={task.completed ? 'secondary' : 'primary'}
+                  size="sm"
                   onClick={() => onStartTask(task)}
-                  className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white transition-all shadow-sm"
+                  className="shrink-0 self-start sm:self-auto"
                 >
-                  <span>{task.completed ? 'Review / Retake' : 'Start Task'}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                  {task.completed ? t('plan.review') : t('plan.start')}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
               </div>
-            </div>
-          </div>
-        ))}
-      </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 };

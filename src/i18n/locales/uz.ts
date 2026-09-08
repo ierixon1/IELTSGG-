@@ -39,6 +39,88 @@ export const uz: Dictionary = {
     targetBand: 'Maqsadli ball',
   },
 
+  skills: {
+    listening: 'Listening',
+    reading: 'Reading',
+    writing: 'Writing',
+    speaking: 'Speaking',
+  },
+
+  plan: {
+    eyebrow: 'Moslashuvchan tayyorgarlik strategiyasi',
+    title: 'Maqsad: Band {band} Academic',
+    subtitle:
+      'Reja eng zaif modulingizga ({skill}) tayanadi va qolgan uchtasini imtihonga tayyor holda ushlab turadi.',
+    starting: 'Boshlanish',
+    target: 'Maqsad',
+    weekly: 'Haftasiga',
+    hours: '{count} soat',
+    completion: 'Reja bajarilishi',
+    tasksProgress: '{total} tadan {done} tasi',
+    recalculate: 'Oxirgi natijalar bo‘yicha qayta hisoblash',
+    updateNotice: 'Reja yangilandi',
+    tasksTitle: 'Belgilangan vazifalar',
+    tasksSubtitle: 'Mashq yoki testga to‘g‘ridan-to‘g‘ri o‘tish uchun istalgan vazifani oching.',
+    totalTasks: 'Vazifalar: {count}',
+    highPriority: 'Ustuvor',
+    due: '{date} gacha',
+    start: 'Boshlash',
+    review: 'Qayta topshirish',
+    emptyTitle: 'Hozircha vazifa yo‘q',
+    emptyBody: 'Tayyorgarlik rejasini tuzish uchun maqsadli ballni belgilang.',
+  },
+
+  mocks: {
+    eyebrow: 'Modulli mashq va diagnostika',
+    subtitle:
+      'Bitta bo‘limni aniq mashq sifatida yoki butun testni real vaqt hisobi va darhol AI baholashi bilan topshiring.',
+    difficulty: 'Murakkablik',
+    start: 'Bo‘limni boshlash',
+    listening: {
+      meta: '~30 daqiqa · 4 qism',
+      title: 'Listening',
+      body: 'Britan, avstraliya va amerika talaffuzidagi to‘rtta yozib olingan bo‘lim, javob tekshiruvi va ballga o‘tkazish bilan.',
+    },
+    reading: {
+      meta: '60 daqiqa · 3 matn',
+      title: 'Reading',
+      body: 'Haqiqiy kompyuter formatidagi akademik matnlar, rasmiy xom ball shkalasi bo‘yicha baholanadi.',
+    },
+    writing: {
+      meta: '60 daqiqa · Task 1 va 2',
+      title: 'Writing',
+      body: 'Ikkala vazifani AI-imtihonchi baholaydi: to‘rtta mezon, har biriga ball va matn ichida belgilangan o‘z gaplaringiz.',
+    },
+    speaking: {
+      meta: '11–14 daqiqa · 3 qism',
+      title: 'Speaking',
+      body: 'Tayyorgarlik taymerlari, jonli yozib olish, sur’at va pauza ko‘rsatkichlari hamda har bir mezon bo‘yicha ball bilan to‘liq suhbat.',
+    },
+  },
+
+  stats: {
+    eyebrow: 'Diagnostika va tayyorlik',
+    title: 'Sizning natijalaringiz',
+    subtitle: 'Rasmiy mezonlar bo‘yicha kuzatiladi, zaif nuqta avtomatik aniqlanadi.',
+    readiness: 'Imtihonga tayyorlik',
+    readyState: 'Maqsad sari borayapsiz',
+    prepState: 'Hali tayyorlanyapsiz',
+    bottleneckTitle: 'Hozirgi zaif nuqta',
+    bottleneckBody:
+      '{skill} — eng zaif modulingiz: Band {band}, bu {target} maqsaddan {gap} past. Reja ustuvor mashqlarni shunga qaratdi.',
+    runMock: 'To‘liq testdan o‘tish',
+    targetLabel: 'Maqsad {band}',
+    noData: 'Hozircha baholangan urinish yo‘q — profildagi boshlang‘ich ball ko‘rsatilyapti.',
+    checklistTitle: 'Haftalik mo‘ljallar',
+    checklistSubtitle: 'Ballni haqiqatan ham oshiradigan mashq hajmi.',
+    week: '{number}-hafta',
+    fullMocks: 'To‘liq sinov testlar',
+    essays: 'Baholangan esselar',
+    recordings: 'Baholangan Speaking javoblari',
+    roadmapTasks: 'Bajarilgan reja vazifalari',
+    ratio: '{done} / {total}',
+  },
+
   landing: {
     nav: {
       platform: 'Platforma',

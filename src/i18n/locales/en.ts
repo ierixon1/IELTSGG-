@@ -42,6 +42,88 @@ export const en: Dictionary = {
     targetBand: 'Target band',
   },
 
+  skills: {
+    listening: 'Listening',
+    reading: 'Reading',
+    writing: 'Writing',
+    speaking: 'Speaking',
+  },
+
+  plan: {
+    eyebrow: 'Adaptive preparation strategy',
+    title: 'Target: Band {band} Academic',
+    subtitle:
+      'Your roadmap leans into your weakest module ({skill}) while keeping the other three exam-ready.',
+    starting: 'Starting',
+    target: 'Target',
+    weekly: 'Weekly study',
+    hours: '{count}h',
+    completion: 'Roadmap completion',
+    tasksProgress: '{done} of {total} tasks',
+    recalculate: 'Recalculate from recent results',
+    updateNotice: 'Plan updated',
+    tasksTitle: 'Assigned tasks',
+    tasksSubtitle: 'Open any task to jump straight into that drill or mock.',
+    totalTasks: '{count} tasks',
+    highPriority: 'Priority',
+    due: 'Due {date}',
+    start: 'Start',
+    review: 'Retake',
+    emptyTitle: 'No tasks yet',
+    emptyBody: 'Set your target band to generate a study plan.',
+  },
+
+  mocks: {
+    eyebrow: 'Modular practice & diagnostics',
+    subtitle:
+      'Take one section for a targeted drill, or sit the whole test under real timing with instant AI scoring.',
+    difficulty: 'Difficulty',
+    start: 'Start section',
+    listening: {
+      meta: '~30 min · 4 parts',
+      title: 'Listening',
+      body: 'Four recorded sections across British, Australian and American voices, with answer checking and band conversion.',
+    },
+    reading: {
+      meta: '60 min · 3 passages',
+      title: 'Reading',
+      body: 'Academic passages in the authentic computer-delivered format, marked against the official raw-score bands.',
+    },
+    writing: {
+      meta: '60 min · Task 1 & 2',
+      title: 'Writing',
+      body: 'Both tasks graded by the AI examiner: four criteria, a band each, and your own sentences annotated in place.',
+    },
+    speaking: {
+      meta: '11–14 min · 3 parts',
+      title: 'Speaking',
+      body: 'A full interview with preparation timers, live recording, pace and hesitation metrics, and a band per criterion.',
+    },
+  },
+
+  stats: {
+    eyebrow: 'Diagnostics & readiness',
+    title: 'Your performance',
+    subtitle: 'Tracked against the official band descriptors, with your bottleneck called out automatically.',
+    readiness: 'Exam readiness',
+    readyState: 'On track for your target',
+    prepState: 'Still preparing',
+    bottleneckTitle: 'Current bottleneck',
+    bottleneckBody:
+      '{skill} is your weakest module at Band {band} — {gap} below your target of {target}. The plan has shifted priority drills onto it.',
+    runMock: 'Run a full mock',
+    targetLabel: 'Target {band}',
+    noData: 'No graded attempts yet — the starting band from your profile is shown instead.',
+    checklistTitle: 'Weekly milestones',
+    checklistSubtitle: 'The practice volume that reliably moves a band score.',
+    week: 'Week {number}',
+    fullMocks: 'Full mock simulations',
+    essays: 'Essays graded',
+    recordings: 'Speaking answers assessed',
+    roadmapTasks: 'Plan tasks completed',
+    ratio: '{done} / {total}',
+  },
+
   landing: {
     nav: {
       platform: 'Platform',

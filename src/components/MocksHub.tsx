@@ -4,18 +4,9 @@ import { ListeningSession } from './ListeningSession';
 import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
 import { SpeakingSession } from './SpeakingSession';
-import { 
-  Headphones, 
-  BookOpen, 
-  PenTool, 
-  Mic, 
-  ArrowRight, 
-  CheckCircle2, 
-  Sparkles,
-  Clock,
-  Layers,
-  Award
-} from 'lucide-react';
+import { Award, ArrowRight, BookOpen, Headphones, Layers, Mic, PenTool } from 'lucide-react';
+import { useT } from '../i18n';
+import { Badge, Button, Card } from './ui';
 
 interface MocksHubProps {
   mockTest: MockTest;
@@ -23,14 +14,27 @@ interface MocksHubProps {
   initialSelectedSection?: SkillType | null;
 }
 
+/**
+ * The four modules share one card shape; only the icon and the skill tint
+ * change, so a learner reads them as one set rather than four designs.
+ */
+const SECTIONS: Array<{ skill: SkillType; icon: React.ElementType; iconClass: string }> = [
+  { skill: 'listening', icon: Headphones, iconClass: 'bg-listening-tint text-listening-ink' },
+  { skill: 'reading', icon: BookOpen, iconClass: 'bg-reading-tint text-reading-ink' },
+  { skill: 'writing', icon: PenTool, iconClass: 'bg-writing-tint text-writing-ink' },
+  { skill: 'speaking', icon: Mic, iconClass: 'bg-speaking-tint text-speaking-ink' },
+];
+
 export const MocksHub: React.FC<MocksHubProps> = ({
   mockTest,
   onRecordScore,
   initialSelectedSection,
 }) => {
-  const [activeSection, setActiveSection] = useState<SkillType | null>(initialSelectedSection || null);
+  const t = useT();
+  const [activeSection, setActiveSection] = useState<SkillType | null>(
+    initialSelectedSection || null,
+  );
 
-  // If a section is active, render that specific module
   if (activeSection === 'listening') {
     return (
       <ListeningSession
@@ -72,160 +76,64 @@ export const MocksHub: React.FC<MocksHubProps> = ({
     );
   }
 
-  // Hub overview
   return (
     <div className="space-y-6">
-      {/* Hero Header */}
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">
-            <Layers className="w-3.5 h-3.5 text-slate-500" />
-            <span>Academic Modular Practice & Diagnostics</span>
-          </div>
-          <h1 className="text-2xl font-extrabold text-slate-900">{mockTest.title}</h1>
-          <p className="text-xs text-slate-500 max-w-xl leading-relaxed">
-            Select an individual skill section for targeted drills, or practice with authentic timing and instant AI scoring.
-          </p>
+      <Card className="flex flex-col justify-between gap-6 p-6 sm:p-8 md:flex-row md:items-center">
+        <div className="max-w-xl">
+          <Badge tone="neutral">
+            <Layers className="h-3 w-3" />
+            {t('mocks.eyebrow')}
+          </Badge>
+          <h1 className="mt-3.5 text-display-sm text-ink-900">{mockTest.title}</h1>
+          <p className="mt-2 text-sm leading-relaxed text-ink-500">{t('mocks.subtitle')}</p>
         </div>
 
-        <div className="flex items-center space-x-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 shrink-0">
-          <Award className="w-8 h-8 text-amber-500" />
+        <div className="flex shrink-0 items-center gap-3 rounded-[var(--radius-card)] bg-ink-50 px-5 py-4">
+          <Award className="h-7 w-7 text-warning-500" />
           <div>
-            <div className="text-[10px] text-slate-400 font-semibold uppercase">Difficulty</div>
-            <div className="text-xs font-bold text-slate-800">{mockTest.difficulty}</div>
+            <p className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-ink-400">
+              {t('mocks.difficulty')}
+            </p>
+            <p className="text-sm font-bold text-ink-800">{mockTest.difficulty}</p>
           </div>
         </div>
-      </div>
+      </Card>
 
-      {/* Sections Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        {/* Listening Card */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-md transition-all group flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                <Headphones className="w-5 h-5" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                ~30 Mins • 4 Parts
-              </span>
-            </div>
-
+      <div className="grid gap-4 md:grid-cols-2">
+        {SECTIONS.map(({ skill, icon: Icon, iconClass }) => (
+          <Card key={skill} interactive className="flex flex-col justify-between gap-5">
             <div>
-              <h3 className="text-base font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
-                Academic Listening
+              <div className="flex items-start justify-between gap-3">
+                <span
+                  className={`inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] ${iconClass}`}
+                >
+                  <Icon className="h-5 w-5" />
+                </span>
+                <span className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-ink-400">
+                  {t(`mocks.${skill}.meta`)}
+                </span>
+              </div>
+
+              <h3 className="mt-5 font-display text-lg font-bold text-ink-900">
+                {t(`mocks.${skill}.title`)}
               </h3>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                4 recorded sections with British, Australian, and American voices. Real-time answer check and official Band calculation.
+              <p className="mt-2 text-sm leading-relaxed text-ink-500">
+                {t(`mocks.${skill}.body`)}
               </p>
             </div>
-          </div>
 
-          <button
-            id="btn-launch-listening"
-            onClick={() => setActiveSection('listening')}
-            className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 hover:bg-emerald-600 group-hover:bg-emerald-600 text-slate-700 group-hover:text-white font-semibold text-xs transition-all"
-          >
-            <span>Start Listening Section</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Reading Card */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 hover:shadow-md transition-all group flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <BookOpen className="w-5 h-5" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                60 Mins • 3 Passages
-              </span>
-            </div>
-
-            <div>
-              <h3 className="text-base font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
-                Academic Reading
-              </h3>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Authentic academic articles covering urban microclimates, neural biology in cephalopods, and algorithmic linguistics.
-              </p>
-            </div>
-          </div>
-
-          <button
-            id="btn-launch-reading"
-            onClick={() => setActiveSection('reading')}
-            className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 hover:bg-blue-600 group-hover:bg-blue-600 text-slate-700 group-hover:text-white font-semibold text-xs transition-all"
-          >
-            <span>Start Reading Section</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Writing Card */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-amber-300 hover:shadow-md transition-all group flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-                <PenTool className="w-5 h-5" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                60 Mins • Task 1 & 2
-              </span>
-            </div>
-
-            <div>
-              <h3 className="text-base font-bold text-slate-900 group-hover:text-amber-700 transition-colors">
-                Academic Writing (with AI Examiner)
-              </h3>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Task 1 Renewable Energy Report + Task 2 AI in Education. Instant 4-criteria band breakdown with in-text corrections.
-              </p>
-            </div>
-          </div>
-
-          <button
-            id="btn-launch-writing"
-            onClick={() => setActiveSection('writing')}
-            className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 hover:bg-amber-600 group-hover:bg-amber-600 text-slate-700 group-hover:text-white font-semibold text-xs transition-all"
-          >
-            <span>Start Writing Section</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Speaking Card */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-rose-300 hover:shadow-md transition-all group flex flex-col justify-between space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-                <Mic className="w-5 h-5" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                11-14 Mins • 3 Parts
-              </span>
-            </div>
-
-            <div>
-              <h3 className="text-base font-bold text-slate-900 group-hover:text-rose-700 transition-colors">
-                Academic Speaking (Live Audio AI)
-              </h3>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Part 2 Cue Card with 1-min preparation timer. Live audio recording, hesitation pause metrics, and band diagnosis.
-              </p>
-            </div>
-          </div>
-
-          <button
-            id="btn-launch-speaking"
-            onClick={() => setActiveSection('speaking')}
-            className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 hover:bg-rose-600 group-hover:bg-rose-600 text-slate-700 group-hover:text-white font-semibold text-xs transition-all"
-          >
-            <span>Start Speaking Section</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+            <Button
+              id={`btn-launch-${skill}`}
+              variant="secondary"
+              fullWidth
+              onClick={() => setActiveSection(skill)}
+              className="justify-between"
+            >
+              {t('mocks.start')}
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </Card>
+        ))}
       </div>
     </div>
   );
