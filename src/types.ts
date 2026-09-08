@@ -25,7 +25,14 @@ export interface UserProfile {
 
 export interface PlanTask {
   id: string;
+  /**
+   * English fallback text. The plan is generated with `titleKey`/`reasonKey`
+   * so it can follow the interface language; these strings stay as the value
+   * shown when a key is missing, and as what older saved plans carry.
+   */
   title: string;
+  titleKey?: string;
+  titleParams?: Record<string, string | number>;
   skill: SkillType;
   taskType: TaskType;
   dueDate: string;
@@ -33,6 +40,8 @@ export interface PlanTask {
   weight: number; // dynamic weight 1 to 5
   durationMins: number;
   reason: string;
+  reasonKey?: string;
+  reasonParams?: Record<string, string | number>;
   sectionId?: string;
 }
 

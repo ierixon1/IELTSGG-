@@ -16,6 +16,7 @@ import {
   Info
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 
 interface ListeningSessionProps {
@@ -29,6 +30,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
   onRecordScore,
   onBackToMocks,
 }) => {
+  const t = useT();
   const [activePartIndex, setActivePartIndex] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
@@ -59,7 +61,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
 
   const playAudio = () => {
     if (!('speechSynthesis' in window)) {
-      alert('Browser speech synthesis is not supported. Please read the transcript.');
+      alert(t('listening.noSpeech'));
       return;
     }
 
@@ -157,10 +159,8 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
             <Headphones className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-ink-900">Academic Listening Module</h1>
-            <p className="text-xs text-ink-500">
-              Authentic accents with automatic British/Australian/American speech and instant score conversion.
-            </p>
+            <h1 className="text-lg font-bold text-ink-900">{t('listening.title')}</h1>
+            <p className="text-xs text-ink-500">{t('listening.subtitle')}</p>
           </div>
         </div>
 
@@ -177,7 +177,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
                     : 'text-ink-600 hover:text-ink-900'
                 }`}
               >
-                Part {p.partNumber}
+                {t('listening.part', { number: p.partNumber })}
               </button>
             ))}
           </div>
@@ -187,7 +187,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
               onClick={onBackToMocks}
               className="px-3 py-1.5 text-xs text-ink-600 hover:text-ink-900 font-medium"
             >
-              Back to Hub
+              {t('session.backToHub')}
             </button>
           )}
         </div>
@@ -199,9 +199,9 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
               <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-success-500/20 text-success-500 border border-success-500/30">
-                Accent: {currentPart.accent}
+                {t('listening.accent', { name: currentPart.accent })}
               </span>
-              <span className="text-xs text-ink-400 font-medium">Part {currentPart.partNumber}</span>
+              <span className="text-xs text-ink-400 font-medium">{t('listening.part', { number: currentPart.partNumber })}</span>
             </div>
             <h2 className="text-sm font-bold text-white">{currentPart.title}</h2>
           </div>
@@ -216,12 +216,12 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
               {isPlayingAudio ? (
                 <>
                   <Pause className="w-3.5 h-3.5 fill-current" />
-                  <span>Pause Audio</span>
+                  <span>{t('listening.pause')}</span>
                 </>
               ) : (
                 <>
                   <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Play Native Audio</span>
+                  <span>{t('listening.play')}</span>
                 </>
               )}
             </button>
@@ -232,7 +232,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
               className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-ink-300 transition-all cursor-pointer"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>{showTranscript ? 'Hide Transcript' : 'View Script'}</span>
+              <span>{showTranscript ? t('listening.hideScript') : t('listening.viewScript')}</span>
             </button>
           </div>
         </div>
@@ -240,7 +240,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
         {/* Progress Bar */}
         <div className="space-y-1">
           <div className="flex justify-between text-[10px] text-ink-400 font-mono">
-            <span>Audio Track: {currentPart.audioDescription}</span>
+            <span>{t('listening.track', { name: currentPart.audioDescription })}</span>
             <span>{audioProgress}%</span>
           </div>
           <div className="w-full h-1.5 bg-ink-800 rounded-full overflow-hidden">
@@ -254,7 +254,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
         {/* Transcript dropdown */}
         {showTranscript && (
           <div className="mt-3 p-4 rounded-xl bg-ink-800/80 border border-ink-700 text-xs text-ink-300 font-serif leading-relaxed whitespace-pre-line max-h-60 overflow-y-auto">
-            <div className="font-bold text-success-500 mb-1 font-sans">Full Audio Transcript:</div>
+            <div className="font-bold text-success-500 mb-1 font-sans">{t('listening.transcript')}</div>
             {currentPart.transcript}
           </div>
         )}
@@ -272,14 +272,12 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
         <div className="flex items-center justify-between pb-4 border-b border-ink-100">
           <div>
             <h3 className="text-base font-bold text-ink-900">
-              Questions 1 – {currentPart.questions.length}
+              {t('listening.questionsTitle', { count: currentPart.questions.length })}
             </h3>
-            <p className="text-xs text-ink-500">
-              Fill in the missing words or select the single best option.
-            </p>
+            <p className="text-xs text-ink-500">{t('listening.questionsHint')}</p>
           </div>
           <div className="text-xs text-ink-400">
-            {Object.keys(userAnswers).length} answered
+            {t('session.answered', { count: Object.keys(userAnswers).length })}
           </div>
         </div>
 
@@ -339,7 +337,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
                           value={userAnswers[q.id] || ''}
                           onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                           disabled={isSubmitted}
-                          placeholder="Type your answer here..."
+                          placeholder={t('session.typeAnswer')}
                           className="w-full max-w-md p-2.5 rounded-lg border border-ink-200 text-xs text-ink-900 focus:outline-none focus:ring-2 focus:ring-success-500 font-medium"
                         />
                       </div>
@@ -352,23 +350,24 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
                           {isCorrect ? (
                             <span className="text-success-700 flex items-center space-x-1">
                               <CheckCircle2 className="w-4 h-4 text-success-500" />
-                              <span>Correct!</span>
+                              <span>{t('session.correct')}</span>
                             </span>
                           ) : (
                             <span className="text-danger-700 flex items-center space-x-1">
                               <XCircle className="w-4 h-4 text-danger-500" />
                               <span>
-                                Incorrect. Accepted:{' '}
-                                {Array.isArray(q.correctAnswer)
-                                  ? q.correctAnswer.join(' / ')
-                                  : q.correctAnswer}
+                                {t('session.incorrect', {
+                                  answers: Array.isArray(q.correctAnswer)
+                                    ? q.correctAnswer.join(' / ')
+                                    : q.correctAnswer,
+                                })}
                               </span>
                             </span>
                           )}
                         </div>
                         {q.explanation && (
                           <p className="text-ink-600 text-[11px] leading-relaxed">
-                            <strong>Explanation:</strong> {q.explanation}
+                            <strong>{t('session.explanation')}:</strong> {q.explanation}
                           </p>
                         )}
                       </div>
@@ -388,23 +387,23 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
               onClick={handleSubmit}
               className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-ink-900 hover:bg-ink-800 text-white font-semibold text-sm transition-all shadow-md ml-auto"
             >
-              <span>Submit & Calculate Band Score</span>
+              <span>{t('session.submit')}</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           ) : (
             <div className="w-full flex items-center justify-between bg-success-50 border border-success-50 p-4 rounded-xl">
               <div>
                 <span className="text-xs font-bold text-success-700 uppercase tracking-wider">
-                  Listening Section Result
+                  {t('listening.resultTitle')}
                 </span>
-                <div className="text-sm text-ink-800 font-semibold mt-0.5">
-                  Raw Score: {correctCount} / {allQuestions.length} correct
+                <div className="text-sm text-ink-800 font-semibold mt-0.5 tabular">
+                  {t('session.raw', { correct: correctCount, total: allQuestions.length })}
                 </div>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="text-right">
-                  <div className="text-xs text-ink-500 font-medium">Official Conversion</div>
-                  <div className="text-xl font-black text-success-700">Band {band.toFixed(1)}</div>
+                  <div className="text-xs text-ink-500 font-medium">{t('session.conversion')}</div>
+                  <div className="font-mono text-xl font-bold tabular text-success-700">{band.toFixed(1)}</div>
                 </div>
               </div>
             </div>

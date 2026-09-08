@@ -12,6 +12,7 @@ import {
   Maximize2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 
 interface ReadingSessionProps {
@@ -25,6 +26,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
   onRecordScore,
   onBackToMocks,
 }) => {
+  const t = useT();
   const [activePassageIndex, setActivePassageIndex] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
@@ -89,10 +91,8 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
             <BookOpen className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-ink-900">Academic Reading Module</h1>
-            <p className="text-xs text-ink-500">
-              Passage navigation with True/False/Not Given & multiple choice verification.
-            </p>
+            <h1 className="text-lg font-bold text-ink-900">{t('reading.title')}</h1>
+            <p className="text-xs text-ink-500">{t('reading.subtitle')}</p>
           </div>
         </div>
 
@@ -116,7 +116,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                     : 'text-ink-600 hover:text-ink-900'
                 }`}
               >
-                Passage {p.passageNumber}
+                {t('reading.passage', { number: p.passageNumber })}
               </button>
             ))}
           </div>
@@ -126,7 +126,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
               onClick={onBackToMocks}
               className="px-3 py-1.5 text-xs text-ink-600 hover:text-ink-900 font-medium"
             >
-              Back to Hub
+              {t('session.backToHub')}
             </button>
           )}
         </div>
@@ -138,7 +138,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
         <div className="lg:col-span-6 bg-white p-6 rounded-2xl border border-ink-200 shadow-sm space-y-4 max-h-[750px] overflow-y-auto">
           <div className="border-b border-ink-100 pb-3">
             <span className="text-[10px] font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2 py-0.5 rounded border border-brand-200">
-              Reading Passage {currentPassage.passageNumber}
+              {t('reading.passageLabel', { number: currentPassage.passageNumber })}
             </span>
             <h2 className="text-base font-extrabold text-ink-900 mt-2 leading-snug">
               {currentPassage.title}
@@ -166,14 +166,12 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
           <div className="flex items-center justify-between pb-3 border-b border-ink-100">
             <div>
               <h3 className="text-sm font-bold text-ink-900">
-                Questions for Passage {currentPassage.passageNumber}
+                {t('reading.questionsTitle', { number: currentPassage.passageNumber })}
               </h3>
-              <p className="text-[11px] text-ink-500">
-                Answer all questions according to the information given in the text.
-              </p>
+              <p className="text-[11px] text-ink-500">{t('reading.questionsHint')}</p>
             </div>
-            <span className="text-xs text-ink-400 font-mono">
-              {currentPassage.questions.length} questions
+            <span className="text-xs text-ink-400 font-mono tabular">
+              {t('reading.questionCount', { count: currentPassage.questions.length })}
             </span>
           </div>
 
@@ -231,7 +229,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                           value={userAnswers[q.id] || ''}
                           onChange={(e) => handleAnswerChange(q.id, e.target.value)}
                           disabled={isSubmitted}
-                          placeholder="Type word(s) from passage..."
+                          placeholder={t('session.typeFromPassage')}
                           className="w-full p-2 rounded-lg border border-ink-200 text-xs text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-600 font-medium"
                         />
                       )}
@@ -243,16 +241,17 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                             {isCorrect ? (
                               <span className="text-success-700 flex items-center space-x-1">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-success-500" />
-                                <span>Correct!</span>
+                                <span>{t('session.correct')}</span>
                               </span>
                             ) : (
                               <span className="text-danger-700 flex items-center space-x-1">
                                 <XCircle className="w-3.5 h-3.5 text-danger-500" />
                                 <span>
-                                  Incorrect. Key:{' '}
-                                  {Array.isArray(q.correctAnswer)
-                                    ? q.correctAnswer.join(' / ')
-                                    : q.correctAnswer}
+                                  {t('session.incorrect', {
+                                    answers: Array.isArray(q.correctAnswer)
+                                      ? q.correctAnswer.join(' / ')
+                                      : q.correctAnswer,
+                                  })}
                                 </span>
                               </span>
                             )}
@@ -279,20 +278,20 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                 onClick={handleSubmit}
                 className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-ink-900 hover:bg-ink-800 text-white font-semibold text-xs transition-all shadow-md ml-auto cursor-pointer"
               >
-                <span>Submit & Calculate Reading Band</span>
+                <span>{t('session.submit')}</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             ) : (
               <div className="w-full flex items-center justify-between bg-brand-50 border border-brand-200 p-3.5 rounded-xl">
                 <div>
                   <span className="text-[10px] font-bold text-brand-800 uppercase tracking-wider">
-                    Reading Band Score
+                    {t('reading.resultTitle')}
                   </span>
-                  <div className="text-xs text-ink-800 font-semibold mt-0.5">
-                    {correctCount} / {allQuestions.length} correct
+                  <div className="text-xs text-ink-800 font-semibold mt-0.5 tabular">
+                    {t('session.raw', { correct: correctCount, total: allQuestions.length })}
                   </div>
                 </div>
-                <div className="text-xl font-black text-brand-700">Band {band.toFixed(1)}</div>
+                <div className="font-mono text-xl font-bold tabular text-brand-700">{band.toFixed(1)}</div>
               </div>
             )}
           </div>

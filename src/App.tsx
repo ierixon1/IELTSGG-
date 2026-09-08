@@ -8,7 +8,7 @@ import {
 } from './types';
 import { MOCK_TEST_1 } from './data/mockBank';
 import { fetchInitialData, syncDataToServer } from './services/api';
-import { generateInitialPlan, recalculatePlan } from './utils/planEngine';
+import { generateInitialPlan, recalculatePlan, RecalculationResult } from './utils/planEngine';
 import { Navbar, NavTab } from './components/Navbar';
 import { PlanView } from './components/PlanView';
 import { MocksHub } from './components/MocksHub';
@@ -59,7 +59,7 @@ export default function App() {
   const [checklist, setChecklist] = useState<ChecklistWeek>({ weekNumber: 1, weekStart: new Date().toISOString().split('T')[0], mocksDone: 0, mocksTarget: 2, essaysDone: 0, essaysTarget: 4, speakingDone: 0, speakingTarget: 5 });
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [isPreppyOpen, setIsPreppyOpen] = useState<boolean>(false);
-  const [lastRecalcReason, setLastRecalcReason] = useState<string | undefined>(undefined);
+  const [lastRecalc, setLastRecalc] = useState<RecalculationResult | undefined>(undefined);
   const [targetedMocksSection, setTargetedMocksSection] = useState<SkillType | null>(null);
 
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
@@ -203,10 +203,10 @@ export default function App() {
   };
 
   const handleRecalculatePlan = () => {
-    const { updatedTasks, reason } = recalculatePlan(tasks, attempts, profile);
-    setTasks(updatedTasks);
-    setLastRecalcReason(reason);
-    syncDataToServer({ tasks: updatedTasks });
+    const recalculated = recalculatePlan(tasks, attempts, profile);
+    setTasks(recalculated.updatedTasks);
+    setLastRecalc(recalculated);
+    syncDataToServer({ tasks: recalculated.updatedTasks });
   };
 
   const handleRecordScore = (skill: SkillType, band: number, raw?: number) => {
@@ -224,10 +224,10 @@ export default function App() {
     if (skill === 'writing') nextChecklist.essaysDone = (nextChecklist.essaysDone || 0) + 1;
     if (skill === 'speaking') nextChecklist.speakingDone = (nextChecklist.speakingDone || 0) + 1;
     setChecklist(nextChecklist);
-    const { updatedTasks, reason } = recalculatePlan(tasks, nextAttempts, profile);
-    setTasks(updatedTasks);
-    setLastRecalcReason(reason);
-    syncDataToServer({ attempts: nextAttempts, checklist: nextChecklist, tasks: updatedTasks });
+    const recalculated = recalculatePlan(tasks, nextAttempts, profile);
+    setTasks(recalculated.updatedTasks);
+    setLastRecalc(recalculated);
+    syncDataToServer({ attempts: nextAttempts, checklist: nextChecklist, tasks: recalculated.updatedTasks });
   };
 
   const handleCompleteFullExam = (attempt: MockAttempt) => {
@@ -235,10 +235,10 @@ export default function App() {
     setAttempts(nextAttempts);
     const nextChecklist = { ...checklist, mocksDone: (checklist.mocksDone || 0) + 1 };
     setChecklist(nextChecklist);
-    const { updatedTasks, reason } = recalculatePlan(tasks, nextAttempts, profile);
-    setTasks(updatedTasks);
-    setLastRecalcReason(reason);
-    syncDataToServer({ attempts: nextAttempts, checklist: nextChecklist, tasks: updatedTasks });
+    const recalculated = recalculatePlan(tasks, nextAttempts, profile);
+    setTasks(recalculated.updatedTasks);
+    setLastRecalc(recalculated);
+    syncDataToServer({ attempts: nextAttempts, checklist: nextChecklist, tasks: recalculated.updatedTasks });
   };
 
   if (view === 'landing') {
@@ -271,7 +271,7 @@ export default function App() {
         isAdminAuthenticated={Boolean(adminUser)}
       />
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalcReason={lastRecalcReason} />}
+        {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
         {activeTab === 'mocks' && <MocksHub mockTest={MOCK_TEST_1} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} />}
         {activeTab === 'exam' && <ExamMode mockTest={MOCK_TEST_1} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}

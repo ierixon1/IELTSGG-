@@ -15,17 +15,19 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { useT } from '../i18n';
 
 type Difficulty = 'easy' | 'medium' | 'hard' | 'extra_hard';
 
-const DIFFICULTY_CONFIG: Record<Difficulty, { label: string; silenceLimitSecs: number; color: string }> = {
-  easy: { label: 'Easy', silenceLimitSecs: 12, color: 'text-success-500 border-success-500' },
-  medium: { label: 'Medium', silenceLimitSecs: 10, color: 'text-brand-500 border-brand-500' },
-  hard: { label: 'Hard', silenceLimitSecs: 5, color: 'text-warning-500 border-warning-500' },
-  extra_hard: { label: 'Extra Hard', silenceLimitSecs: 2.5, color: 'text-danger-500 border-danger-500' },
+const DIFFICULTY_CONFIG: Record<Difficulty, { silenceLimitSecs: number; color: string }> = {
+  easy: { silenceLimitSecs: 12, color: 'text-success-500 border-success-500' },
+  medium: { silenceLimitSecs: 10, color: 'text-brand-500 border-brand-500' },
+  hard: { silenceLimitSecs: 5, color: 'text-warning-500 border-warning-500' },
+  extra_hard: { silenceLimitSecs: 2.5, color: 'text-danger-500 border-danger-500' },
 };
 
 export const SpeakOrDieArcade: React.FC = () => {
+  const t = useT();
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'survived' | 'dead'>('idle');
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
   const [topicIndex, setTopicIndex] = useState<number>(0);
@@ -97,7 +99,7 @@ export const SpeakOrDieArcade: React.FC = () => {
 
       playBeep(440, 'triangle', 0.2);
     } catch (err) {
-      alert('Microphone access is required to play Speak or Die!');
+      alert(t('arcade.micRequired'));
     }
   };
 
@@ -204,18 +206,18 @@ export const SpeakOrDieArcade: React.FC = () => {
             <span className="w-8 h-8 rounded-xl bg-danger-500 flex items-center justify-center font-bold text-white shadow-md">
               <Flame className="w-5 h-5 fill-current" />
             </span>
-            <h1 className="text-xl font-extrabold tracking-tight">Speak or Die: Anti-Hesitation Arcade</h1>
+            <h1 className="text-xl font-extrabold tracking-tight">{t('arcade.title')}</h1>
           </div>
-          <p className="text-xs text-ink-300">
-            Overcome fear of silence in IELTS Speaking Part 2. Keep speaking or the saw descends!
-          </p>
+          <p className="text-xs text-ink-300">{t('arcade.subtitle')}</p>
         </div>
 
         <div className="flex items-center space-x-3 bg-white/5 p-3 rounded-2xl border border-white/10 shrink-0">
           <Trophy className="w-5 h-5 text-warning-500" />
           <div>
-            <div className="text-[10px] text-ink-400 uppercase font-semibold">Best Record</div>
-            <div className="text-sm font-bold text-white">{bestRecordSecs.toFixed(1)}s / 120s</div>
+            <div className="text-[10px] text-ink-400 uppercase font-semibold">{t('arcade.best')}</div>
+            <div className="font-mono text-sm font-bold tabular text-white">
+              {t('arcade.ofTarget', { seconds: bestRecordSecs.toFixed(1) })}
+            </div>
           </div>
         </div>
       </div>
@@ -225,20 +227,20 @@ export const SpeakOrDieArcade: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-ink-100">
           <div className="flex items-center space-x-2">
             <span className="text-xs font-bold uppercase tracking-wider text-danger-700 bg-danger-50 px-2.5 py-1 rounded-md border border-danger-50">
-              Part 2 Cue Card
+              {t('arcade.cueCard')}
             </span>
             <button
               onClick={handleNextTopic}
               disabled={gameState === 'playing'}
               className="text-xs text-ink-500 hover:text-ink-800 font-semibold underline decoration-ink-300"
             >
-              Shuffle Card
+              {t('arcade.shuffle')}
             </button>
           </div>
 
           {/* Difficulty selector */}
           <div className="flex items-center space-x-1.5">
-            <span className="text-[11px] font-semibold text-ink-400 mr-1">Tolerance:</span>
+            <span className="text-[11px] font-semibold text-ink-400 mr-1">{t('arcade.tolerance')}</span>
             {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map((diff) => (
               <button
                 key={diff}
@@ -250,7 +252,7 @@ export const SpeakOrDieArcade: React.FC = () => {
                     : 'text-ink-500 border-ink-200 hover:bg-ink-50'
                 }`}
               >
-                {DIFFICULTY_CONFIG[diff].label} ({DIFFICULTY_CONFIG[diff].silenceLimitSecs}s)
+                {t(`arcade.difficulty.${diff}`)} ({DIFFICULTY_CONFIG[diff].silenceLimitSecs}s)
               </button>
             ))}
           </div>
@@ -260,7 +262,7 @@ export const SpeakOrDieArcade: React.FC = () => {
         <div className="bg-ink-50 p-4 rounded-xl border border-ink-200 space-y-2">
           <h2 className="text-sm font-bold text-ink-900">{currentTopic.topic}</h2>
           <div className="text-xs text-ink-600">
-            <span className="font-semibold text-ink-700">You should say: </span>
+            <span className="font-semibold text-ink-700">{t('arcade.youShouldSay')} </span>
             {currentTopic.bulletPoints.join(' • ')}
           </div>
         </div>
@@ -271,7 +273,7 @@ export const SpeakOrDieArcade: React.FC = () => {
         {/* Top HUD: Survival Timer & Danger Meter */}
         <div className="flex items-center justify-between z-10">
           <div>
-            <div className="text-[11px] text-ink-400 uppercase font-mono">Survival Time</div>
+            <div className="text-[11px] text-ink-400 uppercase font-mono">{t('arcade.survival')}</div>
             <div className="text-3xl sm:text-4xl font-black font-mono text-success-500 tracking-tight">
               {survivalTimeSecs.toFixed(1)}s
               <span className="text-xs text-ink-500 font-normal ml-1">/ 120s</span>
@@ -279,13 +281,13 @@ export const SpeakOrDieArcade: React.FC = () => {
           </div>
 
           <div className="text-right">
-            <div className="text-[11px] text-ink-400 uppercase font-mono">Silence Countdown</div>
+            <div className="text-[11px] text-ink-400 uppercase font-mono">{t('arcade.countdown')}</div>
             <div
               className={`text-2xl font-black font-mono ${
                 consecutiveSilenceSecs > silenceLimit * 0.6 ? 'text-danger-500 animate-pulse' : 'text-ink-200'
               }`}
             >
-              {(silenceLimit - consecutiveSilenceSecs).toFixed(1)}s left
+              {t('arcade.secondsLeft', { seconds: (silenceLimit - consecutiveSilenceSecs).toFixed(1) })}
             </div>
           </div>
         </div>
@@ -327,7 +329,7 @@ export const SpeakOrDieArcade: React.FC = () => {
               {gameState === 'dead' ? '💀' : gameState === 'survived' ? '🏆' : isSpeaking ? '🗣️' : '🤐'}
             </div>
             <span className="text-[10px] text-ink-400 font-semibold mt-1">
-              {isSpeaking ? 'SPEAKING' : 'SILENT'}
+              {isSpeaking ? t('arcade.speaking') : t('arcade.silent')}
             </span>
           </div>
         </div>
@@ -337,9 +339,9 @@ export const SpeakOrDieArcade: React.FC = () => {
           {/* Audio Volume Bar */}
           <div className="space-y-1 max-w-sm mx-auto">
             <div className="flex justify-between text-[10px] text-ink-400 font-mono">
-              <span>Mic Voice Level</span>
+              <span>{t('arcade.micLevel')}</span>
               <span className={isSpeaking ? 'text-success-500 font-bold' : ''}>
-                {isSpeaking ? 'VOICE SAFE' : 'PAUSED'}
+                {isSpeaking ? t('arcade.voiceSafe') : t('arcade.paused')}
               </span>
             </div>
             <div className="w-full h-2 bg-ink-800 rounded-full overflow-hidden">
@@ -361,7 +363,7 @@ export const SpeakOrDieArcade: React.FC = () => {
                 className="inline-flex items-center space-x-2 px-8 py-3.5 rounded-2xl bg-danger-500 hover:bg-danger-700 text-white font-extrabold text-sm shadow-xl transition-all cursor-pointer transform hover:scale-105"
               >
                 <Mic className="w-4 h-4" />
-                <span>Start Speaking Now</span>
+                <span>{t('arcade.start')}</span>
               </button>
             )}
 
@@ -372,7 +374,7 @@ export const SpeakOrDieArcade: React.FC = () => {
                 className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-ink-800 hover:bg-ink-700 text-ink-300 font-bold text-xs transition-all"
               >
                 <Skull className="w-4 h-4 text-ink-400" />
-                <span>Give Up</span>
+                <span>{t('arcade.giveUp')}</span>
               </button>
             )}
 
@@ -384,13 +386,13 @@ export const SpeakOrDieArcade: React.FC = () => {
                   className="inline-flex items-center space-x-2 px-8 py-3.5 rounded-2xl bg-danger-500 hover:bg-danger-700 text-white font-extrabold text-sm shadow-xl transition-all cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
-                  <span>Try Again (1-Click Restart)</span>
+                  <span>{t('arcade.retry')}</span>
                 </button>
                 <button
                   onClick={handleNextTopic}
                   className="px-4 py-3.5 rounded-2xl bg-ink-800 hover:bg-ink-700 text-ink-200 font-bold text-xs"
                 >
-                  New Card
+                  {t('arcade.newCard')}
                 </button>
               </div>
             )}
@@ -403,15 +405,15 @@ export const SpeakOrDieArcade: React.FC = () => {
             <div className="w-16 h-16 rounded-2xl bg-success-500 text-white flex items-center justify-center text-3xl shadow-xl">
               🏆
             </div>
-            <h2 className="text-2xl font-black text-white">Full 2-Minute Monologue Conquered!</h2>
+            <h2 className="text-2xl font-black text-white">{t('arcade.wonTitle')}</h2>
             <p className="text-xs text-success-50 max-w-sm">
-              You maintained continuous speech without freezing beyond the {silenceLimit}s limit! Your hesitation barrier is broken.
+              {t('arcade.wonBody', { seconds: silenceLimit })}
             </p>
             <button
               onClick={startGame}
               className="px-6 py-2.5 rounded-xl bg-white text-ink-900 font-bold text-xs shadow-lg hover:bg-success-50 transition-colors"
             >
-              Play Again with Another Card
+              {t('arcade.playAgain')}
             </button>
           </div>
         )}
@@ -422,16 +424,18 @@ export const SpeakOrDieArcade: React.FC = () => {
             <div className="w-16 h-16 rounded-2xl bg-danger-500 text-white flex items-center justify-center text-3xl shadow-xl animate-bounce">
               ⚡
             </div>
-            <h2 className="text-2xl font-black text-white tracking-wide uppercase">Hesitation Strike!</h2>
+            <h2 className="text-2xl font-black text-white tracking-wide uppercase">{t('arcade.lostTitle')}</h2>
             <p className="text-xs text-danger-50 max-w-sm">
-              Silence exceeded {silenceLimit} seconds! On the actual exam, this pause would drop your Fluency score.
-              You survived <strong>{survivalTimeSecs.toFixed(1)} seconds</strong>.
+              {t('arcade.lostBody', {
+                seconds: silenceLimit,
+                survived: survivalTimeSecs.toFixed(1),
+              })}
             </p>
             <button
               onClick={startGame}
               className="px-6 py-2.5 rounded-xl bg-danger-500 hover:bg-danger-700 text-white font-bold text-xs shadow-lg transition-colors cursor-pointer"
             >
-              Immediate Revenge (1-Click Restart)
+              {t('arcade.retryNow')}
             </button>
           </div>
         )}

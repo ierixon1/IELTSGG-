@@ -1,5 +1,6 @@
 import React from 'react';
 import { PlanTask, UserProfile, SkillType, MockAttempt } from '../types';
+import { RecalculationResult } from '../utils/planEngine';
 import {
   AlertCircle,
   ArrowRight,
@@ -21,7 +22,37 @@ interface PlanViewProps {
   onToggleTask: (taskId: string) => void;
   onStartTask: (task: PlanTask) => void;
   onRecalculatePlan: () => void;
-  lastRecalcReason?: string;
+  lastRecalc?: RecalculationResult;
+}
+
+/**
+ * Plans generated before task text was translatable carry only `title` and
+ * `reason`; newer ones carry a key plus parameters. Prefer the key, fall back
+ * to the stored sentence.
+ */
+function useTaskText(): (
+  key: string | undefined,
+  params: Record<string, string | number> | undefined,
+  fallback: string,
+) => string {
+  const t = useT();
+  return (key, params, fallback) => {
+    if (!key) return fallback;
+    const resolvedParams = params
+      ? Object.fromEntries(
+          Object.entries(params).map(([name, value]) => [
+            name,
+            // Skill names are themselves translated.
+            name === 'skill' || name === 'first' || name === 'second'
+              ? t(`skills.${value}`)
+              : value,
+          ]),
+        )
+      : undefined;
+
+    const text = t(key, resolvedParams);
+    return text === key ? fallback : text;
+  };
 }
 
 /** Each IELTS module carries its own tint/ink pair from the design tokens. */
@@ -38,9 +69,10 @@ export const PlanView: React.FC<PlanViewProps> = ({
   onToggleTask,
   onStartTask,
   onRecalculatePlan,
-  lastRecalcReason,
+  lastRecalc,
 }) => {
   const t = useT();
+  const taskText = useTaskText();
   const completedCount = tasks.filter((task) => task.completed).length;
   const progress = tasks.length > 0 ? completedCount / tasks.length : 0;
 
@@ -116,11 +148,12 @@ export const PlanView: React.FC<PlanViewProps> = ({
         </div>
       </section>
 
-      {lastRecalcReason && (
+      {lastRecalc && (
         <div className="flex items-start gap-3 rounded-[var(--radius-card)] border border-warning-500/25 bg-warning-50 p-4 text-sm text-warning-700">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            <span className="font-bold">{t('plan.updateNotice')}:</span> {lastRecalcReason}
+            <span className="font-bold">{t('plan.updateNotice')}:</span>{' '}
+            {taskText(lastRecalc.reasonKey, lastRecalc.reasonParams, lastRecalc.reason)}
           </p>
         </div>
       )}
@@ -193,10 +226,12 @@ export const PlanView: React.FC<PlanViewProps> = ({
                         task.completed ? 'text-ink-400 line-through' : 'text-ink-900',
                       )}
                     >
-                      {task.title}
+                      {taskText(task.titleKey, task.titleParams, task.title)}
                     </h3>
 
-                    <p className="text-sm leading-relaxed text-ink-500">{task.reason}</p>
+                    <p className="text-sm leading-relaxed text-ink-500">
+                      {taskText(task.reasonKey, task.reasonParams, task.reason)}
+                    </p>
                   </div>
                 </div>
 
