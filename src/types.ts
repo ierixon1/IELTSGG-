@@ -147,12 +147,55 @@ export interface SpeakingGradingResult {
   actionable_drills: string[];
 }
 
+/**
+ * The task types that actually appear on the paper. The renderer picks its
+ * control from this: a bank-backed type gets a dropdown, a choice gets radios,
+ * everything else gets a text box with its word limit shown.
+ */
+export type QuestionType =
+  | 'multiple_choice'
+  | 'multi_select'
+  | 'fill_in_blank'
+  | 'sentence_completion'
+  | 'summary_completion'
+  | 'note_completion'
+  | 'table_completion'
+  | 'form_completion'
+  | 'short_answer'
+  | 'true_false_not_given'
+  | 'yes_no_not_given'
+  | 'matching'
+  | 'matching_headings'
+  | 'matching_information'
+  | 'matching_features'
+  | 'matching_sentence_endings'
+  | 'diagram_label'
+  | 'map_label';
+
+/** Types answered by picking from a shared lettered bank rather than typing. */
+export const BANK_ANSWER_TYPES: QuestionType[] = [
+  'matching',
+  'matching_headings',
+  'matching_information',
+  'matching_features',
+  'matching_sentence_endings',
+];
+
 export interface Question {
   id: string;
   questionNumber: number;
-  type: 'multiple_choice' | 'fill_in_blank' | 'true_false_not_given' | 'matching';
+  type: QuestionType;
+  /**
+   * Rubric shown above this question and the ones that follow it in the same
+   * group, exactly as the paper prints it. Set on the first question of a
+   * group only.
+   */
+  instruction?: string;
   prompt: string;
+  /** Choices for a multiple choice, or the lettered bank for a matching group. */
   options?: string[];
+  /** e.g. "NO MORE THAN TWO WORDS AND/OR A NUMBER" — printed beside the box. */
+  wordLimit?: string;
   correctAnswer: string | string[]; // supports alternate spellings e.g. ["19", "nineteen"]
   explanation?: string;
 }

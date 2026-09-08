@@ -14,6 +14,7 @@ import {
 import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
+import { QuestionField, QuestionInstruction } from './common/QuestionField';
 
 interface ReadingSessionProps {
   readingData: ReadingData;
@@ -180,8 +181,9 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
               const isCorrect = isSubmitted && checkAnswer(userAnswers[q.id] || '', q.correctAnswer);
 
               return (
+                <React.Fragment key={q.id}>
+                {q.instruction && <QuestionInstruction text={q.instruction} />}
                 <div
-                  key={q.id}
                   className={`p-4 rounded-xl border transition-all ${
                     isSubmitted
                       ? isCorrect
@@ -198,41 +200,13 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                     <div className="space-y-2.5 flex-1">
                       <p className="text-xs font-semibold text-ink-900">{q.prompt}</p>
 
-                      {/* Options or Input */}
-                      {q.options && q.options.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {q.options.map((opt, oIdx) => (
-                            <label
-                              key={oIdx}
-                              className={`flex items-center space-x-2 p-2 rounded-lg border text-xs cursor-pointer transition-all ${
-                                userAnswers[q.id] === opt
-                                  ? 'border-brand-600 bg-brand-50/60 font-semibold text-ink-900'
-                                  : 'border-ink-200 hover:bg-ink-50 text-ink-700'
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={q.id}
-                                value={opt}
-                                checked={userAnswers[q.id] === opt}
-                                onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                disabled={isSubmitted}
-                                className="accent-brand-600"
-                              />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <input
-                          type="text"
-                          value={userAnswers[q.id] || ''}
-                          onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                          disabled={isSubmitted}
-                          placeholder={t('session.typeFromPassage')}
-                          className="w-full p-2 rounded-lg border border-ink-200 text-xs text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-600 font-medium"
-                        />
-                      )}
+                      <QuestionField
+                        question={q}
+                        value={userAnswers[q.id] || ''}
+                        disabled={isSubmitted}
+                        onChange={(value) => handleAnswerChange(q.id, value)}
+                        groupName={`reading-${currentPassage.passageNumber}`}
+                      />
 
                       {/* Explanation if submitted */}
                       {isSubmitted && (
@@ -266,6 +240,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                     </div>
                   </div>
                 </div>
+                </React.Fragment>
               );
             })}
           </div>

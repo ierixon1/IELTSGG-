@@ -18,6 +18,7 @@ import {
 import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
+import { QuestionField, QuestionInstruction } from './common/QuestionField';
 
 interface ListeningSessionProps {
   listeningData: ListeningData;
@@ -287,8 +288,9 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
             const isWrong = isSubmitted && !isCorrect;
 
             return (
+              <React.Fragment key={q.id}>
+              {q.instruction && <QuestionInstruction text={q.instruction} />}
               <div
-                key={q.id}
                 className={`p-4 rounded-xl border transition-all ${
                   isSubmitted
                     ? isCorrect
@@ -305,43 +307,13 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
                   <div className="space-y-3 flex-1">
                     <p className="text-sm font-semibold text-ink-900">{q.prompt}</p>
 
-                    {/* Multiple choice options or text input */}
-                    {q.type === 'multiple_choice' && q.options ? (
-                      <div className="space-y-2">
-                        {q.options.map((opt, oIdx) => (
-                          <label
-                            key={oIdx}
-                            className={`flex items-center space-x-2.5 p-2.5 rounded-lg border text-xs cursor-pointer transition-all ${
-                              userAnswers[q.id] === opt
-                                ? 'border-success-500 bg-success-50/60 font-semibold text-ink-900'
-                                : 'border-ink-200 hover:bg-ink-50 text-ink-700'
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name={q.id}
-                              value={opt}
-                              checked={userAnswers[q.id] === opt}
-                              onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                              disabled={isSubmitted}
-                              className="accent-success-500"
-                            />
-                            <span>{opt}</span>
-                          </label>
-                        ))}
-                      </div>
-                    ) : (
-                      <div>
-                        <input
-                          type="text"
-                          value={userAnswers[q.id] || ''}
-                          onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                          disabled={isSubmitted}
-                          placeholder={t('session.typeAnswer')}
-                          className="w-full max-w-md p-2.5 rounded-lg border border-ink-200 text-xs text-ink-900 focus:outline-none focus:ring-2 focus:ring-success-500 font-medium"
-                        />
-                      </div>
-                    )}
+                    <QuestionField
+                      question={q}
+                      value={userAnswers[q.id] || ''}
+                      disabled={isSubmitted}
+                      onChange={(value) => handleAnswerChange(q.id, value)}
+                      groupName={`listening-${currentPart.partNumber}`}
+                    />
 
                     {/* Results Feedback */}
                     {isSubmitted && (
@@ -375,6 +347,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
                   </div>
                 </div>
               </div>
+              </React.Fragment>
             );
           })}
         </div>
