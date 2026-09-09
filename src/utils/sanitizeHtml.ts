@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { namespaceCdiId } from './cdiIds';
 
 // Register security hooks once
 let hooksInitialized = false;
@@ -72,10 +73,30 @@ function initPurifyHooks() {
       }
     }
 
-    // 4. Security: Force noopener, noreferrer, nofollow on all hyperlinks
+    // 4. Security: namespace every id so imported markup cannot shadow the
+    // app's own elements. A node with id="root" or id="btn-recalculate-plan"
+    // would otherwise win document.getElementById and window named access.
+    if (node.hasAttribute('id')) {
+      const namespaced = namespaceCdiId(node.getAttribute('id') || '');
+      if (namespaced) node.setAttribute('id', namespaced);
+      else node.removeAttribute('id');
+    }
+
+    // 5. Security: noopener/noreferrer/nofollow on outbound links. A
+    // same-document fragment is not outbound — opening a CDI page's own
+    // "Go to Section 2" link in a blank tab is a bug, not a precaution — so it
+    // keeps its target and is rewritten to match the namespaced id.
     if (node.tagName === 'A') {
-      node.setAttribute('target', '_blank');
-      node.setAttribute('rel', 'noopener noreferrer nofollow');
+      const href = (node.getAttribute('href') || '').trim();
+      if (href.startsWith('#')) {
+        const target = namespaceCdiId(href.slice(1));
+        if (target) node.setAttribute('href', `#${target}`);
+        else node.removeAttribute('href');
+        node.removeAttribute('target');
+      } else {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer nofollow');
+      }
     }
   });
 }
