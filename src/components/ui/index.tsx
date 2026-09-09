@@ -39,19 +39,27 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   variant?: ButtonVariant;
   size?: ButtonSize;
   fullWidth?: boolean;
+  /**
+   * Let a long label wrap. Buttons are nowrap by default, which is right in a
+   * toolbar and wrong for a full-width control in a narrow column, where the
+   * label's min-content width would otherwise set its container's.
+   */
+  wrap?: boolean;
 }
 
 export const Button: React.FC<ButtonProps> = ({
   variant = 'primary',
   size = 'md',
   fullWidth,
+  wrap,
   className,
   children,
   ...rest
 }) => (
   <button
     className={cx(
-      'inline-flex items-center justify-center font-semibold whitespace-nowrap',
+      'inline-flex items-center justify-center font-semibold',
+      wrap ? 'whitespace-normal text-center leading-snug' : 'whitespace-nowrap',
       'transition-all duration-200 ease-[var(--ease-out-soft)]',
       'disabled:cursor-not-allowed active:scale-[0.98]',
       BUTTON_VARIANTS[variant],

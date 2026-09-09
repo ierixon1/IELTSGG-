@@ -9,12 +9,11 @@ import {
   ChevronDown,
   Circle,
   Clock,
-  RefreshCw,
-  Sparkles,
   Zap,
 } from 'lucide-react';
 import { useT, useI18n } from '../i18n';
 import { Badge, BadgeTone, Button, Progress, cx } from './ui';
+import { PlanSummaryPanel } from './plan/PlanSummaryPanel';
 
 interface PlanViewProps {
   tasks: PlanTask[];
@@ -257,211 +256,158 @@ export const PlanView: React.FC<PlanViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Roadmap banner — the one dark surface on this screen. */}
-      <section className="es-ink-surface es-enter relative overflow-hidden rounded-[2rem] p-6 sm:p-9">
-        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-xl">
-            <Badge tone="brand" className="bg-white/10 text-brand-100">
-              <Sparkles className="h-3 w-3" />
-              {t('plan.eyebrow')}
-            </Badge>
+    // Stacked on small screens, sidebar + content from `lg` up. The page
+    // scrolls at document level and the navbar is `sticky top-0 h-16`, so a
+    // `top` of 5.5rem (4rem navbar + 1.5rem) needs no JavaScript. `minmax(0,1fr)`
+    // plus `min-w-0` keeps a long task title from forcing the page sideways.
+    <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start lg:gap-8">
+      <aside className="lg:sticky lg:top-[5.5rem] lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+        <PlanSummaryPanel
+          profile={profile}
+          completedCount={completedCount}
+          totalCount={tasks.length}
+          progress={progress}
+          onRecalculatePlan={onRecalculatePlan}
+          diagnosedWeakSkill={lastRecalc?.diagnosedWeakSkill}
+        />
+      </aside>
 
-            <h1 className="mt-4 text-display-sm text-white sm:text-display-md">
-              {t('plan.title', { band: profile.targetBand.toFixed(1) })}
-            </h1>
-
-            <p className="mt-3 text-sm leading-relaxed text-ink-300">
-              {t('plan.subtitle', { skill: t(`skills.${profile.weakSection}`) })}
+      <div className="min-w-0 space-y-6">
+        {lastRecalc && (
+          <div className="es-enter flex items-start gap-3 rounded-[var(--radius-card)] border border-warning-500/25 bg-warning-50 p-4 text-sm text-warning-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              <span className="font-bold">{t('plan.updateNotice')}:</span>{' '}
+              {taskText(lastRecalc.reasonKey, lastRecalc.reasonParams, lastRecalc.reason)}
             </p>
           </div>
+        )}
 
-          <dl className="es-glass grid shrink-0 grid-cols-3 gap-6 rounded-[var(--radius-card)] px-6 py-5">
-            <div>
-              <dt className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
-                {t('plan.starting')}
-              </dt>
-              <dd className="mt-1 font-mono text-xl font-bold tabular text-white">
-                {profile.currentLevel.toFixed(1)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
-                {t('plan.target')}
-              </dt>
-              <dd className="mt-1 font-mono text-xl font-bold tabular text-brand-200">
-                {profile.targetBand.toFixed(1)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white/50">
-                {t('plan.weekly')}
-              </dt>
-              <dd className="mt-1 font-mono text-xl font-bold tabular text-white">
-                {t('plan.hours', { count: profile.hoursPerWeek })}
-              </dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="mt-8 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-end sm:justify-between">
-          <div className="w-full max-w-md">
-            <div className="mb-2 flex items-center justify-between text-xs font-medium text-white/70">
-              <span>{t('plan.completion')}</span>
-              <span className="tabular">
-                {t('plan.tasksProgress', { done: completedCount, total: tasks.length })}
-              </span>
-            </div>
-            <Progress value={progress} tone="light" />
+        {tasks.length === 0 ? (
+          <div className="es-card es-enter p-10 text-center">
+            <h3 className="text-lg font-bold text-ink-900">{t('plan.emptyTitle')}</h3>
+            <p className="mt-2 text-sm text-ink-500">{t('plan.emptyBody')}</p>
           </div>
+        ) : (
+          <>
+            {/* One task, front and centre, so arriving never means choosing. */}
+            <section className="es-enter" style={{ animationDelay: '60ms' }}>
+              <p className="es-eyebrow mb-3">{t('plan.nextUp')}</p>
 
-          <Button
-            id="btn-recalculate-plan"
-            variant="ghost"
-            size="sm"
-            onClick={onRecalculatePlan}
-            className="shrink-0 border border-white/15 text-white/85 hover:bg-white/10 hover:text-white"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('plan.recalculate')}
-          </Button>
-        </div>
-      </section>
-
-      {lastRecalc && (
-        <div className="es-enter flex items-start gap-3 rounded-[var(--radius-card)] border border-warning-500/25 bg-warning-50 p-4 text-sm text-warning-700">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            <span className="font-bold">{t('plan.updateNotice')}:</span>{' '}
-            {taskText(lastRecalc.reasonKey, lastRecalc.reasonParams, lastRecalc.reason)}
-          </p>
-        </div>
-      )}
-
-      {tasks.length === 0 ? (
-        <div className="es-card es-enter p-10 text-center">
-          <h3 className="text-lg font-bold text-ink-900">{t('plan.emptyTitle')}</h3>
-          <p className="mt-2 text-sm text-ink-500">{t('plan.emptyBody')}</p>
-        </div>
-      ) : (
-        <>
-          {/* One task, front and centre, so arriving never means choosing. */}
-          <section className="es-enter" style={{ animationDelay: '60ms' }}>
-            <p className="es-eyebrow mb-3">{t('plan.nextUp')}</p>
-
-            {nextTask ? (
-              <div className="es-card border-brand-200 bg-brand-50/40 p-5 sm:p-6">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={SKILL_TONE[nextTask.skill]}>
-                        {t(`skills.${nextTask.skill}`)}
-                      </Badge>
-                      <span className="inline-flex items-center gap-1 text-xs text-ink-500">
-                        <Clock className="h-3 w-3" />
-                        {t('common.minutes', { count: nextTask.durationMins })}
-                      </span>
-                      {describeDue(nextTask).label && (
-                        <span
-                          className={cx(
-                            'inline-flex items-center gap-1 text-xs tabular',
-                            describeDue(nextTask).overdue
-                              ? 'font-semibold text-danger-700'
-                              : 'text-ink-500',
-                          )}
-                        >
-                          <CalendarDays className="h-3 w-3" />
-                          {describeDue(nextTask).label}
+              {nextTask ? (
+                <div className="es-card border-brand-200 bg-brand-50/40 p-5 sm:p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={SKILL_TONE[nextTask.skill]}>
+                          {t(`skills.${nextTask.skill}`)}
+                        </Badge>
+                        <span className="inline-flex items-center gap-1 text-xs text-ink-500">
+                          <Clock className="h-3 w-3" />
+                          {t('common.minutes', { count: nextTask.durationMins })}
                         </span>
-                      )}
+                        {describeDue(nextTask).label && (
+                          <span
+                            className={cx(
+                              'inline-flex items-center gap-1 text-xs tabular',
+                              describeDue(nextTask).overdue
+                                ? 'font-semibold text-danger-700'
+                                : 'text-ink-500',
+                            )}
+                          >
+                            <CalendarDays className="h-3 w-3" />
+                            {describeDue(nextTask).label}
+                          </span>
+                        )}
+                      </div>
+
+                      <h2 className="mt-2.5 font-display text-lg font-bold text-ink-900">
+                        {taskText(nextTask.titleKey, nextTask.titleParams, nextTask.title)}
+                      </h2>
+                      <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
+                        {taskText(nextTask.reasonKey, nextTask.reasonParams, nextTask.reason)}
+                      </p>
                     </div>
 
-                    <h2 className="mt-2.5 font-display text-lg font-bold text-ink-900">
-                      {taskText(nextTask.titleKey, nextTask.titleParams, nextTask.title)}
-                    </h2>
-                    <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
-                      {taskText(nextTask.reasonKey, nextTask.reasonParams, nextTask.reason)}
-                    </p>
+                    <Button
+                      size="lg"
+                      onClick={() => onStartTask(nextTask)}
+                      className="shrink-0 self-start sm:self-auto"
+                    >
+                      {t('plan.start')}
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
                   </div>
-
-                  <Button
-                    size="lg"
-                    onClick={() => onStartTask(nextTask)}
-                    className="shrink-0 self-start sm:self-auto"
-                  >
-                    {t('plan.start')}
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
                 </div>
-              </div>
-            ) : (
-              <div className="es-card p-6 text-center">
-                <h2 className="font-display text-lg font-bold text-ink-900">
-                  {t('plan.nextUpEmpty')}
-                </h2>
-                <p className="mt-1.5 text-sm text-ink-500">{t('plan.nextUpEmptyBody')}</p>
-              </div>
-            )}
-          </section>
-
-          {/* The rest, folded by week. */}
-          <section className="es-enter space-y-3" style={{ animationDelay: '120ms' }}>
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="text-display-sm text-ink-900">{t('plan.tasksTitle')}</h2>
-                <p className="mt-1 text-sm text-ink-500">{t('plan.tasksSubtitle')}</p>
-              </div>
-              <span className="text-sm font-semibold text-ink-400 tabular">
-                {t('plan.totalTasks', { count: tasks.length })}
-              </span>
-            </div>
-
-            {weeks.map((week) => {
-              const isOpen = effectiveOpenWeeks.has(week.index);
-              const complete = week.done === week.tasks.length;
-
-              return (
-                <div key={week.index} className="es-card overflow-hidden p-0">
-                  <button
-                    onClick={() => toggleWeek(week.index)}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-ink-50"
-                  >
-                    <span className="flex flex-wrap items-center gap-2.5">
-                      <span className="font-display text-base font-bold text-ink-900">
-                        {t('plan.week', { number: week.index + 1 })}
-                      </span>
-                      {week.isCurrent && <Badge tone="brand">{t('plan.thisWeek')}</Badge>}
-                      {complete && <Badge tone="success">{t('plan.allDone')}</Badge>}
-                    </span>
-
-                    <span className="flex shrink-0 items-center gap-3">
-                      <span className="hidden w-24 sm:block">
-                        <Progress value={week.done / week.tasks.length} />
-                      </span>
-                      <span className="font-mono text-xs tabular text-ink-400">
-                        {t('plan.weekProgress', { done: week.done, total: week.tasks.length })}
-                      </span>
-                      <ChevronDown
-                        className={cx(
-                          'h-4 w-4 text-ink-400 transition-transform duration-300',
-                          isOpen && 'rotate-180',
-                        )}
-                      />
-                    </span>
-                  </button>
-
-                  {isOpen && (
-                    <ul className="space-y-3 border-t border-ink-100 bg-ink-50/50 p-4">
-                      {week.tasks.map(renderTask)}
-                    </ul>
-                  )}
+              ) : (
+                <div className="es-card p-6 text-center">
+                  <h2 className="font-display text-lg font-bold text-ink-900">
+                    {t('plan.nextUpEmpty')}
+                  </h2>
+                  <p className="mt-1.5 text-sm text-ink-500">{t('plan.nextUpEmptyBody')}</p>
                 </div>
-              );
-            })}
-          </section>
-        </>
-      )}
+              )}
+            </section>
+
+            {/* The rest, folded by week. */}
+            <section className="es-enter space-y-3" style={{ animationDelay: '120ms' }}>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-display-sm text-ink-900">{t('plan.tasksTitle')}</h2>
+                  <p className="mt-1 text-sm text-ink-500">{t('plan.tasksSubtitle')}</p>
+                </div>
+                <span className="text-sm font-semibold text-ink-400 tabular">
+                  {t('plan.totalTasks', { count: tasks.length })}
+                </span>
+              </div>
+
+              {weeks.map((week) => {
+                const isOpen = effectiveOpenWeeks.has(week.index);
+                const complete = week.done === week.tasks.length;
+
+                return (
+                  <div key={week.index} className="es-card overflow-hidden p-0">
+                    <button
+                      onClick={() => toggleWeek(week.index)}
+                      aria-expanded={isOpen}
+                      className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-ink-50"
+                    >
+                      <span className="flex flex-wrap items-center gap-2.5">
+                        <span className="font-display text-base font-bold text-ink-900">
+                          {t('plan.week', { number: week.index + 1 })}
+                        </span>
+                        {week.isCurrent && <Badge tone="brand">{t('plan.thisWeek')}</Badge>}
+                        {complete && <Badge tone="success">{t('plan.allDone')}</Badge>}
+                      </span>
+
+                      <span className="flex shrink-0 items-center gap-3">
+                        <span className="hidden w-24 sm:block">
+                          <Progress value={week.done / week.tasks.length} />
+                        </span>
+                        <span className="font-mono text-xs tabular text-ink-400">
+                          {t('plan.weekProgress', { done: week.done, total: week.tasks.length })}
+                        </span>
+                        <ChevronDown
+                          className={cx(
+                            'h-4 w-4 text-ink-400 transition-transform duration-300',
+                            isOpen && 'rotate-180',
+                          )}
+                        />
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <ul className="space-y-3 border-t border-ink-100 bg-ink-50/50 p-4">
+                        {week.tasks.map(renderTask)}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+          </>
+        )}
+      </div>
     </div>
   );
 };
