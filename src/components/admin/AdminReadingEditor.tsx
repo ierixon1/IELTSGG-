@@ -1,22 +1,33 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, BookOpen, CheckCircle2, FileText, FileCode, Eye, Code2, Sparkles } from 'lucide-react';
 import { AdminReadingMaterial } from '../../types/admin';
-import { QuestionType } from '../../types';
+import { Question, QuestionType } from '../../types';
 import { FileUploadZone } from './FileUploadZone';
 import { CdiHtmlViewer } from '../common/CdiHtmlViewer';
 
-interface ReadingEditorQuestion {
-  id: number;
-  /** Canonical task type — the one vocabulary in src/types.ts. */
-  type: QuestionType;
-  /** Canonical field name; the learner engine reads `prompt`. */
-  prompt: string;
-  instruction?: string;
-  correctAnswer: string;
-  acceptableAnswers?: string[];
-  explanation?: string;
-  options?: string[];
-}
+/**
+ * The editor works on canonical questions directly. It used to keep its own
+ * near-identical interface, which is how `id: number` and a missing
+ * `questionNumber` reached storage, and how `questionText` survived so long.
+ */
+type ReadingEditorQuestion = Question;
+
+/** A new row, numbered after the ones already there. */
+const blankQuestion = (type: QuestionType, position: number): Question => ({
+  id: `q${position}-${Math.random().toString(36).slice(2, 8)}`,
+  questionNumber: position,
+  type,
+  prompt: '',
+  // Deliberately empty: an answer key must never be invented, so the save is
+  // refused until the author supplies one.
+  correctAnswer: type === 'true_false_not_given' ? 'TRUE' : '',
+  options:
+    type === 'multiple_choice'
+      ? ['A. ', 'B. ', 'C. ', 'D. ']
+      : type === 'matching_headings'
+        ? ['i. ', 'ii. ', 'iii. ']
+        : undefined,
+});
 
 interface AdminReadingEditorProps {
   initialData?: AdminReadingMaterial | null;
@@ -54,44 +65,41 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
   const [questions, setQuestions] = useState<ReadingEditorQuestion[]>(
     initialData?.content.passage.questions || [
       {
-        id: 1,
+        id: 'sample-1',
+        questionNumber: 1,
         type: 'true_false_not_given',
         prompt: 'Microalgae production requires fertile farmland used for standard food crops.',
         correctAnswer: 'FALSE',
         explanation: 'The text notes algae do not compete with arable land dedicated to food.',
       },
       {
-        id: 2,
+        id: 'sample-2',
+        questionNumber: 2,
         type: 'multiple_choice',
         prompt: 'What is highlighted as the main obstacle to commercial adoption of algae fuels?',
         options: [
-          'Insufficient lipid productivity',
-          'Excessive upfront capital costs',
-          'Lack of photosynthetic efficiency',
-          'Opposition from airline carriers'
+          'A. Insufficient lipid productivity',
+          'B. Excessive upfront capital costs',
+          'C. Lack of photosynthetic efficiency',
+          'D. Opposition from airline carriers'
         ],
-        correctAnswer: 'Excessive upfront capital costs',
+        correctAnswer: 'B. Excessive upfront capital costs',
         explanation: 'Text specifies that capital expenditure remains the primary deterrent.',
       }
     ]
   );
 
   const [sourceAssetId, setSourceAssetId] = useState<string>(
-    (initialData?.content as any)?.sourceAssetId || '',
+    initialData?.content.sourceAssetId || '',
   );
   const [saving, setSaving] = useState(false);
 
-  const addQuestion = (type: ReadingEditorQuestion['type']) => {
-    const nextId = questions.length + 1;
-    const newQ: ReadingEditorQuestion = {
-      id: nextId,
-      type,
-      prompt: 'New Question Prompt...',
-      correctAnswer: type === 'true_false_not_given' ? 'TRUE' : '',
-      explanation: 'Detailed rationale for score verification.',
-      options: type === 'multiple_choice' ? ['Option A', 'Option B', 'Option C', 'Option D'] : undefined,
-    };
-    setQuestions([...questions, newQ]);
+  /** Keeps numbering contiguous after an add or a delete. */
+  const renumber = (list: Question[]) =>
+    list.map((question, index) => ({ ...question, questionNumber: index + 1 }));
+
+  const addQuestion = (type: QuestionType) => {
+    setQuestions(renumber([...questions, blankQuestion(type, questions.length + 1)]));
   };
 
   const handleSave = async () => {
@@ -384,7 +392,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
                   Q{idx + 1} • <span className="uppercase text-[10px] text-ink-500 font-mono">{q.type.replace(/_/g, ' ')}</span>
                 </span>
                 <button
-                  onClick={() => setQuestions(questions.filter((_, i) => i !== idx))}
+                  onClick={() => setQuestions(renumber(questions.filter((_, i) => i !== idx)))}
                   className="text-ink-400 hover:text-danger-500 p-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

@@ -30,7 +30,7 @@ const { learnerContentRouter } = await import('../src/routes/learnerContentRoute
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { enforceAdminSecurity } = await import('../src/middleware/adminSecurityMiddleware');
 
-const ANSWER = 'Excessive upfront capital costs';
+const ANSWER = 'B. Excessive upfront capital costs';
 const TRANSCRIPT = 'The eco-farm tour runs from the sixth to the twentieth of June.';
 
 let server: Server;
@@ -56,7 +56,7 @@ before(async () => {
             questionNumber: 1,
             type: 'multiple_choice',
             prompt: 'What is the main obstacle?',
-            options: ['A. Land', 'B. Cost', 'C. Water', 'D. Law'],
+            options: ['A. Land', ANSWER, 'C. Water', 'D. Law'],
             correctAnswer: ANSWER,
             acceptableAnswers: ['capital costs'],
             explanation: 'Paragraph C names the capital outlay.',

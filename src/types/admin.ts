@@ -1,3 +1,5 @@
+import type { Question } from '../types';
+
 // Types for Admin CMS, Examiners, and Full CDI Bundles
 export interface AdminUser {
   id: string;
@@ -50,13 +52,31 @@ export interface AdminSpeakingMaterial extends BaseAdminMaterial {
 
 export interface AdminReadingMaterial extends BaseAdminMaterial {
   section: 'reading';
-  content: MaterialAssetRefs & { passage: { passageNumber: number; title: string; text: string; htmlContent?: string; questions: any[] }; htmlContent?: string };
+  content: MaterialAssetRefs & {
+    passage: {
+      passageNumber: number;
+      title: string;
+      text: string;
+      htmlContent?: string;
+      /** Canonical questions. Legacy shapes are converted at the storage boundary. */
+      questions: Question[];
+    };
+    htmlContent?: string;
+  };
 }
 
 export interface AdminListeningMaterial extends BaseAdminMaterial {
   section: 'listening';
   content: MaterialAssetRefs & {
-    section: { sectionNumber: number; title: string; contextDescription: string; audioTranscript?: string; htmlContent?: string; questions: any[] };
+    section: {
+      sectionNumber: number;
+      title: string;
+      contextDescription: string;
+      audioTranscript?: string;
+      htmlContent?: string;
+      /** Canonical questions. Legacy shapes are converted at the storage boundary. */
+      questions: Question[];
+    };
     /** Learner-facing URL, derived from `audioAssetId`. */
     audioUrl?: string;
     /** The stored audio asset. */

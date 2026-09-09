@@ -8,7 +8,9 @@ import sanitizeHtml from 'sanitize-html';
 import {adminStore,PRIVATE_UPLOADS_DIR} from '../services/adminStore';
 import {toPublicMaterialSummary} from '../services/publicMaterialView';
 import {namespaceCdiId} from '../utils/cdiIds';
+import {describeQuestionIssue} from '../schemas/question';
 import {assetStore,extractAssetIds,isAssetId} from '../services/assetStore';
+import {MaterialValidationError} from '../services/adminStore';
 import {validateUpload,EXTENSION_EXPECTATIONS} from '../services/fileTypeSniffer';
 import type {UploadedAssetSummary} from '../types/asset';
 import {authService} from '../services/authService';
@@ -121,7 +123,16 @@ adminRouter.post('/upload',requireAdminAuth,requireAdminRole,upload.single('file
     return res.json({success:true,file:summary,asset:summary});
   }catch(error){console.error('[Upload] failed:',error);return res.status(500).json({error:'File upload failed.'});}
 });
-adminRouter.get('/materials',requireAdminAuth,async(req,res)=>{const status=['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as any:undefined;const s=req.query.section;if(isSection(s))return res.json({items:await adminStore.listMaterials(s,status)});return res.json({items:(await Promise.all((['speaking','reading','listening','writing'] as const).map(x=>adminStore.listMaterials(x,status)))).flat()});});
+adminRouter.get('/materials',requireAdminAuth,async(req,res)=>{
+  const status=['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as 'all'|'published'|'draft':undefined;
+  const requested=req.query.section;
+  const sections=isSection(requested)?[requested]:(['speaking','reading','listening','writing'] as const);
+  const reviewed=(await Promise.all(sections.map(section=>adminStore.reviewMaterials(section,status)))).flat();
+  // `needsReview` is computed, never stored: it lists the questions a stored
+  // material still carries that cannot be made canonical. Nothing is invented
+  // to fill the gap, so these need a human.
+  return res.json({items:reviewed.map(entry=>entry.needsReview.length>0?{...entry.material,needsReview:entry.needsReview.map(describeQuestionIssue)}:entry.material)});
+});
 adminRouter.get('/materials/:section/:id',requireAdminAuth,async(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});const item=await adminStore.getMaterial(req.params.section,req.params.id);return item?res.json({item}):res.status(404).json({error:'Material not found.'});});
 /**
  * Saves a material and settles its assets in one step.
@@ -131,7 +142,7 @@ adminRouter.get('/materials/:section/:id',requireAdminAuth,async(req,res)=>{if(!
  * `reconcile` then releases anything the edit dropped, so replacing an audio
  * file does not leave the old one pinned as active forever.
  */
-async function saveMaterialWithAssets(section:'speaking'|'reading'|'listening'|'writing',body:any,author:string){
+async function saveMaterialWithAssets(section:'speaking'|'reading'|'listening'|'writing',body:unknown,author:string){
   const item=await adminStore.saveMaterial(section,body,author);
   try{
     await assetStore.promote(extractAssetIds(item));
@@ -163,10 +174,24 @@ async function deleteMaterialWithAssets(section:'speaking'|'reading'|'listening'
   return {ok:true as const,released};
 }
 
-adminRouter.post('/materials',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});return res.json({success:true,item:await saveMaterialWithAssets(req.body.section,deepSanitizeHtml(req.body),req.adminUser?.displayName||'Admin')});});
-adminRouter.post('/materials/:section',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({success:true,item:await saveMaterialWithAssets(req.params.section,deepSanitizeHtml(req.body),req.adminUser?.displayName||'Admin')});});
-adminRouter.put('/materials/:id',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});return res.json({success:true,item:await saveMaterialWithAssets(req.body.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin')});});
-adminRouter.put('/materials/:section/:id',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({success:true,item:await saveMaterialWithAssets(req.params.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin')});});
+/**
+ * Saves a material, answering 400 with the specific reason when it is not
+ * canonical. "Save failed" is not an actionable message when the cause is one
+ * question with an answer that is not among its own options.
+ */
+async function respondWithSave(res:Response,section:'speaking'|'reading'|'listening'|'writing',body:unknown,author:string){
+  try{
+    return res.json({success:true,item:await saveMaterialWithAssets(section,body,author)});
+  }catch(error){
+    if(error instanceof MaterialValidationError)return res.status(400).json({error:'Material failed validation.',issues:error.issues});
+    console.error('[Materials] save failed:',error);
+    return res.status(400).json({error:error instanceof Error?error.message:'Unable to save material.'});
+  }
+}
+adminRouter.post('/materials',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});return respondWithSave(res,req.body.section,deepSanitizeHtml(req.body),req.adminUser?.displayName||'Admin');});
+adminRouter.post('/materials/:section',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return respondWithSave(res,req.params.section,deepSanitizeHtml(req.body),req.adminUser?.displayName||'Admin');});
+adminRouter.put('/materials/:id',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.body?.section))return res.status(400).json({error:'Valid section is required.'});return respondWithSave(res,req.body.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin');});
+adminRouter.put('/materials/:section/:id',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return respondWithSave(res,req.params.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin');});
 adminRouter.delete('/materials/:id',requireAdminAuth,requireAdminRole,async(req,res)=>{for(const section of ['speaking','reading','listening','writing'] as const){if(await adminStore.getMaterial(section,req.params.id)){const result=await deleteMaterialWithAssets(section,req.params.id);return result.ok?res.json({success:true,releasedAssets:result.released}):res.status(result.status).json({error:result.error});}}return res.status(404).json({error:'Material not found.'});});
 adminRouter.delete('/materials/:section/:id',requireAdminAuth,requireAdminRole,async(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});const result=await deleteMaterialWithAssets(req.params.section,req.params.id);return result.ok?res.json({success:true,releasedAssets:result.released}):res.status(result.status).json({error:result.error});});
 adminRouter.get('/bundles',requireAdminAuth,async(req,res)=>res.json({bundles:await adminStore.listBundles(['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as any:undefined)}));

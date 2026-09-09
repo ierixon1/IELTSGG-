@@ -181,6 +181,32 @@ export const BANK_ANSWER_TYPES: QuestionType[] = [
   'matching_sentence_endings',
 ];
 
+/**
+ * How a question sits on the page.
+ *
+ * The paper does not print every task as a paragraph followed by a box: a table
+ * completion is a grid of gaps, a note completion is an indented list, a
+ * summary gap sits inside running text. Recording the intended shape is what
+ * lets the renderer stop flattening all of them into one list of text fields.
+ * Absent means `standalone`.
+ */
+export type QuestionLayout =
+  | 'standalone'
+  | 'table_row'
+  | 'note_line'
+  | 'form_row'
+  | 'summary_gap'
+  | 'inline_gap'
+  | 'diagram_label';
+
+/** A stored file a question needs in order to be answerable — a map, a plan. */
+export interface MediaRef {
+  /** An `ast_…` id from the asset store. */
+  assetId: string;
+  kind: 'image' | 'audio';
+  alt?: string;
+}
+
 export interface Question {
   id: string;
   questionNumber: number;
@@ -203,6 +229,15 @@ export interface Question {
    */
   acceptableAnswers?: string[];
   explanation?: string;
+  /** How this question is printed. Absent means `standalone`. */
+  layout?: QuestionLayout;
+  /** An image or audio file this question cannot be answered without. */
+  mediaRef?: MediaRef;
+  /**
+   * Questions sharing a group key are one block on the paper — the rows of a
+   * table, the lines of a note, the items under a single rubric.
+   */
+  group?: string;
 }
 
 export interface ListeningPart {

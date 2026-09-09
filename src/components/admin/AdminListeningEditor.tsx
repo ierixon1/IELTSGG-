@@ -1,19 +1,27 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Headphones, CheckCircle2, Music } from 'lucide-react';
 import { AdminListeningMaterial } from '../../types/admin';
-import { QuestionType } from '../../types';
+import { Question, QuestionType } from '../../types';
 import { FileUploadZone } from './FileUploadZone';
 
-interface ListeningEditorQuestion {
-  id: number;
-  /** Canonical task type — the one vocabulary in src/types.ts. */
-  type: QuestionType;
-  /** Canonical field name — see src/schemas/question.ts. */
-  prompt: string;
-  correctAnswer: string;
-  explanation?: string;
-  options?: string[];
-}
+/**
+ * The editor works on canonical questions directly rather than keeping its own
+ * near-copy — the divergence that let `questionText` and a numeric `id` reach
+ * storage in the first place.
+ */
+type ListeningEditorQuestion = Question;
+
+/** A new row, numbered after the ones already there. */
+const blankQuestion = (type: QuestionType, position: number): Question => ({
+  id: `q${position}-${Math.random().toString(36).slice(2, 8)}`,
+  questionNumber: position,
+  type,
+  prompt: '',
+  // Deliberately empty: an answer key must never be invented, so the save is
+  // refused until the author supplies one.
+  correctAnswer: '',
+  options: type === 'multiple_choice' ? ['A. ', 'B. ', 'C. ', 'D. '] : undefined,
+});
 
 interface AdminListeningEditorProps {
   initialData?: AdminListeningMaterial | null;
@@ -51,18 +59,20 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
   const [questions, setQuestions] = useState<ListeningEditorQuestion[]>(
     initialData?.content.section.questions || [
       {
-        id: 1,
+        id: 'sample-1',
+        questionNumber: 1,
         type: 'form_completion',
         prompt: 'Main security desk operating hours: [ 1 ] AM to 10:00 PM',
         correctAnswer: '7:00',
         explanation: 'The speaker states the front desk opens at 7:00 AM sharp.',
       },
       {
-        id: 2,
+        id: 'sample-2',
+        questionNumber: 2,
         type: 'multiple_choice',
         prompt: 'Where can students securely store registered bicycles?',
-        options: ['Basement compound B', 'Rear courtyard garden', 'Main foyer rack', 'Under the stairwell'],
-        correctAnswer: 'Basement compound B',
+        options: ['A. Basement compound B', 'B. Rear courtyard garden', 'C. Main foyer rack', 'D. Under the stairwell'],
+        correctAnswer: 'A. Basement compound B',
         explanation: 'The officer confirms bicycles must be stored in basement compound B.',
       }
     ]
@@ -72,17 +82,12 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
   const [htmlContent, setHtmlContent] = useState(initialData?.content.htmlContent || '');
   const [saving, setSaving] = useState(false);
 
-  const addQuestion = (type: ListeningEditorQuestion['type']) => {
-    const nextId = questions.length + 1;
-    const newQ: ListeningEditorQuestion = {
-      id: nextId,
-      type,
-      prompt: 'Fill in or answer prompt...',
-      correctAnswer: '',
-      explanation: 'Official Cambridge standard explanation.',
-      options: type === 'multiple_choice' ? ['Option A', 'Option B', 'Option C', 'Option D'] : undefined,
-    };
-    setQuestions([...questions, newQ]);
+  /** Keeps numbering contiguous after an add or a delete. */
+  const renumber = (list: Question[]) =>
+    list.map((question, index) => ({ ...question, questionNumber: index + 1 }));
+
+  const addQuestion = (type: QuestionType) => {
+    setQuestions(renumber([...questions, blankQuestion(type, questions.length + 1)]));
   };
 
   const handleSave = async () => {
@@ -278,7 +283,7 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
                   Q{idx + 1} • <span className="uppercase text-[10px] text-ink-500 font-mono">{q.type.replace(/_/g, ' ')}</span>
                 </span>
                 <button
-                  onClick={() => setQuestions(questions.filter((_, i) => i !== idx))}
+                  onClick={() => setQuestions(renumber(questions.filter((_, i) => i !== idx)))}
                   className="text-ink-400 hover:text-danger-500 p-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

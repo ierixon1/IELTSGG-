@@ -41,13 +41,18 @@ export const MocksHub: React.FC<MocksHubProps> = ({
   initialSelectedSection,
   onWritingGraded,
   onSpeakingGraded,
-  publishedTests = [],
+  publishedTests,
   activeTestId,
   builtInTestId,
   onSelectTest,
-  missingSections = [],
+  missingSections,
 }) => {
   const t = useT();
+  // `@types/react` is not installed, so `React.FC<Props>` provides no
+  // contextual type and a destructuring default infers `never[]`. Defaulting
+  // here keeps the declared element type.
+  const tests: PublishedTestSummary[] = publishedTests ?? [];
+  const gaps: SkillType[] = missingSections ?? [];
   const [activeSection, setActiveSection] = useState<SkillType | null>(
     initialSelectedSection || null,
   );
@@ -118,20 +123,20 @@ export const MocksHub: React.FC<MocksHubProps> = ({
         </div>
       </Card>
 
-      {missingSections.length > 0 && (
+      {gaps.length > 0 && (
         <div className="es-enter flex items-start gap-3 rounded-[var(--radius-card)] border border-warning-500/30 bg-warning-50 p-4 text-sm text-warning-700">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             <span className="font-bold">{t('mocks.incompleteTitle')}</span>{' '}
             {t('mocks.incompleteBody', {
-              sections: missingSections.map((skill) => t(`skills.${skill}`)).join(', '),
+              sections: gaps.map((skill) => t(`skills.${skill}`)).join(', '),
             })}
           </p>
         </div>
       )}
 
       {/* Only worth showing once something has actually been published. */}
-      {publishedTests.length > 0 && onSelectTest && (
+      {tests.length > 0 && onSelectTest && (
         <Card className="es-enter flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-bold text-ink-900">{t('mocks.chooseTest')}</p>
@@ -145,7 +150,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
             className="w-full rounded-[var(--radius-control)] border border-ink-200 bg-white px-3.5 py-2.5 text-sm font-medium text-ink-900 outline-none focus:border-brand-400 sm:w-80"
           >
             {builtInTestId && <option value={builtInTestId}>{t('mocks.builtInTest')}</option>}
-            {publishedTests.map((test) => (
+            {tests.map((test) => (
               <option key={test.id} value={test.id}>
                 {test.title}
               </option>

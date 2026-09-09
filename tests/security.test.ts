@@ -113,7 +113,10 @@ describe('security regressions', () => {
   });
   it('validates persisted CMS payloads before writing them', async () => {
     const store = await read('src/services/adminStore.ts');
-    expect(store).toContain('validateMaterial(section,materialData)');
+    // Materials are now validated against the canonical Zod schema on the
+    // merged record, not by a hand-rolled check of four scalar fields.
+    expect(store).toContain('parseMaterialForWrite(section,candidate)');
+    expect(store).toContain('MaterialValidationError');
     expect(store).toContain('validateBundle(bundleData)');
     expect(store).toContain('maxBytes=2_000_000');
   });

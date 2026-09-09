@@ -113,7 +113,7 @@ export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
                     {material.content.passage.questions.map((q, i) => (
                       <div key={i} className="p-3 bg-ink-50 rounded-lg border border-ink-200 text-xs space-y-1.5">
                         <div className="font-semibold text-ink-900">
-                          {i + 1}. {q.prompt ?? q.questionText}
+                          {q.questionNumber}. {q.prompt}
                         </div>
                         {q.options && (
                           <div className="grid grid-cols-2 gap-1 text-[11px] text-ink-600 pl-4">
@@ -155,7 +155,7 @@ export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
                     </span>
                     {material.content.section.questions.map((q, i) => (
                       <div key={i} className="p-3 bg-white rounded-lg border border-ink-200 text-xs space-y-1">
-                        <div className="font-semibold text-ink-900">{i + 1}. {q.prompt ?? q.questionText}</div>
+                        <div className="font-semibold text-ink-900">{q.questionNumber}. {q.prompt}</div>
                         <div className="text-[11px] text-success-700 font-bold">Answer: {q.correctAnswer}</div>
                       </div>
                     ))}

@@ -1,28 +1,72 @@
-import { QuestionType, Question } from '../types';
+import { z } from 'zod';
+import { BANK_ANSWER_TYPES, MediaRef, Question, QuestionLayout, QuestionType } from '../types';
 
 /**
- * The single canonical representation of an authored question.
+ * The one definition of what a question is.
  *
- * Questions reach the learner from three different authors — the admin
- * editors, the Gemini generators, and (later) the CDI HTML importer — and each
- * of them used to invent its own field names. `questionText` vs `prompt` and
- * `instructions` vs `instruction` were not cosmetic: the learner adapter read
- * the canonical name, found nothing, and rendered an empty question while the
- * admin preview (reading the editor's own name) looked perfectly correct.
+ * Questions reach the learner from three authors — the admin editors, the
+ * Gemini generators, and (next) the CDI HTML importer — and each of them used
+ * to invent its own field names and its own spellings for the same task type.
+ * `questionText` vs `prompt` was not cosmetic: the learner adapter read the
+ * canonical name, found nothing, and rendered an empty question while the admin
+ * preview looked perfectly correct.
  *
- * Everything that produces questions now normalises through this module, and
- * the canonical names are the ones declared on `Question` in `src/types.ts`.
- * Legacy aliases are still accepted on read so material saved by older builds
- * keeps working, but nothing new should write them.
+ * Two layers live here, and the distinction matters:
+ *
+ *   - `QuestionSchema` is the *canonical* shape. It is strict, it is what gets
+ *     stored, and it is the only thing the rest of the app works with.
+ *   - `normalizeAuthoredQuestions` is the *boundary*. It reads legacy field
+ *     names and legacy type spellings, converts them, and then runs the strict
+ *     schema. Anything it cannot convert is reported as an issue — never
+ *     guessed at, never coerced into a gap fill, never dropped silently.
+ *
+ * Legacy handling lives at that boundary and nowhere else. Past it, a question
+ * is a `Question`.
  */
 
-/** Canonical field names. Anything else here is a legacy alias. */
-const PROMPT_KEYS = ['prompt', 'questionText', 'question', 'text'] as const;
-const INSTRUCTION_KEYS = ['instruction', 'instructions'] as const;
-const ANSWER_KEYS = ['correctAnswer', 'answer'] as const;
-const ACCEPTABLE_KEYS = ['acceptableAnswers', 'alternativeAnswers', 'acceptedAnswers'] as const;
-const WORD_LIMIT_KEYS = ['wordLimit', 'wordLimitText'] as const;
-const NUMBER_KEYS = ['questionNumber', 'number'] as const;
+/* -------------------------------------------------------------------------- */
+/* Canonical vocabulary                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every task type the engine renders. This array is the single source of the
+ * vocabulary — the taxonomy, the generators and the editors all resolve onto
+ * it rather than declaring their own list.
+ */
+export const CANONICAL_QUESTION_TYPES = [
+  'multiple_choice',
+  'multi_select',
+  'fill_in_blank',
+  'sentence_completion',
+  'summary_completion',
+  'note_completion',
+  'table_completion',
+  'form_completion',
+  'short_answer',
+  'true_false_not_given',
+  'yes_no_not_given',
+  'matching',
+  'matching_headings',
+  'matching_information',
+  'matching_features',
+  'matching_sentence_endings',
+  'diagram_label',
+  'map_label',
+] as const satisfies readonly QuestionType[];
+
+export const QuestionTypeSchema = z.enum(CANONICAL_QUESTION_TYPES);
+
+export const QUESTION_LAYOUTS = [
+  'standalone',
+  'table_row',
+  'note_line',
+  'form_row',
+  'summary_gap',
+  'inline_gap',
+  'diagram_label',
+] as const satisfies readonly QuestionLayout[];
+
+export const QuestionLayoutSchema = z.enum(QUESTION_LAYOUTS);
 
 /**
  * Every spelling of a task type that has ever been written into this codebase,
@@ -30,10 +74,9 @@ const NUMBER_KEYS = ['questionNumber', 'number'] as const;
  *
  * The four-way split between `diagram_label_completion` (taxonomy and the
  * reading generator), `diagram_label` (the engine), `map_diagram_labelling`
- * (taxonomy) and `map_label` (the engine) is the reason this table exists: the
- * adapter used to coerce anything it did not recognise to `fill_in_blank`,
- * which turned a map-labelling task into a bare text box without reporting
- * anything.
+ * (taxonomy) and `map_label` (the engine) is why this table exists: the adapter
+ * used to coerce anything it did not recognise to `fill_in_blank`, turning a
+ * map-labelling task into a bare text box with no sign anything was wrong.
  */
 export const QUESTION_TYPE_ALIASES: Record<string, QuestionType> = {
   // gap fills
@@ -69,35 +112,16 @@ export const QUESTION_TYPE_ALIASES: Record<string, QuestionType> = {
   note_taking: 'note_completion',
 };
 
-const CANONICAL_TYPES: readonly QuestionType[] = [
-  'multiple_choice',
-  'multi_select',
-  'fill_in_blank',
-  'sentence_completion',
-  'summary_completion',
-  'note_completion',
-  'table_completion',
-  'form_completion',
-  'short_answer',
-  'true_false_not_given',
-  'yes_no_not_given',
-  'matching',
-  'matching_headings',
-  'matching_information',
-  'matching_features',
-  'matching_sentence_endings',
-  'diagram_label',
-  'map_label',
-];
-
 export function isCanonicalQuestionType(value: unknown): value is QuestionType {
-  return typeof value === 'string' && CANONICAL_TYPES.includes(value as QuestionType);
+  return (
+    typeof value === 'string' &&
+    (CANONICAL_QUESTION_TYPES as readonly string[]).includes(value)
+  );
 }
 
 /**
  * Resolves any written task type onto the canonical one, or `null` when it is
- * genuinely unrecognised. `null` is never silently replaced with a gap fill —
- * see `normalizeAuthoredQuestions`.
+ * genuinely unrecognised. `null` is never silently replaced with a gap fill.
  */
 export function canonicalQuestionType(value: unknown): QuestionType | null {
   if (typeof value !== 'string') return null;
@@ -106,12 +130,218 @@ export function canonicalQuestionType(value: unknown): QuestionType | null {
   return QUESTION_TYPE_ALIASES[key] ?? null;
 }
 
-/** Why one authored entry could not become a question. */
+/** The only answers these two task types may carry, as the paper prints them. */
+export const TRUE_FALSE_ANSWERS = ['TRUE', 'FALSE', 'NOT GIVEN'] as const;
+export const YES_NO_ANSWERS = ['YES', 'NO', 'NOT GIVEN'] as const;
+
+export function legalStatementAnswers(type: QuestionType): readonly string[] | null {
+  if (type === 'true_false_not_given') return TRUE_FALSE_ANSWERS;
+  if (type === 'yes_no_not_given') return YES_NO_ANSWERS;
+  return null;
+}
+
+/** Types that cannot be answered without a set of choices to answer from. */
+const TYPES_REQUIRING_OPTIONS: readonly QuestionType[] = [
+  'multiple_choice',
+  'multi_select',
+  ...BANK_ANSWER_TYPES,
+];
+
+/**
+ * The label an option is answered by: `A` from `"A. to give an example"`, `ii`
+ * from `"ii. An old explanation"`.
+ *
+ * Authored material answers both ways — the built-in test has multiple choices
+ * keyed by the bare letter and others keyed by the full option text — so a
+ * check that only accepted one of them would reject valid content.
+ */
+export function optionLabel(option: string): string {
+  const match = /^\s*([A-Za-z]{1,4}|\d{1,3})\s*[.)\]:-]\s+/.exec(option);
+  return match ? match[1] : '';
+}
+
+const normalise = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** True when `answer` names one of `options`, by full text or by label. */
+export function answerMatchesOptions(answer: string, options: readonly string[]): boolean {
+  const target = normalise(answer);
+  if (!target) return false;
+  return options.some(
+    (option) => normalise(option) === target || normalise(optionLabel(option)) === target,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* The canonical schema                                                        */
+/* -------------------------------------------------------------------------- */
+
+const NonEmptyString = z.string().trim().min(1);
+
+export const MediaRefSchema = z.object({
+  assetId: z.string().regex(/^ast_[A-Za-z0-9_-]{10,32}$/, 'Not an asset id.'),
+  kind: z.enum(['image', 'audio']),
+  alt: z.string().max(500).optional(),
+});
+
+const AnswerSchema = z.union([NonEmptyString.max(500), z.array(NonEmptyString.max(500)).min(1)]);
+
+/**
+ * A canonical question, with the cross-field rules that make it answerable and
+ * markable. Unknown keys are dropped rather than stored: the generators emit
+ * `paragraphLocation` and `targetSkill`, which nothing renders.
+ */
+export const QuestionSchema = z
+  .object({
+    id: NonEmptyString.max(128),
+    questionNumber: z.number().int().min(1).max(200),
+    type: QuestionTypeSchema,
+    instruction: z.string().trim().min(1).max(4000).optional(),
+    prompt: NonEmptyString.max(4000),
+    options: z.array(NonEmptyString.max(1000)).max(30).optional(),
+    wordLimit: z.string().trim().min(1).max(200).optional(),
+    correctAnswer: AnswerSchema,
+    acceptableAnswers: z.array(NonEmptyString.max(500)).max(30).optional(),
+    explanation: z.string().trim().min(1).max(8000).optional(),
+    layout: QuestionLayoutSchema.optional(),
+    mediaRef: MediaRefSchema.optional(),
+    group: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[A-Za-z0-9_.:-]+$/, 'Group keys are identifiers, not prose.')
+      .optional(),
+  })
+  .superRefine((question, ctx) => {
+    const answers = Array.isArray(question.correctAnswer)
+      ? question.correctAnswer
+      : [question.correctAnswer];
+
+    // A choice with nothing to choose from cannot be answered.
+    if (TYPES_REQUIRING_OPTIONS.includes(question.type)) {
+      if (!question.options || question.options.length < 2) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['options'],
+          message: `${question.type} needs at least two options.`,
+        });
+      } else {
+        for (const answer of answers) {
+          if (!answerMatchesOptions(answer, question.options)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['correctAnswer'],
+              message: `Answer "${answer}" is not one of the options.`,
+            });
+          }
+        }
+      }
+    }
+
+    // A single choice has exactly one answer; a multi-select needs more than
+    // one, or it is a single choice wearing the wrong type.
+    if (question.type === 'multiple_choice' && answers.length !== 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['correctAnswer'],
+        message: 'multiple_choice takes exactly one answer; use multi_select for more.',
+      });
+    }
+    if (question.type === 'multi_select' && answers.length < 2) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['correctAnswer'],
+        message: 'multi_select needs at least two answers.',
+      });
+    }
+
+    // TRUE/FALSE/NOT GIVEN and YES/NO/NOT GIVEN have three legal answers each.
+    const legal = legalStatementAnswers(question.type);
+    if (legal) {
+      for (const answer of answers) {
+        if (!(legal as readonly string[]).includes(answer)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['correctAnswer'],
+            message: `${question.type} allows only ${legal.join(', ')} — got "${answer}".`,
+          });
+        }
+      }
+      if (question.options) {
+        for (const option of question.options) {
+          if (!(legal as readonly string[]).includes(option)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['options'],
+              message: `${question.type} options must be ${legal.join(', ')}.`,
+            });
+          }
+        }
+      }
+    }
+
+    // A labelling task without its diagram is unanswerable. Warned about, not
+    // rejected: the media may be attached in a later edit.
+    if (
+      (question.type === 'map_label' || question.type === 'diagram_label') &&
+      question.mediaRef &&
+      question.mediaRef.kind !== 'image'
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['mediaRef'],
+        message: 'A labelling task references an image, not audio.',
+      });
+    }
+
+    // An acceptable spelling that repeats the key is noise, not a variant.
+    if (question.acceptableAnswers) {
+      for (const variant of question.acceptableAnswers) {
+        if (answers.some((answer) => normalise(answer) === normalise(variant))) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['acceptableAnswers'],
+            message: `"${variant}" already appears in correctAnswer.`,
+          });
+        }
+      }
+    }
+  });
+
+export const QuestionArraySchema = z.array(QuestionSchema);
+
+/**
+ * Compile-time proof that the schema and the hand-written `Question` interface
+ * cannot drift apart. `src/types.ts` stays free of Zod so the browser bundle
+ * does not have to carry it, which is exactly the arrangement that lets two
+ * definitions of the same thing diverge — unless something checks.
+ */
+type SchemaQuestion = z.infer<typeof QuestionSchema>;
+const _schemaSatisfiesInterface: (q: SchemaQuestion) => Question = (q) => q;
+const _interfaceSatisfiesSchema: (q: Question) => SchemaQuestion = (q) => q;
+const _mediaRefMatches: (m: z.infer<typeof MediaRefSchema>) => MediaRef = (m) => m;
+void _schemaSatisfiesInterface;
+void _interfaceSatisfiesSchema;
+void _mediaRefMatches;
+
+/* -------------------------------------------------------------------------- */
+/* The legacy boundary                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Canonical field names first; everything after is a legacy alias. */
+const PROMPT_KEYS = ['prompt', 'questionText', 'question', 'text'] as const;
+const INSTRUCTION_KEYS = ['instruction', 'instructions'] as const;
+const ANSWER_KEYS = ['correctAnswer', 'answer'] as const;
+const ACCEPTABLE_KEYS = ['acceptableAnswers', 'alternativeAnswers', 'acceptedAnswers'] as const;
+const WORD_LIMIT_KEYS = ['wordLimit', 'wordLimitText'] as const;
+const NUMBER_KEYS = ['questionNumber', 'number'] as const;
+
 export type QuestionIssueReason =
   | 'not_an_object'
   | 'missing_prompt'
   | 'missing_answer'
-  | 'unknown_type';
+  | 'unknown_type'
+  | 'invalid';
 
 export interface QuestionIssue {
   /** Position in the authored array, so the admin can find it. */
@@ -121,6 +351,8 @@ export interface QuestionIssue {
   rawType?: string;
   /** The prompt as written, to identify the question in a report. */
   promptPreview?: string;
+  /** Field-level detail from the schema, for `invalid`. */
+  details?: string[];
 }
 
 export interface NormalizedQuestions {
@@ -148,8 +380,11 @@ function readAnswer(item: Record<string, unknown>): string | string[] | undefine
   return undefined;
 }
 
-function readAcceptable(item: Record<string, unknown>): string[] | undefined {
-  for (const key of ACCEPTABLE_KEYS) {
+function readStringArray(
+  item: Record<string, unknown>,
+  keys: readonly string[],
+): string[] | undefined {
+  for (const key of keys) {
     const value = item[key];
     if (Array.isArray(value)) {
       const entries = value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
@@ -160,13 +395,109 @@ function readAcceptable(item: Record<string, unknown>): string[] | undefined {
 }
 
 /**
- * Turns loosely authored JSON into canonical `Question`s, reporting every
- * entry it could not convert.
+ * Canonicalises the case of a TRUE/FALSE/NOT GIVEN answer.
+ *
+ * This is the one place a value is rewritten rather than reported, and it is
+ * deliberate: `true` and `TRUE` are the same answer written two ways, so
+ * matching them is reading the data, not inventing it. Anything outside the
+ * three legal values is left exactly as written, so the schema rejects it.
+ */
+function canonicalStatementAnswer(value: string, legal: readonly string[]): string {
+  const target = normalise(value);
+  return legal.find((legalValue) => normalise(legalValue) === target) ?? value;
+}
+
+/**
+ * Turns one loosely authored entry into a canonical question.
  *
  * Nothing is guessed. An unrecognised task type is an issue, not a gap fill; a
  * question with no answer key is an issue, not an unmarkable question shipped
- * to a learner. Callers decide what to do with `issues` — the learner path
- * excludes them, the import review screen shows them for correction.
+ * to a learner; a question that fails a cross-field rule is an issue carrying
+ * the reason.
+ */
+export function normalizeAuthoredQuestion(
+  entry: unknown,
+  fallbackId: string,
+  fallbackNumber: number,
+  index = 0,
+): { ok: true; question: Question } | { ok: false; issue: QuestionIssue } {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    return { ok: false, issue: { index, reason: 'not_an_object' } };
+  }
+
+  const item = entry as Record<string, unknown>;
+  const prompt = firstString(item, PROMPT_KEYS);
+  const promptPreview = prompt?.slice(0, 120);
+
+  if (!prompt) return { ok: false, issue: { index, reason: 'missing_prompt' } };
+
+  const type = canonicalQuestionType(item.type);
+  if (!type) {
+    return {
+      ok: false,
+      issue: {
+        index,
+        reason: 'unknown_type',
+        rawType: typeof item.type === 'string' ? item.type : undefined,
+        promptPreview,
+      },
+    };
+  }
+
+  const rawAnswer = readAnswer(item);
+  if (rawAnswer === undefined) {
+    return { ok: false, issue: { index, reason: 'missing_answer', promptPreview } };
+  }
+
+  const legal = legalStatementAnswers(type);
+  const correctAnswer = legal
+    ? Array.isArray(rawAnswer)
+      ? rawAnswer.map((a) => canonicalStatementAnswer(a, legal))
+      : canonicalStatementAnswer(rawAnswer, legal)
+    : rawAnswer;
+
+  const rawNumber = NUMBER_KEYS.map((key) => item[key]).find((v) => typeof v === 'number');
+
+  const candidate = {
+    // A numeric editor id is a row counter, not a question id, so it is
+    // replaced rather than coerced into a string that looks meaningful.
+    id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : fallbackId,
+    questionNumber: typeof rawNumber === 'number' ? rawNumber : fallbackNumber,
+    type,
+    instruction: firstString(item, INSTRUCTION_KEYS),
+    prompt,
+    options: readStringArray(item, ['options']),
+    wordLimit: firstString(item, WORD_LIMIT_KEYS),
+    correctAnswer,
+    acceptableAnswers: readStringArray(item, ACCEPTABLE_KEYS),
+    explanation: firstString(item, ['explanation']),
+    layout: item.layout,
+    mediaRef: item.mediaRef,
+    group: firstString(item, ['group', 'groupId']),
+  };
+
+  const parsed = QuestionSchema.safeParse(candidate);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      issue: {
+        index,
+        reason: 'invalid',
+        promptPreview,
+        details: parsed.error.issues.map(
+          (issue) => `${issue.path.join('.') || 'question'}: ${issue.message}`,
+        ),
+      },
+    };
+  }
+
+  return { ok: true, question: parsed.data };
+}
+
+/**
+ * Normalises a whole authored array, reporting every entry it could not
+ * convert. Callers decide what to do with `issues`: the learner path excludes
+ * them, the admin path refuses the save, the import review shows them.
  */
 export function normalizeAuthoredQuestions(raw: unknown, idPrefix: string): NormalizedQuestions {
   if (!Array.isArray(raw)) return { questions: [], issues: [] };
@@ -175,55 +506,9 @@ export function normalizeAuthoredQuestions(raw: unknown, idPrefix: string): Norm
   const issues: QuestionIssue[] = [];
 
   raw.forEach((entry, index) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      issues.push({ index, reason: 'not_an_object' });
-      return;
-    }
-
-    const item = entry as Record<string, unknown>;
-    const prompt = firstString(item, PROMPT_KEYS);
-    const promptPreview = prompt?.slice(0, 120);
-
-    if (!prompt) {
-      issues.push({ index, reason: 'missing_prompt' });
-      return;
-    }
-
-    const type = canonicalQuestionType(item.type);
-    if (!type) {
-      issues.push({
-        index,
-        reason: 'unknown_type',
-        rawType: typeof item.type === 'string' ? item.type : undefined,
-        promptPreview,
-      });
-      return;
-    }
-
-    const correctAnswer = readAnswer(item);
-    if (correctAnswer === undefined) {
-      issues.push({ index, reason: 'missing_answer', promptPreview });
-      return;
-    }
-
-    const options = Array.isArray(item.options)
-      ? item.options.filter((o): o is string => typeof o === 'string')
-      : undefined;
-
-    const rawNumber = NUMBER_KEYS.map((key) => item[key]).find((v) => typeof v === 'number');
-
-    questions.push({
-      id: typeof item.id === 'string' && item.id ? item.id : `${idPrefix}-q${index + 1}`,
-      questionNumber: typeof rawNumber === 'number' ? rawNumber : index + 1,
-      type,
-      instruction: firstString(item, INSTRUCTION_KEYS),
-      prompt,
-      options: options && options.length > 0 ? options : undefined,
-      wordLimit: firstString(item, WORD_LIMIT_KEYS),
-      correctAnswer,
-      acceptableAnswers: readAcceptable(item),
-      explanation: typeof item.explanation === 'string' ? item.explanation : undefined,
-    });
+    const result = normalizeAuthoredQuestion(entry, `${idPrefix}-q${index + 1}`, index + 1, index);
+    if (result.ok) questions.push(result.question);
+    else issues.push(result.issue);
   });
 
   return { questions, issues };
@@ -241,5 +526,7 @@ export function describeQuestionIssue(issue: QuestionIssue): string {
       return `${at}: has no answer key, so it cannot be marked.`;
     case 'unknown_type':
       return `${at}: unrecognised task type${issue.rawType ? ` "${issue.rawType}"` : ''}.`;
+    case 'invalid':
+      return `${at}: ${issue.details?.join('; ') || 'failed validation.'}`;
   }
 }

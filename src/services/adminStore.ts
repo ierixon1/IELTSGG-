@@ -3,7 +3,9 @@ import path from 'path';
 import { nanoid } from 'nanoid';
 import { getFirestoreDb } from './firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { AdminSpeakingMaterial, AdminReadingMaterial, AdminListeningMaterial, AdminWritingMaterial, FullCdiBundle, AdminStats } from '../types/admin';
+import { AdminSpeakingMaterial, AdminReadingMaterial, AdminListeningMaterial, AdminWritingMaterial, AdminMaterial, FullCdiBundle, AdminStats } from '../types/admin';
+import { parseMaterialForWrite, migrateStoredMaterial } from '../schemas/material';
+import type { QuestionIssue } from '../schemas/question';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'admin_content');
 const PRIVATE_UPLOADS_DIR = path.join(process.cwd(), 'data', 'private_uploads');
@@ -17,8 +19,25 @@ if (!useFirestore()) {
 
 type SectionType = 'speaking' | 'reading' | 'listening' | 'writing';
 const assertId = (v:string) => { if (!/^[A-Za-z0-9_.-]{1,160}$/.test(v)) throw new Error('Invalid identifier.'); };
+
+/**
+ * A material that could not be made canonical. Carries the per-field reasons so
+ * the route can tell the admin which question is wrong rather than "save
+ * failed".
+ */
+export class MaterialValidationError extends Error {
+  constructor(public readonly issues: string[]) {
+    super(`Material failed validation: ${issues.join(' | ')}`);
+    this.name = 'MaterialValidationError';
+  }
+}
 const assertObject = (value:unknown,name:string,maxBytes=2_000_000) => { if(!value || typeof value!=='object' || Array.isArray(value)) throw new Error(`Invalid ${name}.`); const bytes=Buffer.byteLength(JSON.stringify(value),'utf8'); if(bytes>maxBytes) throw new Error(`${name} is too large.`); };
-const validateMaterial=(section:SectionType,value:any)=>{assertObject(value,'material');if(value.id!=null)assertId(String(value.id));if(value.section!=null&&value.section!==section)throw new Error('Material section mismatch.');if(value.status!=null&&!['published','draft'].includes(String(value.status)))throw new Error('Invalid material status.');if(value.module!=null&&!['academic','general'].includes(String(value.module)))throw new Error('Invalid material module.');if(value.targetBand!=null&&String(value.targetBand).length>32)throw new Error('Invalid target band.');};
+/**
+ * Shape checks that must hold before the schema even runs: the row has to be an
+ * object, small enough to store, and it must not claim a different section than
+ * the one it is being written to.
+ */
+const assertMaterialEnvelope=(section:SectionType,value:unknown)=>{assertObject(value,'material');const v=value as Record<string,unknown>;if(v.id!=null)assertId(String(v.id));if(v.section!=null&&v.section!==section)throw new Error('Material section mismatch.');};
 const validateBundle=(value:any)=>{assertObject(value,'bundle');if(value.id!=null)assertId(String(value.id));if(value.module!=null&&!['academic','general'].includes(String(value.module)))throw new Error('Invalid bundle module.');if(value.status!=null&&!['published','draft'].includes(String(value.status)))throw new Error('Invalid bundle status.');if(value.title!=null&&String(value.title).length>500)throw new Error('Bundle title is too long.');if(value.description!=null&&String(value.description).length>5000)throw new Error('Bundle description is too long.');};
 
 class AdminStore {
@@ -26,15 +45,110 @@ class AdminStore {
   private readCollection<T>(collection:string):T[]{const filePath=this.getFilePath(collection);try{if(!fs.existsSync(filePath)){fs.writeFileSync(filePath,'[]','utf-8');return [];}const value=JSON.parse(fs.readFileSync(filePath,'utf-8'));return Array.isArray(value)?value as T[]:[];}catch{return [];}}
   private writeCollection<T>(collection:string,items:T[]):void{const filePath=this.getFilePath(collection),tmp=`${filePath}.tmp.${process.pid}.${Date.now()}.${nanoid(4)}`;fs.writeFileSync(tmp,JSON.stringify(items,null,2),'utf-8');fs.renameSync(tmp,filePath);}
   private async firestoreList<T>(section:string,statusFilter?:'all'|'published'|'draft'):Promise<T[]>{let q:any=getFirestoreDb().collection('admin_content').doc(section).collection('items');if(statusFilter&&statusFilter!=='all')q=q.where('status','==',statusFilter);const s=await q.get();return s.docs.map((d:any)=>d.data() as T);}
-  public async listMaterials(section:SectionType,statusFilter?:'all'|'published'|'draft'):Promise<any[]>{return useFirestore()?this.firestoreList<any>(section,statusFilter):this.readCollection<any>(section).filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);}
-  public async getMaterial(section:SectionType,id:string):Promise<any|null>{assertId(id);if(useFirestore()){const s=await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).get();return s.exists?s.data()||null:null;}return this.readCollection<any>(section).find(item=>item.id===id)||null;}
-  public async saveMaterial(section:SectionType,materialData:any,author='Admin'):Promise<any>{assertId(section);validateMaterial(section,materialData);const now=new Date().toISOString();if(useFirestore()){const db=getFirestoreDb(),id=materialData.id?String(materialData.id):`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`;assertId(id);const ref=db.collection('admin_content').doc(section).collection('items').doc(id),existing=await ref.get();const item=existing.exists?{...(existing.data()||{}),...materialData,id,section,updatedAt:now}:{...materialData,id,section,status:materialData.status||'published',author:materialData.author||author,createdAt:now,updatedAt:now};await ref.set(item,{merge:true});return item;}const items=this.readCollection<any>(section);if(materialData.id){const index=items.findIndex(x=>x.id===materialData.id);if(index>=0){const updated={...items[index],...materialData,updatedAt:now};items[index]=updated;this.writeCollection(section,items);return updated;}}const item={...materialData,id:materialData.id||`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`,section,status:materialData.status||'published',author:materialData.author||author,createdAt:now,updatedAt:now};items.unshift(item);this.writeCollection(section,items);return item;}
+  /**
+   * Published or draft materials in one section, with any legacy question
+   * shapes migrated to canonical on the way out.
+   *
+   * Migration is read-only: the row on disk is untouched, so a question that
+   * cannot be converted is reported by `reviewMaterials` rather than lost.
+   */
+  public async listMaterials(section:SectionType,statusFilter?:'all'|'published'|'draft'):Promise<AdminMaterial[]>{
+    const rows=useFirestore()
+      ?await this.firestoreList<Record<string,unknown>>(section,statusFilter)
+      :this.readCollection<Record<string,unknown>>(section).filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);
+    return rows.map(row=>migrateStoredMaterial(row).material as AdminMaterial);
+  }
+
+  /**
+   * The same list, plus the questions in each material that could not be made
+   * canonical. Nothing is invented to fill a gap: a material with entries here
+   * needs a human before it is fit to sit.
+   */
+  public async reviewMaterials(section:SectionType,statusFilter?:'all'|'published'|'draft'):Promise<Array<{material:AdminMaterial;needsReview:QuestionIssue[]}>>{
+    const rows=useFirestore()
+      ?await this.firestoreList<Record<string,unknown>>(section,statusFilter)
+      :this.readCollection<Record<string,unknown>>(section).filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);
+    return rows.map(row=>{const r=migrateStoredMaterial(row);return{material:r.material as AdminMaterial,needsReview:r.needsReview};});
+  }
+  public async getMaterial(section:SectionType,id:string):Promise<AdminMaterial|null>{
+    assertId(id);
+    let row:unknown=null;
+    if(useFirestore()){
+      const snap=await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).get();
+      row=snap.exists?snap.data()||null:null;
+    }else{
+      row=this.readCollection<Record<string,unknown>>(section).find(item=>item.id===id)||null;
+    }
+    return row?(migrateStoredMaterial(row).material as AdminMaterial):null;
+  }
+  /**
+   * Writes a material, refusing anything that is not canonical.
+   *
+   * Validation runs on the *merged* record rather than on the incoming patch:
+   * an update carrying half a material would otherwise pass its own check and
+   * still leave an unusable row on disk. `parseMaterialForWrite` also converts
+   * legacy question shapes, so this is the single point at which authored data
+   * becomes canonical.
+   */
+  public async saveMaterial(section:SectionType,materialData:unknown,author='Admin'):Promise<AdminMaterial>{
+    assertId(section);
+    assertMaterialEnvelope(section,materialData);
+    const incoming=materialData as Record<string,unknown>;
+    const now=new Date().toISOString();
+
+    if(useFirestore()){
+      const db=getFirestoreDb();
+      const id=incoming.id?String(incoming.id):`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`;
+      assertId(id);
+      const ref=db.collection('admin_content').doc(section).collection('items').doc(id);
+      const existing=await ref.get();
+      const previous=(existing.exists?existing.data():undefined)as Record<string,unknown>|undefined;
+      const item=this.finalise(section,previous,incoming,id,author,now);
+      await ref.set(item,{merge:true});
+      return item;
+    }
+
+    const items=this.readCollection<Record<string,unknown>>(section);
+    const index=incoming.id?items.findIndex(x=>x.id===incoming.id):-1;
+    const previous=index>=0?items[index]:undefined;
+    const id=String(incoming.id||`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`);
+    assertId(id);
+    const item=this.finalise(section,previous,incoming,id,author,now);
+    if(index>=0)items[index]=item as unknown as Record<string,unknown>;
+    else items.unshift(item as unknown as Record<string,unknown>);
+    this.writeCollection(section,items);
+    return item;
+  }
+
+  /**
+   * Merges an update over what is stored, validates the result, and stamps the
+   * bookkeeping fields.
+   *
+   * `status` keeps the historical default of `published` when the caller does
+   * not say; phase 8 is where that becomes `draft` behind an explicit publish
+   * action.
+   */
+  private finalise(section:SectionType,previous:Record<string,unknown>|undefined,incoming:Record<string,unknown>,id:string,author:string,now:string):AdminMaterial{
+    const candidate={
+      ...(previous||{}),
+      ...incoming,
+      id,
+      section,
+      status:incoming.status??previous?.status??'published',
+      author:incoming.author??previous?.author??author,
+      createdAt:previous?.createdAt??now,
+      updatedAt:now,
+    };
+    const parsed=parseMaterialForWrite(section,candidate);
+    if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
+    return parsed.material as unknown as AdminMaterial;
+  }
   public async deleteMaterial(section:SectionType,id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id),snap=await ref.get();if(!snap.exists)return false;await ref.delete();return true;}const items=this.readCollection<any>(section),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection(section,filtered);return true;}
   public async listBundles(statusFilter?:'all'|'published'|'draft'):Promise<FullCdiBundle[]>{return useFirestore()?this.firestoreList<FullCdiBundle>('bundles',statusFilter):this.readCollection<FullCdiBundle>('bundles').filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);}
   public async getBundle(id:string):Promise<FullCdiBundle|null>{assertId(id);if(useFirestore()){const s=await getFirestoreDb().collection('admin_content').doc('bundles').collection('items').doc(id).get();return s.exists?s.data() as FullCdiBundle:null;}return this.readCollection<FullCdiBundle>('bundles').find(x=>x.id===id)||null;}
   public async saveBundle(bundleData:Partial<FullCdiBundle>):Promise<FullCdiBundle>{validateBundle(bundleData);const now=new Date().toISOString();if(useFirestore()){const db=getFirestoreDb(),id=String(bundleData.id||`cdi-bundle-${Date.now()}-${nanoid(5)}`);assertId(id);const ref=db.collection('admin_content').doc('bundles').collection('items').doc(id),existing=await ref.get();const item=(existing.exists?{...(existing.data()||{}),...bundleData,id,updatedAt:now}:{id,title:bundleData.title||'Untitled IELTS Full CDI Test',module:bundleData.module||'academic',targetBand:bundleData.targetBand||'7.0-7.5',status:bundleData.status||'draft',description:bundleData.description||'',createdAt:now,updatedAt:now,timings:bundleData.timings||{listeningMinutes:30,readingMinutes:60,writingMinutes:60,speakingMinutes:15},materials:bundleData.materials||{}}) as FullCdiBundle;await ref.set(item,{merge:true});return item;}const items=this.readCollection<FullCdiBundle>('bundles');if(bundleData.id){const index=items.findIndex(b=>b.id===bundleData.id);if(index>=0){const updated={...items[index],...bundleData,updatedAt:now} as FullCdiBundle;items[index]=updated;this.writeCollection('bundles',items);return updated;}}const item={id:bundleData.id||`cdi-bundle-${Date.now()}-${nanoid(5)}`,title:bundleData.title||'Untitled IELTS Full CDI Test',module:bundleData.module||'academic',targetBand:bundleData.targetBand||'7.0-7.5',status:bundleData.status||'draft',description:bundleData.description||'',createdAt:now,updatedAt:now,timings:bundleData.timings||{listeningMinutes:30,readingMinutes:60,writingMinutes:60,speakingMinutes:15},materials:bundleData.materials||{}} as FullCdiBundle;items.unshift(item);this.writeCollection('bundles',items);return item;}
   public async deleteBundle(id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc('bundles').collection('items').doc(id),s=await ref.get();if(!s.exists)return false;await ref.delete();return true;}const items=this.readCollection<FullCdiBundle>('bundles'),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection('bundles',filtered);return true;}
-  public async getResolvedBundle(id:string){const bundle=await this.getBundle(id);if(!bundle)return null;const ids=bundle.materials||{};const [listening,reading,writing,speaking]=await Promise.all([ids.listeningId?this.getMaterial('listening',ids.listeningId):Promise.resolve(null),ids.readingId?this.getMaterial('reading',ids.readingId):Promise.resolve(null),ids.writingId?this.getMaterial('writing',ids.writingId):Promise.resolve(null),ids.speakingId?this.getMaterial('speaking',ids.speakingId):Promise.resolve(null)]);const resolvedMaterials={listening,reading,writing,speaking};if(bundle.status==='published'){for(const key of Object.keys(resolvedMaterials) as (keyof typeof resolvedMaterials)[]){const material=resolvedMaterials[key] as any;if(material&&material.status!=='published')resolvedMaterials[key]=null;}}return{bundle,resolvedMaterials};}
+  public async getResolvedBundle(id:string){const bundle=await this.getBundle(id);if(!bundle)return null;const ids=bundle.materials||{};const [listening,reading,writing,speaking]=await Promise.all([ids.listeningId?this.getMaterial('listening',ids.listeningId):Promise.resolve(null),ids.readingId?this.getMaterial('reading',ids.readingId):Promise.resolve(null),ids.writingId?this.getMaterial('writing',ids.writingId):Promise.resolve(null),ids.speakingId?this.getMaterial('speaking',ids.speakingId):Promise.resolve(null)]);const resolvedMaterials={listening,reading,writing,speaking};if(bundle.status==='published'){for(const key of Object.keys(resolvedMaterials) as (keyof typeof resolvedMaterials)[]){const material=resolvedMaterials[key];if(material&&material.status!=='published')resolvedMaterials[key]=null;}}return{bundle,resolvedMaterials};}
   public async getStats():Promise<AdminStats>{const [speaking,reading,listening,writing,bundles]=await Promise.all([this.listMaterials('speaking'),this.listMaterials('reading'),this.listMaterials('listening'),this.listMaterials('writing'),this.listBundles()]);let fileCount=0,totalBytes=0;if(useFirestore()){const snap=await getFirestoreDb().collection('admin_assets').get();fileCount=snap.size;snap.docs.forEach(d=>{totalBytes+=Number(d.data().size||0);});}else if(fs.existsSync(PRIVATE_UPLOADS_DIR))for(const f of fs.readdirSync(PRIVATE_UPLOADS_DIR))try{totalBytes+=fs.statSync(path.join(PRIVATE_UPLOADS_DIR,f)).size;fileCount++;}catch{}const all=[...speaking,...reading,...listening,...writing];return{totalMaterials:all.length,publishedMaterials:all.filter(m=>m.status==='published').length,draftMaterials:all.filter(m=>m.status==='draft').length,bySection:{speaking:speaking.length,reading:reading.length,listening:listening.length,writing:writing.length},totalBundles:bundles.length,uploadedFilesCount:fileCount,uploadedTotalBytes:totalBytes};}
 }
 export const adminStore=new AdminStore();
