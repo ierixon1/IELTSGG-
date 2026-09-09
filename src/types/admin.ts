@@ -21,6 +21,20 @@ export interface BaseAdminMaterial {
   updatedAt: string;
 }
 
+/**
+ * Asset references a material's content may carry.
+ *
+ * Files are referenced by id rather than copied in, so deleting a material can
+ * release what nothing else uses, and so the original of an imported document
+ * survives sanitisation and can be re-parsed later.
+ */
+export interface MaterialAssetRefs {
+  /** Every asset this material depends on. */
+  assetIds?: string[];
+  /** The untouched original of an imported document; never served to a browser. */
+  sourceAssetId?: string;
+}
+
 export interface AdminSpeakingMaterial extends BaseAdminMaterial {
   section: 'speaking';
   content: {
@@ -36,14 +50,17 @@ export interface AdminSpeakingMaterial extends BaseAdminMaterial {
 
 export interface AdminReadingMaterial extends BaseAdminMaterial {
   section: 'reading';
-  content: { passage: { passageNumber: number; title: string; text: string; htmlContent?: string; questions: any[] }; htmlContent?: string };
+  content: MaterialAssetRefs & { passage: { passageNumber: number; title: string; text: string; htmlContent?: string; questions: any[] }; htmlContent?: string };
 }
 
 export interface AdminListeningMaterial extends BaseAdminMaterial {
   section: 'listening';
-  content: {
+  content: MaterialAssetRefs & {
     section: { sectionNumber: number; title: string; contextDescription: string; audioTranscript?: string; htmlContent?: string; questions: any[] };
+    /** Learner-facing URL, derived from `audioAssetId`. */
     audioUrl?: string;
+    /** The stored audio asset. */
+    audioAssetId?: string;
     audioFileName?: string;
     transcript?: string;
     htmlContent?: string;

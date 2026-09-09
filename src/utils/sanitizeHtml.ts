@@ -25,13 +25,13 @@ function initPurifyHooks() {
     // 1. Security: Disallow arbitrary external img src (prevents tracking pixels & IP/UA leakage)
     if (node.tagName === 'IMG') {
       const src = (node.getAttribute('src') || '').trim();
-      const isLocalUpload = src.startsWith('/api/uploads/');
+      const isLocalUpload = src.startsWith('/api/assets/ast_');
       const isSafeBase64 = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(src);
 
       if (!isLocalUpload && !isSafeBase64) {
         node.removeAttribute('src');
         node.setAttribute('data-blocked-external-img', 'true');
-        node.setAttribute('alt', '[External image blocked: only internal uploads or base64 are permitted]');
+        node.setAttribute('alt', '[External image blocked: only stored assets or inline base64 are permitted]');
       }
     }
 
@@ -133,7 +133,11 @@ export function sanitizeClientHtml(rawHtml: string): string {
       'href', 'target', 'rel',
       'colspan', 'rowspan', 'headers', 'scope'
     ],
-    ALLOWED_URI_REGEXP: /^(?:(?:\/api\/uploads\/|https?:\/\/|mailto:)|data:image\/(?:png|jpeg|jpg|webp|gif);base64,)/i,
+    // Stored assets, outbound links, mail, same-document fragments, and inline
+    // images. `/api/uploads/` used to be the only local form allowed and was
+    // served from a directory nothing ever wrote to, so no image could load.
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:\/api\/assets\/ast_[A-Za-z0-9_-]+|https?:\/\/|mailto:|#)|data:image\/(?:png|jpeg|jpg|webp|gif);base64,)/i,
     ADD_ATTR: ['target', 'rel'],
     FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'select', 'textarea'],
     FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onchange', 'onsubmit'],

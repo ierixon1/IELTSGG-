@@ -2,6 +2,8 @@ import express, { Response } from 'express';
 import { adminStore } from '../services/adminStore';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { toPublicMaterialSummary } from '../services/publicMaterialView';
+import { assetStore } from '../services/assetStore';
+import { sendAsset } from './adminRoutes';
 
 /**
  * Published content for a signed-in learner.
@@ -75,3 +77,38 @@ learnerContentRouter.get('/learner/materials/:section/:id', async (req: Authenti
     return unavailable(res);
   }
 });
+
+/**
+ * Serves an asset to a signed-in learner, but only one that published content
+ * actually references.
+ *
+ * This is the narrowest rule that still lets a Listening test play its audio
+ * and a Reading passage show its diagram: a staged upload, a draft's asset, or
+ * a guessed id all answer 404. `sendAsset` decides the headers, so imported
+ * HTML is a neutral download here too, never an executable page.
+ */
+learnerContentRouter.get('/assets/:id', async (req: AuthenticatedRequest, res) => {
+  try {
+    const asset = await assetStore.get(req.params.id);
+    if (!asset) return res.status(404).json({ error: 'Asset not found.' });
+
+    const referenced = await collectPublishedAssetIds();
+    if (!referenced.has(asset.id)) return res.status(404).json({ error: 'Asset not found.' });
+
+    return sendAsset(res, asset, await assetStore.readContent(asset));
+  } catch (error) {
+    console.error('[LearnerContent] asset read error:', error);
+    return res.status(404).json({ error: 'Asset not found.' });
+  }
+});
+
+/** Asset ids reachable from a *published* material, in any section. */
+async function collectPublishedAssetIds(): Promise<Set<string>> {
+  const { extractAssetIds } = await import('../services/assetStore');
+  const { adminStore } = await import('../services/adminStore');
+  const sections = ['speaking', 'reading', 'listening', 'writing'] as const;
+  const lists = await Promise.all(sections.map((s) => adminStore.listMaterials(s, 'published')));
+  const ids = new Set<string>();
+  for (const item of lists.flat()) for (const id of extractAssetIds(item)) ids.add(id);
+  return ids;
+}

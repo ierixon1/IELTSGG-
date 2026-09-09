@@ -40,6 +40,8 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
   );
 
   const [audioUrl, setAudioUrl] = useState(initialData?.content.audioUrl || '');
+  const [audioAssetId, setAudioAssetId] = useState(initialData?.content.audioAssetId || '');
+  const [sourceAssetId, setSourceAssetId] = useState(initialData?.content.sourceAssetId || '');
   const [audioFileName, setAudioFileName] = useState(initialData?.content.audioFileName || '');
   const [transcript, setTranscript] = useState(
     initialData?.content.transcript ||
@@ -103,8 +105,11 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
             htmlContent: htmlContent || undefined,
             questions,
           },
-          audioUrl: audioUrl || '/audio/mock_listening_demo.mp3',
-          audioFileName: audioFileName || 'official_recording.mp3',
+          audioUrl: audioUrl || undefined,
+          audioAssetId: audioAssetId || undefined,
+          audioFileName: audioFileName || undefined,
+          sourceAssetId: sourceAssetId || undefined,
+          assetIds: [audioAssetId, sourceAssetId].filter(Boolean),
           transcript,
           htmlContent: htmlContent || undefined,
         },
@@ -144,12 +149,14 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
           category="html"
           label="Import the section as HTML (.html, .htm)"
           description="The page is sanitised on the server and shown to the learner exactly as written — tables, headings and gap numbering included."
-          onUploaded={(file) => {
-            if (file.extractedHtml) {
-              setHtmlContent(file.extractedHtml);
-              setSectionTitle(file.originalName.replace(/\.[^/.]+$/, ''));
-              if (file.extractedText && !transcript.trim()) {
-                setTranscript(file.extractedText);
+          onUploaded={(asset) => {
+            if (asset.extractedHtml) {
+              setHtmlContent(asset.extractedHtml);
+              setSectionTitle(asset.originalName.replace(/\.[^/.]+$/, ''));
+              // Keep the untouched original so a later parser can re-read it.
+              if (asset.sourceAssetId) setSourceAssetId(asset.sourceAssetId);
+              if (asset.extractedText && !transcript.trim()) {
+                setTranscript(asset.extractedText);
               }
             }
           }}
@@ -167,9 +174,12 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
           category="audio"
           label="Official Listening Audio File (MP3 / WAV)"
           description="Upload pristine exam audio with authentic accents (British, Australian, North American)."
-          onUploaded={(file) => {
-            setAudioUrl(file.url);
-            setAudioFileName(file.originalName);
+          onUploaded={(asset) => {
+            // Store the learner-facing URL; the admin preview swaps in the
+            // /api/admin/ prefix, which is the one an admin session can read.
+            setAudioAssetId(asset.assetId);
+            setAudioUrl(`/api/assets/${asset.assetId}`);
+            setAudioFileName(asset.originalName);
           }}
         />
 

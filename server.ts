@@ -16,7 +16,6 @@ import { adminRouter } from './src/routes/adminRoutes';
 import { userDataRouter } from './src/routes/userDataRoutes';
 import { learnerContentRouter } from './src/routes/learnerContentRoutes';
 import { authRouter } from './src/routes/authRoutes';
-import { UPLOADS_DIR } from './src/services/adminStore';
 
 const app=express();
 const PORT=3000;
@@ -59,7 +58,11 @@ const MIN_GRADABLE_SPEECH_SECONDS=10;
 const RATE_LIMIT_GENERATIONS=parseInt(process.env.RATE_LIMIT_GENERATIONS||'10',10);
 const RATE_LIMIT_UPLOADS=parseInt(process.env.RATE_LIMIT_UPLOADS||'3',10);
 app.use(express.json({limit:'16mb'}));
-app.use('/api/uploads',express.static(UPLOADS_DIR,{fallthrough:false,index:false,dotfiles:'deny'}));
+// No static uploads mount. Assets are served by id through
+// /api/admin/assets/:id and /api/learner/assets/:id, which check who is
+// asking and set their own headers. The old mount pointed at data/uploads,
+// a directory nothing ever wrote to, while every real upload landed in
+// data/private_uploads and was unreachable by a learner.
 app.use('/api/auth',authRouter);
 app.use('/api/admin',enforceAdminSecurity,adminRouter);
 app.get('/api/health',(_req,res)=>res.json({status:'ok',aiConfigured:Boolean(process.env.GEMINI_API_KEY)}));

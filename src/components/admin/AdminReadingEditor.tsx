@@ -76,6 +76,9 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
     ]
   );
 
+  const [sourceAssetId, setSourceAssetId] = useState<string>(
+    (initialData?.content as any)?.sourceAssetId || '',
+  );
   const [saving, setSaving] = useState(false);
 
   const addQuestion = (type: ReadingEditorQuestion['type']) => {
@@ -111,6 +114,10 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
             questions,
           },
           htmlContent: editorMode === 'html' ? htmlContent : undefined,
+          // The untouched upload, kept private, so a better parser can be run
+          // over it later without re-collecting the source.
+          sourceAssetId: sourceAssetId || undefined,
+          assetIds: sourceAssetId ? [sourceAssetId] : [],
         },
       });
     } finally {
@@ -173,6 +180,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
           label="Import HTML Passage (.html, .htm) — CDI Native"
           description="Sanitizes and renders HTML formatting (tables, headings, citations) in the CDI player."
           onUploaded={(file) => {
+            if (file.sourceAssetId) setSourceAssetId(file.sourceAssetId);
             if (file.extractedHtml) {
               setHtmlContent(file.extractedHtml);
               setEditorMode('html');

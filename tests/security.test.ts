@@ -10,9 +10,13 @@ describe('security regressions', () => {
     const store = await read('src/services/adminStore.ts');
     const server = await read('server.ts');
     expect(routes).toContain('PRIVATE_UPLOADS_DIR');
-    expect(server).toContain('express.static(UPLOADS_DIR');
-    expect(server).not.toContain('express.static(PRIVATE_UPLOADS_DIR');
     expect(store).toContain("fs.mkdirSync(PRIVATE_UPLOADS_DIR");
+    // Nothing is served statically any more. Assets go out through
+    // /api/admin/assets/:id and /api/learner/assets/:id, which check the
+    // caller and set their own headers — an uploaded file's directory is
+    // never exposed.
+    expect(server).not.toContain('express.static(UPLOADS_DIR');
+    expect(server).not.toContain('express.static(PRIVATE_UPLOADS_DIR');
   });
   it('does not trust client supplied userId for user data routes', async () => {
     const routes = await read('src/routes/userDataRoutes.ts');
@@ -115,10 +119,13 @@ describe('security regressions', () => {
   });
   it('uses Firestore for production admin CMS state and Cloud Storage for production files', async () => {
     const adminStore = await read('src/services/adminStore.ts');
-    const routes = await read('src/routes/adminRoutes.ts');
+    const assetStore = await read('src/services/assetStore.ts');
     expect(adminStore).toContain("collection('admin_content')");
-    expect(adminStore).toContain("collection('admin_files')");
-    expect(routes).toContain('storageProvider.uploadFile');
-    expect(routes).toContain('storageProvider.downloadFile');
+    // File storage moved out of adminStore into the asset store, which is
+    // also the only place that calls the storage provider.
+    expect(assetStore).toContain("collection('admin_assets')");
+    expect(assetStore).toContain('storageProvider.uploadFile');
+    expect(assetStore).toContain('storageProvider.downloadFile');
+    expect(assetStore).toContain('storageProvider.deleteFile');
   });
 });
