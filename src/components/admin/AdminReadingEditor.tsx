@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, BookOpen, CheckCircle2, FileText, FileCode, Eye, Code2, Sparkles } from 'lucide-react';
 import { AdminReadingMaterial } from '../../types/admin';
+import { QuestionType } from '../../types';
 import { FileUploadZone } from './FileUploadZone';
 import { CdiHtmlViewer } from '../common/CdiHtmlViewer';
 
 interface ReadingEditorQuestion {
   id: number;
-  type: 'multiple_choice' | 'true_false_not_given' | 'fill_in_the_blank' | 'matching_headings';
-  questionText: string;
+  /** Canonical task type — the one vocabulary in src/types.ts. */
+  type: QuestionType;
+  /** Canonical field name; the learner engine reads `prompt`. */
+  prompt: string;
+  instruction?: string;
   correctAnswer: string;
+  acceptableAnswers?: string[];
   explanation?: string;
   options?: string[];
 }
@@ -51,14 +56,14 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
       {
         id: 1,
         type: 'true_false_not_given',
-        questionText: 'Microalgae production requires fertile farmland used for standard food crops.',
+        prompt: 'Microalgae production requires fertile farmland used for standard food crops.',
         correctAnswer: 'FALSE',
         explanation: 'The text notes algae do not compete with arable land dedicated to food.',
       },
       {
         id: 2,
         type: 'multiple_choice',
-        questionText: 'What is highlighted as the main obstacle to commercial adoption of algae fuels?',
+        prompt: 'What is highlighted as the main obstacle to commercial adoption of algae fuels?',
         options: [
           'Insufficient lipid productivity',
           'Excessive upfront capital costs',
@@ -78,7 +83,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
     const newQ: ReadingEditorQuestion = {
       id: nextId,
       type,
-      questionText: 'New Question Prompt...',
+      prompt: 'New Question Prompt...',
       correctAnswer: type === 'true_false_not_given' ? 'TRUE' : '',
       explanation: 'Detailed rationale for score verification.',
       options: type === 'multiple_choice' ? ['Option A', 'Option B', 'Option C', 'Option D'] : undefined,
@@ -349,7 +354,7 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
               + True / False / NG
             </button>
             <button
-              onClick={() => addQuestion('fill_in_the_blank')}
+              onClick={() => addQuestion('fill_in_blank')}
               className="text-[11px] bg-white border border-ink-200 hover:border-ink-400 px-2.5 py-1 rounded-md font-semibold text-ink-700 shadow-2xs"
             >
               + Fill in the Blank
@@ -380,10 +385,10 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
 
               <input
                 type="text"
-                value={q.questionText}
+                value={q.prompt}
                 onChange={(e) => {
                   const copy = [...questions];
-                  copy[idx].questionText = e.target.value;
+                  copy[idx].prompt = e.target.value;
                   setQuestions(copy);
                 }}
                 className="w-full text-xs p-2 bg-ink-50 border border-ink-200 rounded-md font-medium"

@@ -5,7 +5,7 @@ import { ListeningSession } from './ListeningSession';
 import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
 import { SpeakingSession } from './SpeakingSession';
-import { Award, ArrowRight, BookOpen, Headphones, Layers, Mic, PenTool } from 'lucide-react';
+import { AlertTriangle, Award, ArrowRight, BookOpen, Headphones, Layers, Mic, PenTool } from 'lucide-react';
 import { useT } from '../i18n';
 import { Badge, Button, Card } from './ui';
 
@@ -20,6 +20,8 @@ interface MocksHubProps {
   activeTestId?: string;
   builtInTestId?: string;
   onSelectTest?: (id: string) => void;
+  /** Skills the selected bundle named but could not supply. */
+  missingSections?: SkillType[];
 }
 
 /**
@@ -43,6 +45,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
   activeTestId,
   builtInTestId,
   onSelectTest,
+  missingSections = [],
 }) => {
   const t = useT();
   const [activeSection, setActiveSection] = useState<SkillType | null>(
@@ -114,6 +117,18 @@ export const MocksHub: React.FC<MocksHubProps> = ({
           </div>
         </div>
       </Card>
+
+      {missingSections.length > 0 && (
+        <div className="es-enter flex items-start gap-3 rounded-[var(--radius-card)] border border-warning-500/30 bg-warning-50 p-4 text-sm text-warning-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            <span className="font-bold">{t('mocks.incompleteTitle')}</span>{' '}
+            {t('mocks.incompleteBody', {
+              sections: missingSections.map((skill) => t(`skills.${skill}`)).join(', '),
+            })}
+          </p>
+        </div>
+      )}
 
       {/* Only worth showing once something has actually been published. */}
       {publishedTests.length > 0 && onSelectTest && (

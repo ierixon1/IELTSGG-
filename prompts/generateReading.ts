@@ -87,10 +87,10 @@ export const readingResponseSchema = {
                 questionNumber: { type: 'integer' },
                 type: { 
                   type: 'string',
-                  description: 'One of: multiple_choice, true_false_not_given, yes_no_not_given, matching_headings, matching_information, matching_features, sentence_completion, summary_completion, diagram_label_completion, short_answer'
+                  description: 'One of: multiple_choice, true_false_not_given, yes_no_not_given, matching_headings, matching_information, matching_features, sentence_completion, summary_completion, diagram_label, short_answer'
                 },
                 prompt: { type: 'string' },
-                instructions: { type: 'string' },
+                instruction: { type: 'string' },
                 options: { 
                   type: 'array',
                   items: { type: 'string' }

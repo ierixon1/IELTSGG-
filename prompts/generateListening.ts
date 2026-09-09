@@ -93,10 +93,10 @@ export const listeningResponseSchema = {
                 questionNumber: { type: 'integer' },
                 type: { 
                   type: 'string',
-                  description: 'One of: form_completion, multiple_choice, matching, map_diagram_labelling, sentence_completion, short_answer'
+                  description: 'One of: form_completion, multiple_choice, matching, map_label, sentence_completion, short_answer'
                 },
                 prompt: { type: 'string' },
-                instructions: { type: 'string' },
+                instruction: { type: 'string' },
                 options: { 
                   type: 'array',
                   items: { type: 'string' }

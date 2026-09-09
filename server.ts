@@ -14,6 +14,7 @@ import { IELTS_THEMES, READING_QUESTION_TYPES, LISTENING_QUESTION_TYPES, WRITING
 import { executeGeminiWithRetry, AiUnavailableError } from './prompts/geminiRetry';
 import { adminRouter } from './src/routes/adminRoutes';
 import { userDataRouter } from './src/routes/userDataRoutes';
+import { learnerContentRouter } from './src/routes/learnerContentRoutes';
 import { authRouter } from './src/routes/authRoutes';
 import { UPLOADS_DIR } from './src/services/adminStore';
 
@@ -64,6 +65,10 @@ app.use('/api/admin',enforceAdminSecurity,adminRouter);
 app.get('/api/health',(_req,res)=>res.json({status:'ok',aiConfigured:Boolean(process.env.GEMINI_API_KEY)}));
 app.use('/api',authenticateRequest);
 app.use('/api',userDataRouter);
+// Published CMS content for a signed-in learner. Mounted after
+// authenticateRequest on purpose: these responses carry answer keys, which the
+// anonymous /api/admin/public/* routes deliberately withhold.
+app.use('/api',learnerContentRouter);
 
 let genAIClient:GoogleGenAI|null=null;
 function getGenAI():GoogleGenAI{

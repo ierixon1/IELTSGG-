@@ -90,6 +90,8 @@ export const uz: Dictionary = {
     start: 'Bo‘limni boshlash',
     chooseTest: 'Qaysi testni topshirish',
     chooseTestHint: 'Admin paneldan chop etilgan testlar shu yerda, o‘rnatilgani yonida chiqadi.',
+    incompleteTitle: 'Bu test toʻliq emas.',
+    incompleteBody: 'Unda {sections} boʻlimlari yoʻq, shuning uchun ular uchun oʻrnatilgan material koʻrsatiladi.',
     builtInTest: 'O‘rnatilgan sinov test',
     listening: {
       meta: '~30 daqiqa · 4 qism',

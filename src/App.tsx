@@ -8,7 +8,7 @@ import {
 } from './types';
 import { MOCK_TEST_1 } from './data/mockBank';
 import { MockTest } from './types';
-import { PublishedTestSummary, fetchPublishedTest, fetchPublishedTests } from './services/publishedTests';
+import { PublishedTestSummary, fetchAdaptedTest, fetchPublishedTests } from './services/publishedTests';
 import { VocabCard, WritingGradingResult } from './types';
 import { fetchInitialData, syncDataToServer, fetchVocabCards, saveVocabCards } from './services/api';
 import { generateInitialPlan, recalculatePlan, RecalculationResult } from './utils/planEngine';
@@ -75,6 +75,8 @@ export default function App() {
   const [publishedTests, setPublishedTests] = useState<PublishedTestSummary[]>([]);
   const [activeTest, setActiveTest] = useState<MockTest>(MOCK_TEST_1);
   const [activeTestId, setActiveTestId] = useState<string>(MOCK_TEST_1.id);
+  /** Skills the selected bundle named but could not supply. */
+  const [activeTestGaps, setActiveTestGaps] = useState<SkillType[]>([]);
 
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
     try {
@@ -201,13 +203,17 @@ export default function App() {
     if (id === MOCK_TEST_1.id) {
       setActiveTest(MOCK_TEST_1);
       setActiveTestId(MOCK_TEST_1.id);
+      setActiveTestGaps([]);
       return;
     }
 
-    const loaded = await fetchPublishedTest(id);
-    if (loaded) {
-      setActiveTest(loaded);
+    const adapted = await fetchAdaptedTest(id);
+    if (adapted) {
+      setActiveTest(adapted.test);
       setActiveTestId(id);
+      // Recorded, not hidden: a bundle that could not supply a skill is still
+      // opened with built-in material today, and the learner has to be told.
+      setActiveTestGaps(adapted.missingSections);
     }
   };
 
@@ -252,17 +258,46 @@ export default function App() {
     else { setTargetedMocksSection(task.skill); setActiveTab('mocks'); }
   };
 
-  const handleRecalculatePlan = () => {
-    const recalculated = recalculatePlan(tasks, attempts, profile);
+  /**
+   * Applies a recalculation: new task weights, and the weakness it diagnosed.
+   *
+   * The diagnosed skill used to be discarded, so the plan kept presenting the
+   * learner's own self-assessment from onboarding as their "current" weakness
+   * no matter how many graded attempts contradicted it.
+   */
+  const applyRecalculation = (
+    recalculated: RecalculationResult,
+    extra: { attempts?: MockAttempt[]; checklist?: ChecklistWeek } = {},
+  ) => {
     setTasks(recalculated.updatedTasks);
     setLastRecalc(recalculated);
-    syncDataToServer({ tasks: recalculated.updatedTasks });
+
+    const diagnosed = recalculated.diagnosedWeakSkill;
+    const nextProfile =
+      diagnosed && diagnosed !== profile.weakSection
+        ? { ...profile, weakSection: diagnosed }
+        : null;
+    if (nextProfile) setProfile(nextProfile);
+
+    syncDataToServer({
+      tasks: recalculated.updatedTasks,
+      ...(nextProfile ? { profile: nextProfile } : {}),
+      ...extra,
+    });
+  };
+
+  const handleRecalculatePlan = () => {
+    applyRecalculation(recalculatePlan(tasks, attempts, profile));
   };
 
   const handleRecordScore = (skill: SkillType, band: number, raw?: number) => {
     const newAttempt: MockAttempt = {
       id: `attempt-${Date.now()}`,
-      testId: 'test-1',
+      // The test actually sat, so statistics can tell a CMS-published test
+      // apart from the built-in one.
+      testId: activeTestId,
+      testTitle: activeTest.title,
+      mode: 'practice',
       date: new Date().toISOString().split('T')[0],
       isFullMock: false,
       scores: { overall: band, [skill]: { band, rawScore: raw } },
@@ -274,10 +309,10 @@ export default function App() {
     if (skill === 'writing') nextChecklist.essaysDone = (nextChecklist.essaysDone || 0) + 1;
     if (skill === 'speaking') nextChecklist.speakingDone = (nextChecklist.speakingDone || 0) + 1;
     setChecklist(nextChecklist);
-    const recalculated = recalculatePlan(tasks, nextAttempts, profile);
-    setTasks(recalculated.updatedTasks);
-    setLastRecalc(recalculated);
-    syncDataToServer({ attempts: nextAttempts, checklist: nextChecklist, tasks: recalculated.updatedTasks });
+    applyRecalculation(recalculatePlan(tasks, nextAttempts, profile), {
+      attempts: nextAttempts,
+      checklist: nextChecklist,
+    });
   };
 
   const handleCompleteFullExam = (attempt: MockAttempt) => {
@@ -285,10 +320,10 @@ export default function App() {
     setAttempts(nextAttempts);
     const nextChecklist = { ...checklist, mocksDone: (checklist.mocksDone || 0) + 1 };
     setChecklist(nextChecklist);
-    const recalculated = recalculatePlan(tasks, nextAttempts, profile);
-    setTasks(recalculated.updatedTasks);
-    setLastRecalc(recalculated);
-    syncDataToServer({ attempts: nextAttempts, checklist: nextChecklist, tasks: recalculated.updatedTasks });
+    applyRecalculation(recalculatePlan(tasks, nextAttempts, profile), {
+      attempts: nextAttempts,
+      checklist: nextChecklist,
+    });
   };
 
   if (view === 'landing') {
@@ -326,7 +361,7 @@ export default function App() {
         className="es-enter flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8"
       >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
-        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} />}
+        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} missingSections={activeTestGaps} />}
         {activeTab === 'exam' && <ExamMode mockTest={activeTest} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}
         {activeTab === 'vocab' && <VocabTrainer cards={vocabCards} onUpdateCards={persistVocab} />}

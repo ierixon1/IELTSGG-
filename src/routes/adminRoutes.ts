@@ -6,6 +6,7 @@ import {nanoid} from 'nanoid';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import {adminStore,PRIVATE_UPLOADS_DIR} from '../services/adminStore';
+import {toPublicMaterialSummary} from '../services/publicMaterialView';
 import {authService} from '../services/authService';
 import {storageProvider} from '../services/storage';
 
@@ -61,6 +62,12 @@ adminRouter.get('/bundles/:id',requireAdminAuth,async(req,res)=>{const x=await a
 adminRouter.post('/bundles',requireAdminAuth,requireAdminRole,async(req,res)=>res.json({success:true,bundle:await adminStore.saveBundle(deepSanitizeHtml(req.body))}));
 adminRouter.put('/bundles/:id',requireAdminAuth,requireAdminRole,async(req,res)=>res.json({success:true,bundle:await adminStore.saveBundle({...deepSanitizeHtml(req.body),id:req.params.id})}));
 adminRouter.delete('/bundles/:id',requireAdminAuth,requireAdminRole,async(req,res)=>await adminStore.deleteBundle(req.params.id)?res.json({success:true}):res.status(404).json({error:'Bundle not found.'}));
-adminRouter.get('/public/materials/:section',async(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return res.json({items:await adminStore.listMaterials(req.params.section,'published')});});
+// ---------------------------------------------------------------------------
+// Anonymous routes. These sit behind no session at all, so they carry metadata
+// only: never an answer key, never a marking explanation, never a Listening
+// transcript. A learner who is actually sitting a test reads the full material
+// from /api/learner/* instead, which requires a session.
+// ---------------------------------------------------------------------------
+adminRouter.get('/public/materials/:section',async(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});const items=await adminStore.listMaterials(req.params.section,'published');return res.json({items:items.map(toPublicMaterialSummary)});});
 adminRouter.get('/public/bundles',async(_req,res)=>res.json({bundles:await adminStore.listBundles('published')}));
-adminRouter.get('/public/bundles/:id',async(req,res)=>{const x=await adminStore.getResolvedBundle(req.params.id);return x&&x.bundle.status==='published'?res.json(x):res.status(404).json({error:'Published CDI exam not found.'});});
+adminRouter.get('/public/bundles/:id',async(req,res)=>{const x=await adminStore.getResolvedBundle(req.params.id);if(!x||x.bundle.status!=='published')return res.status(404).json({error:'Published CDI exam not found.'});const resolvedMaterials=Object.fromEntries(Object.entries(x.resolvedMaterials).map(([k,v])=>[k,v?toPublicMaterialSummary(v):null]));return res.json({bundle:x.bundle,resolvedMaterials});});

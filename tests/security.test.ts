@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'bun:test';
-const read = async (path: string) => Bun.file(path).text();
+import { describe, it } from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { expect } from './harness';
+
+const read = (path: string) => readFile(path, 'utf8');
 
 describe('security regressions', () => {
   it('keeps private admin uploads outside the public static directory and stages cloud uploads safely', async () => {

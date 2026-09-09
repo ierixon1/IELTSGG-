@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Headphones, CheckCircle2, Music } from 'lucide-react';
 import { AdminListeningMaterial } from '../../types/admin';
+import { QuestionType } from '../../types';
 import { FileUploadZone } from './FileUploadZone';
 
 interface ListeningEditorQuestion {
   id: number;
-  type: 'form_completion' | 'multiple_choice' | 'sentence_completion';
-  questionText: string;
+  /** Canonical task type — the one vocabulary in src/types.ts. */
+  type: QuestionType;
+  /** Canonical field name — see src/schemas/question.ts. */
+  prompt: string;
   correctAnswer: string;
   explanation?: string;
   options?: string[];
@@ -48,14 +51,14 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
       {
         id: 1,
         type: 'form_completion',
-        questionText: 'Main security desk operating hours: [ 1 ] AM to 10:00 PM',
+        prompt: 'Main security desk operating hours: [ 1 ] AM to 10:00 PM',
         correctAnswer: '7:00',
         explanation: 'The speaker states the front desk opens at 7:00 AM sharp.',
       },
       {
         id: 2,
         type: 'multiple_choice',
-        questionText: 'Where can students securely store registered bicycles?',
+        prompt: 'Where can students securely store registered bicycles?',
         options: ['Basement compound B', 'Rear courtyard garden', 'Main foyer rack', 'Under the stairwell'],
         correctAnswer: 'Basement compound B',
         explanation: 'The officer confirms bicycles must be stored in basement compound B.',
@@ -72,7 +75,7 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
     const newQ: ListeningEditorQuestion = {
       id: nextId,
       type,
-      questionText: 'Fill in or answer prompt...',
+      prompt: 'Fill in or answer prompt...',
       correctAnswer: '',
       explanation: 'Official Cambridge standard explanation.',
       options: type === 'multiple_choice' ? ['Option A', 'Option B', 'Option C', 'Option D'] : undefined,
@@ -274,10 +277,10 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
 
               <input
                 type="text"
-                value={q.questionText}
+                value={q.prompt}
                 onChange={(e) => {
                   const copy = [...questions];
-                  copy[idx].questionText = e.target.value;
+                  copy[idx].prompt = e.target.value;
                   setQuestions(copy);
                 }}
                 className="w-full text-xs p-2 bg-ink-50 border border-ink-200 rounded-md font-medium"

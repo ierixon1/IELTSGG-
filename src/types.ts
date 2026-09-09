@@ -197,6 +197,11 @@ export interface Question {
   /** e.g. "NO MORE THAN TWO WORDS AND/OR A NUMBER" — printed beside the box. */
   wordLimit?: string;
   correctAnswer: string | string[]; // supports alternate spellings e.g. ["19", "nineteen"]
+  /**
+   * Further spellings that mark as correct, kept separate from
+   * `correctAnswer` so the authored key stays identifiable in review.
+   */
+  acceptableAnswers?: string[];
   explanation?: string;
 }
 

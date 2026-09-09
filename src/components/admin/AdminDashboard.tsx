@@ -68,8 +68,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ]);
 
       if (matRes.ok) {
+        // GET /api/admin/materials answers `{ items: [...] }`. Reading the
+        // wrong key here left the repository permanently empty, which also
+        // emptied the bundle builder's four material dropdowns.
         const d = await matRes.json();
-        setMaterials(d.materials || []);
+        setMaterials(Array.isArray(d.items) ? d.items : []);
       }
       if (bunRes.ok) {
         const d = await bunRes.json();

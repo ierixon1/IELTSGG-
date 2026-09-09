@@ -90,6 +90,8 @@ export const ru: Dictionary = {
     start: 'Начать секцию',
     chooseTest: 'Какой тест проходить',
     chooseTestHint: 'Тесты, опубликованные через админку, появляются здесь рядом со встроенным.',
+    incompleteTitle: 'Этот тест неполный.',
+    incompleteBody: 'В нём нет разделов {sections}, поэтому для них показан встроенный материал.',
     builtInTest: 'Встроенный пробный тест',
     listening: {
       meta: '~30 мин · 4 части',

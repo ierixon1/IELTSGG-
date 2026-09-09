@@ -93,6 +93,8 @@ export const en: Dictionary = {
     start: 'Start section',
     chooseTest: 'Which test to sit',
     chooseTestHint: 'Tests published from the admin CMS appear here alongside the built-in one.',
+    incompleteTitle: 'This test is incomplete.',
+    incompleteBody: 'It does not supply {sections}, so the built-in material is shown for those sections instead.',
     builtInTest: 'Built-in practice test',
     listening: {
       meta: '~30 min · 4 parts',
