@@ -1,3 +1,6 @@
+import type { AnswerValue, Question } from '../types';
+import { answerMatchesOption, normaliseAnswer } from './answerMatching';
+
 /**
  * Official IELTS Academic Band conversion and rounding rules.
  */
@@ -102,4 +105,58 @@ export function checkAnswer(userAnswer: string, correctAnswer: string | string[]
   }
 
   return clean(correctAnswer) === userClean;
+}
+
+/**
+ * Marks one question against what the learner actually entered.
+ *
+ * `checkAnswer` compares two strings and is right for everything typed into a
+ * box. It is not enough for the rest:
+ *
+ *   - a multiple choice is answered by picking an option, and the key may be
+ *     written as the option's label (`"B"`) or as its full text. Two questions
+ *     in the built-in test are keyed by label, and because the radio stored the
+ *     full option text they could not be answered correctly at all.
+ *   - a multi-select carries a set, which has to match as a set: every correct
+ *     option chosen, and nothing else.
+ *
+ * `acceptableAnswers` is carried through but not yet consulted — widening
+ * answer matching is phase 12's work, and quietly half-doing it here would
+ * make that phase harder to reason about.
+ */
+export function checkQuestionAnswer(question: Question, value: AnswerValue | undefined): boolean {
+  const key = ([] as string[]).concat(question.correctAnswer as string | string[]);
+
+  if (question.type === 'multi_select') {
+    const chosen = (Array.isArray(value) ? value : value ? [value] : [])
+      .map(normaliseAnswer)
+      .filter(Boolean);
+    // A set, so order does not matter and a duplicate click is not a second
+    // answer.
+    const unique = [...new Set(chosen)];
+    if (unique.length !== key.length) return false;
+    return key.every((expected) =>
+      unique.some(
+        (given) =>
+          given === normaliseAnswer(expected) ||
+          (question.options ? answerMatchesOption(given, expected) : false),
+      ),
+    );
+  }
+
+  const given = Array.isArray(value) ? value[0] ?? '' : value ?? '';
+  if (!given) return false;
+
+  // Anything answered by choosing accepts the label or the full option text,
+  // in either direction: the key may be written either way too.
+  if (question.options?.length) {
+    return key.some(
+      (expected) =>
+        normaliseAnswer(expected) === normaliseAnswer(given) ||
+        answerMatchesOption(given, expected) ||
+        answerMatchesOption(expected, given),
+    );
+  }
+
+  return checkAnswer(given, question.correctAnswer);
 }

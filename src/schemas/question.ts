@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BANK_ANSWER_TYPES, MediaRef, Question, QuestionLayout, QuestionType } from '../types';
+import { answerMatchesOptions, normaliseAnswer as normalise } from '../utils/answerMatching';
 
 /**
  * The one definition of what a question is.
@@ -147,29 +148,9 @@ const TYPES_REQUIRING_OPTIONS: readonly QuestionType[] = [
   ...BANK_ANSWER_TYPES,
 ];
 
-/**
- * The label an option is answered by: `A` from `"A. to give an example"`, `ii`
- * from `"ii. An old explanation"`.
- *
- * Authored material answers both ways — the built-in test has multiple choices
- * keyed by the bare letter and others keyed by the full option text — so a
- * check that only accepted one of them would reject valid content.
- */
-export function optionLabel(option: string): string {
-  const match = /^\s*([A-Za-z]{1,4}|\d{1,3})\s*[.)\]:-]\s+/.exec(option);
-  return match ? match[1] : '';
-}
-
-const normalise = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
-
-/** True when `answer` names one of `options`, by full text or by label. */
-export function answerMatchesOptions(answer: string, options: readonly string[]): boolean {
-  const target = normalise(answer);
-  if (!target) return false;
-  return options.some(
-    (option) => normalise(option) === target || normalise(optionLabel(option)) === target,
-  );
-}
+// Option matching is shared with the learner engine, which must not pull Zod
+// into the browser bundle in order to mark an answer.
+export { answerMatchesOption, answerMatchesOptions, optionLabel, optionValue } from '../utils/answerMatching';
 
 /* -------------------------------------------------------------------------- */
 /* The canonical schema                                                        */

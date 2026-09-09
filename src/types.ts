@@ -207,6 +207,15 @@ export interface MediaRef {
   alt?: string;
 }
 
+/**
+ * What a learner's answer to one question looks like.
+ *
+ * Every task type stores a string except `multi_select`, which stores the set
+ * of options chosen. Modelling that as a string is what made multi-select
+ * unplayable: the control had nowhere to put a second choice.
+ */
+export type AnswerValue = string | string[];
+
 export interface Question {
   id: string;
   questionNumber: number;

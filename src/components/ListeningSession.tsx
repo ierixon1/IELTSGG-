@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ListeningData, ListeningPart } from '../types';
-import { checkAnswer, listeningRawToBand } from '../utils/ieltsScoring';
+import { AnswerValue, ListeningData, ListeningPart } from '../types';
+import { checkQuestionAnswer, listeningRawToBand } from '../utils/ieltsScoring';
 import { 
   Headphones, 
   Play, 
@@ -18,7 +18,7 @@ import {
 import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
-import { QuestionField, QuestionInstruction } from './common/QuestionField';
+import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionBlock';
 
 interface ListeningSessionProps {
   listeningData: ListeningData;
@@ -33,7 +33,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
 }) => {
   const t = useT();
   const [activePartIndex, setActivePartIndex] = useState<number>(0);
-  const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
+  const [userAnswers, setUserAnswers] = useState<Record<string, AnswerValue>>({});
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
 
@@ -123,7 +123,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
     setIsPlayingAudio(false);
   };
 
-  const handleAnswerChange = (questionId: string, value: string) => {
+  const handleAnswerChange = (questionId: string, value: AnswerValue) => {
     setUserAnswers((prev) => ({
       ...prev,
       [questionId]: value,
@@ -132,7 +132,14 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
 
   // Calculate results across all parts
   const allQuestions = listeningData.parts.flatMap((p) => p.questions);
-  const correctCount = allQuestions.filter((q) => checkAnswer(userAnswers[q.id] || '', q.correctAnswer)).length;
+  /**
+   * Marked once per question, so the same verdict drives the score, the number
+   * marker and the feedback line.
+   */
+  const results: Record<string, boolean> = Object.fromEntries(
+    allQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
+  );
+  const correctCount = allQuestions.filter((q) => results[q.id]).length;
   // Extrapolate to 40 questions scale if needed
   const scaledScore = Math.round((correctCount / allQuestions.length) * 40);
   const band = listeningRawToBand(scaledScore);
@@ -283,73 +290,29 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
         </div>
 
         <div className="space-y-4">
-          {currentPart.questions.map((q) => {
-            const isCorrect = isSubmitted && checkAnswer(userAnswers[q.id] || '', q.correctAnswer);
-            const isWrong = isSubmitted && !isCorrect;
-
-            return (
-              <React.Fragment key={q.id}>
-              {q.instruction && <QuestionInstruction text={q.instruction} />}
-              <div
-                className={`p-4 rounded-xl border transition-all ${
-                  isSubmitted
-                    ? isCorrect
-                      ? 'border-success-500 bg-success-50/40'
-                      : 'border-danger-500 bg-danger-50/40'
-                    : 'border-ink-200 bg-white'
-                }`}
-              >
-                <div className="flex items-start space-x-3">
-                  <span className="w-6 h-6 rounded-full bg-ink-100 text-ink-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
-                    {q.questionNumber}
-                  </span>
-
-                  <div className="space-y-3 flex-1">
-                    <p className="text-sm font-semibold text-ink-900">{q.prompt}</p>
-
-                    <QuestionField
-                      question={q}
-                      value={userAnswers[q.id] || ''}
-                      disabled={isSubmitted}
-                      onChange={(value) => handleAnswerChange(q.id, value)}
-                      groupName={`listening-${currentPart.partNumber}`}
-                    />
-
-                    {/* Results Feedback */}
-                    {isSubmitted && (
-                      <div className="pt-2 border-t border-ink-200/60 space-y-1 text-xs">
-                        <div className="flex items-center space-x-1.5 font-bold">
-                          {isCorrect ? (
-                            <span className="text-success-700 flex items-center space-x-1">
-                              <CheckCircle2 className="w-4 h-4 text-success-500" />
-                              <span>{t('session.correct')}</span>
-                            </span>
-                          ) : (
-                            <span className="text-danger-700 flex items-center space-x-1">
-                              <XCircle className="w-4 h-4 text-danger-500" />
-                              <span>
-                                {t('session.incorrect', {
-                                  answers: Array.isArray(q.correctAnswer)
-                                    ? q.correctAnswer.join(' / ')
-                                    : q.correctAnswer,
-                                })}
-                              </span>
-                            </span>
-                          )}
-                        </div>
-                        {q.explanation && (
-                          <p className="text-ink-600 text-[11px] leading-relaxed">
-                            <strong>{t('session.explanation')}:</strong> {q.explanation}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              </React.Fragment>
-            );
-          })}
+          {groupQuestions(currentPart.questions).map((group) => (
+            <QuestionBlock
+              key={group.key}
+              group={group}
+              answers={userAnswers}
+              disabled={isSubmitted}
+              onChange={handleAnswerChange}
+              groupName={`listening-${currentPart.partNumber}`}
+              results={isSubmitted ? results : undefined}
+              renderFeedback={(question, isCorrect) => (
+                <AnswerVerdict
+                  question={question}
+                  correct={isCorrect}
+                  correctLabel={t('session.correct')}
+                  incorrectLabel={t('session.incorrect', {
+                    answers: Array.isArray(question.correctAnswer)
+                      ? question.correctAnswer.join(' / ')
+                      : question.correctAnswer,
+                  })}
+                />
+              )}
+            />
+          ))}
         </div>
 
         {/* Action Button & Results Card */}
