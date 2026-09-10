@@ -123,7 +123,12 @@ adminRouter.post('/upload',requireAdminAuth,requireAdminRole,upload.single('file
       summary.url=`/api/admin/assets/${derived.id}`;
       summary.sourceAssetId=original.id;
       summary.extractedHtml=sanitized;
-      summary.extractedText=sanitized.replace(/<[^>]+>/g,' ').replace(/s+/g,' ').trim()||undefined;
+      // `\s+`, not `s+`: the backslash had been lost, so this deleted every run
+      // of the letter "s" ("skills" became " kill ") and left whitespace alone.
+      // The result is what the Reading and Listening editors paste in as passage
+      // text and transcript. Only this summary field was affected — the original
+      // and sanitised assets above are written from the untouched bytes.
+      summary.extractedText=sanitized.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()||undefined;
     }else if(verdict.mimeType==='text/plain'){
       summary.extractedText=file.buffer.toString('utf8').trim()||undefined;
     }else if(extension==='.docx'){
