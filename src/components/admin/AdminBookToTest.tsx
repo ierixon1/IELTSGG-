@@ -3,8 +3,8 @@ import { AlertTriangle, CheckCircle2, FileText, Loader2, Sparkles, XCircle } fro
 import type { Question } from '../../types';
 import type { SourceLocation, StoredSource } from '../../types/source';
 import type { StoredGenerationRecord } from '../../schemas/material';
-import type { CdiImportResult } from '../../services/cdiImport/types';
-import { buildReviewState, setClassification, type ReviewState } from '../../services/cdiImport/review';
+import type { ReviewState } from '../../services/cdiImport/review';
+import { loadGeneratedReview } from './generatedReview';
 import { GENERATABLE_TYPES, MAX_GENERATED_QUESTIONS, type GeneratableType } from '../../services/bookToTest/types';
 
 interface AdminBookToTestProps {
@@ -15,9 +15,19 @@ interface AdminBookToTestProps {
   onDraftCreated?: (materialId: string) => void;
 }
 
+interface VerdictView {
+  status: 'valid' | 'needs_review' | 'rejected';
+  evaluated: boolean;
+  reasons: Array<{ code: string; message: string }>;
+}
+
 interface GeneratedQuestionView {
   generatedQuestionId: string;
   status: 'valid' | 'needs_review' | 'rejected';
+  groundingVerdict?: VerdictView;
+  qualityVerdict?: VerdictView;
+  questionEvidence?: Array<{ chunkId: string; quote: string }>;
+  answerEvidence?: Array<{ chunkId: string; quote: string }>;
   reasons: string[];
   question?: Question;
   candidate: Record<string, unknown>;
@@ -65,7 +75,7 @@ const STATUS_STYLE: Record<GeneratedQuestionView['status'], string> = {
 
 const STATUS_LABEL: Record<GeneratedQuestionView['status'], string> = {
   valid: 'Valid — answer found in the source',
-  needs_review: 'Needs review — answer not verifiable from the source',
+  needs_review: 'Needs review — not established from the source, or not a sound IELTS question',
   rejected: 'Rejected — will not enter the material',
 };
 
@@ -134,28 +144,7 @@ export const AdminBookToTest: React.FC<AdminBookToTestProps> = ({
   const openReview = async (materialId: string) => {
     setOpening(true);
     try {
-      const response = await fetch(`/api/admin/sources/generated/${encodeURIComponent(materialId)}/review`, {
-        credentials: 'same-origin',
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || 'The draft could not be opened.');
-
-      const input = body as {
-        materialId: string;
-        result: CdiImportResult;
-        sourceHtml: string;
-        generationRecord: StoredGenerationRecord;
-        classification: { module: 'academic' | 'general'; theme: string; targetBand: string; title: string; part: number };
-      };
-      const state = setClassification(
-        buildReviewState(input.result, {
-          sourceHtml: input.sourceHtml,
-          materialId: input.materialId,
-          generationRecord: input.generationRecord,
-        }),
-        { section: 'reading', ...input.classification },
-      );
-      onOpenReview(state);
+      onOpenReview(await loadGeneratedReview(materialId));
     } catch (error: unknown) {
       onToast(error instanceof Error ? error.message : 'The draft could not be opened.');
     } finally {
@@ -363,20 +352,47 @@ export const AdminBookToTest: React.FC<AdminBookToTestProps> = ({
                   <p className="text-ink-700">
                     Answer: <span className="font-mono font-bold">{String(shown.correctAnswer)}</span>
                   </p>
-                  {item.reasons.length > 0 && (
-                    <ul className="list-inside list-disc" data-reasons>
-                      {item.reasons.map((reason) => (
-                        <li key={reason}>{reason}</li>
+                  <p className="flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.06em]" data-dimensions>
+                    <span data-grounding={item.groundingVerdict?.status ?? item.status}>
+                      grounding: {!item.groundingVerdict ? item.status.replace(/_/g, ' ') : item.groundingVerdict.evaluated ? item.groundingVerdict.status.replace(/_/g, ' ') : 'not evaluated'}
+                    </span>
+                    <span data-quality={item.qualityVerdict?.status ?? item.status}>
+                      quality: {!item.qualityVerdict ? item.status.replace(/_/g, ' ') : item.qualityVerdict.evaluated ? item.qualityVerdict.status.replace(/_/g, ' ') : 'not evaluated'}
+                    </span>
+                  </p>
+                  {item.groundingVerdict || item.qualityVerdict ? (
+                    <ul className="space-y-0.5" data-reasons>
+                      {[...(item.groundingVerdict?.reasons ?? []), ...(item.qualityVerdict?.reasons ?? [])].map((reason) => (
+                        <li key={`${reason.code}-${reason.message}`} data-reason-code={reason.code}>
+                          <span className="font-mono text-[10px] opacity-70">{reason.code}</span> {reason.message}
+                        </li>
                       ))}
                     </ul>
+                  ) : (
+                    item.reasons.length > 0 && (
+                      <ul className="list-inside list-disc" data-reasons>
+                        {item.reasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    )
                   )}
-                  {item.evidence.length > 0 && (
-                    <div className="space-y-1 rounded-lg bg-white/70 p-2 text-ink-700">
-                      {item.evidence.map((evidence) => (
+                  {(item.answerEvidence ?? item.evidence).length > 0 && (
+                    <div className="space-y-1 rounded-lg bg-white/70 p-2 text-ink-700" data-answer-evidence>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-ink-500">Answer evidence</p>
+                      {(item.answerEvidence ?? item.evidence).map((evidence) => (
                         <p key={`${evidence.chunkId}-${evidence.quote}`}>
                           <FileText className="mr-1 inline h-3 w-3" />“{evidence.quote}”
                           <span className="ml-1 font-mono text-[10px] text-ink-400">{evidence.chunkId}</span>
                         </p>
+                      ))}
+                    </div>
+                  )}
+                  {(item.questionEvidence ?? []).length > 0 && (
+                    <div className="space-y-1 rounded-lg bg-white/50 p-2 text-ink-600" data-question-evidence>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-ink-500">Question evidence</p>
+                      {(item.questionEvidence ?? []).map((evidence) => (
+                        <p key={`q-${evidence.chunkId}-${evidence.quote}`}>“{evidence.quote}”</p>
                       ))}
                     </div>
                   )}

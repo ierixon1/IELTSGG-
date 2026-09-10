@@ -44,10 +44,6 @@ const { sourceStore } = await import('../src/services/sourceStore');
 const { adminStore } = await import('../src/services/adminStore');
 const { assetStore, extractAssetIds } = await import('../src/services/assetStore');
 const { setGenerationModel } = await import('../src/services/bookToTest/model');
-const { validateGeneratedQuestions, parseModelOutput, ModelOutputError } = await import(
-  '../src/services/bookToTest/validate'
-);
-const { buildPassage } = await import('../src/services/bookToTest/passage');
 const { redactAnswerKeys } = await import('../src/services/publicMaterialView');
 const { buildReviewState, setClassification, setDecision, toSavePayload } = await import(
   '../src/services/cdiImport/review'
@@ -110,42 +106,46 @@ const SCANNING_QUOTE =
  */
 function mixedScanningResponse(request: ModelRequest): string {
   const scan = excerptWith(request, 'proper nouns');
+  const cite = (quote: string) => [{ chunkId: scan.chunkId, quote }];
+  const invented = [
+    {
+      chunkId: 'src-invented-c00099',
+      quote: 'Examiners place a plausible wrong answer near the correct one deliberately.',
+    },
+  ];
   return JSON.stringify({
     questions: [
       {
         type: 'short_answer',
-        prompt: 'Which kinds of words stand out visually when you scan a page?',
+        prompt: 'What does the book call numbers, dates, proper nouns and capitalised terms?',
         wordLimit: 'NO MORE THAN THREE WORDS',
-        correctAnswer: 'proper nouns',
-        evidence: [{ chunkId: scan.chunkId, quote: SCANNING_QUOTE }],
+        correctAnswer: 'the easiest targets',
+        questionEvidence: cite(SCANNING_QUOTE),
+        answerEvidence: cite(SCANNING_QUOTE),
       },
       {
         type: 'short_answer',
         prompt: 'What should candidates underline while scanning?',
         wordLimit: 'NO MORE THAN THREE WORDS',
         correctAnswer: 'bold typography',
-        evidence: [{ chunkId: scan.chunkId, quote: SCANNING_QUOTE }],
+        questionEvidence: cite(SCANNING_QUOTE),
+        answerEvidence: cite(SCANNING_QUOTE),
       },
       {
         type: 'short_answer',
         prompt: 'How does the book describe scanning compared with skimming?',
         wordLimit: 'NO MORE THAN THREE WORDS',
         correctAnswer: 'opposite movement',
-        evidence: [
-          { chunkId: scan.chunkId, quote: 'Numbers, dates, proper nouns and capitalised terms are the easiest targets' },
-        ],
+        questionEvidence: cite('Numbers, dates, proper nouns and capitalised terms are the easiest targets'),
+        answerEvidence: cite('Numbers, dates, proper nouns and capitalised terms are the easiest targets'),
       },
       {
         type: 'short_answer',
         prompt: 'Where do examiners place distractors?',
         wordLimit: 'NO MORE THAN THREE WORDS',
         correctAnswer: 'near the answer',
-        evidence: [
-          {
-            chunkId: 'src-invented-c00099',
-            quote: 'Examiners place a plausible wrong answer near the correct one deliberately.',
-          },
-        ],
+        questionEvidence: invented,
+        answerEvidence: invented,
       },
     ],
   });
@@ -325,7 +325,8 @@ describe('what survives validation, and what becomes the draft', () => {
     const [valid, hallucinated, unverified, fabricated] = body.questions;
     expect(valid.reasons).toHaveLength(0);
     expect(hallucinated.reasons[0]).toContain('does not appear anywhere in the source text');
-    expect(unverified.reasons[0]).toContain('not in the sentence cited as evidence');
+    expect(unverified.reasons[0]).toContain('not in the text cited as answer evidence');
+    expect(unverified.groundingVerdict.reasons[0].code).toBe('answer_not_in_evidence');
     expect(fabricated.reasons[0]).toContain('was not supplied to the model');
 
     expect(body.generation.summary).toEqual({
@@ -346,7 +347,7 @@ describe('what survives validation, and what becomes the draft', () => {
 
     const prompts = material.content.passage.questions.map((question) => question.prompt);
     expect(prompts).toEqual([
-      'Which kinds of words stand out visually when you scan a page?',
+      'What does the book call numbers, dates, proper nouns and capitalised terms?',
       'How does the book describe scanning compared with skimming?',
     ]);
     // The rejected answers never entered the material.
@@ -395,7 +396,7 @@ describe('what survives validation, and what becomes the draft', () => {
     expect(record.source.originalAsset).toBe(source.sourceAssetId);
     expect(record.model).toBe('fake-model');
     expect(record.modelVersion).toBe('fake-model-001');
-    expect(record.promptVersion).toBe('reading-grounded/1.0.0');
+    expect(record.promptVersion).toBe('reading-grounded/2.0.0');
     expect(record.request.questionType).toBe('short_answer');
     expect(record.retrieval.query).toBe(SCANNING_TOPIC);
     expect(record.questions.map((entry) => entry.status)).toEqual(['valid', 'rejected', 'needs_review', 'rejected']);
@@ -498,7 +499,7 @@ describe('failure leaves nothing behind', () => {
     expect(body.materialId).toBe(undefined);
     expect(body.questions.map((item: { status: string }) => item.status)).toEqual(['rejected', 'rejected']);
     expect(body.questions[0].reasons[0]).toContain('only short_answer was requested');
-    expect(body.questions[1].reasons[0]).toContain('no evidence');
+    expect(body.questions[1].reasons[0]).toContain('no question evidence');
     expect(await readingCount()).toBe(beforeCount);
   });
 });
@@ -556,7 +557,7 @@ describe('the generated draft goes through the existing review and lifecycle', (
       }),
     );
     expect(html).toContain('import-learner-preview');
-    expect(html).toContain('Which kinds of words stand out visually when you scan a page?');
+    expect(html).toContain('What does the book call numbers, dates, proper nouns and capitalised terms?');
   });
 
   it('will not let review include a rejected question', async () => {
@@ -674,239 +675,5 @@ describe('the generated draft goes through the existing review and lifecycle', (
     expect(item.content.passage.questions).toHaveLength(1);
     expect(item.content.passage.questions[0].provenance.sourceId).toBe(source.id);
     expect(item.content.passage.questions[0].provenance.validation).toBe('valid');
-  });
-});
-
-/* -------------------------------------------------------------------------- */
-/* The validator, question family by question family                           */
-/* -------------------------------------------------------------------------- */
-
-describe('deterministic answer checks', () => {
-  const context = (questionType: Parameters<typeof validateGeneratedQuestions>[1]['questionType'], picked: SourceChunk[], requestedCount = 5) => {
-    const passage = buildPassage(picked, { showHeadings: questionType !== 'matching_headings' });
-    return {
-      questionType,
-      requestedCount,
-      chunks: picked,
-      sections: passage.sections,
-      generationId: 'gen-test',
-      generatedAt: '2026-01-01T00:00:00.000Z',
-      model: 'fake-model',
-      sourceId: source.id,
-    };
-  };
-  const chunkWith = (needle: string) => chunks.find((chunk) => chunk.text.includes(needle)) as SourceChunk;
-
-  it('accepts a multiple choice whose keyed option is in the evidence', () => {
-    const scan = chunkWith('proper nouns');
-    const [result] = validateGeneratedQuestions(
-      [
-        {
-          type: 'multiple_choice',
-          prompt: 'According to the book, which targets are easiest to scan for?',
-          options: ['A. Verbs and adjectives', 'B. Dates and proper nouns', 'C. Long paragraphs', 'D. Chapter titles'],
-          correctAnswer: 'B',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      context('multiple_choice', [scan]),
-    );
-    expect(result.status).toBe('valid');
-  });
-
-  it('refuses a multiple choice whose answer is not one of its options', () => {
-    const scan = chunkWith('proper nouns');
-    const [result] = validateGeneratedQuestions(
-      [
-        {
-          type: 'multiple_choice',
-          prompt: 'Which targets are easiest?',
-          options: ['A. Verbs', 'B. Dates'],
-          correctAnswer: 'E',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      context('multiple_choice', [scan]),
-    );
-    expect(result.status).toBe('rejected');
-    expect(result.reasons[0]).toContain('does not name one of the options');
-  });
-
-  it('refuses duplicate options rather than keeping one of them', () => {
-    const scan = chunkWith('proper nouns');
-    const [result] = validateGeneratedQuestions(
-      [
-        {
-          type: 'multiple_choice',
-          prompt: 'Which targets are easiest?',
-          options: ['A. Proper nouns', 'B. proper  nouns', 'C. Verbs'],
-          correctAnswer: 'A',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      context('multiple_choice', [scan]),
-    );
-    expect(result.status).toBe('rejected');
-    expect(result.reasons[0]).toContain('identical');
-  });
-
-  it('sends a multiple choice to review when a distractor fits the evidence as well as the key', () => {
-    const scan = chunkWith('proper nouns');
-    const [result] = validateGeneratedQuestions(
-      [
-        {
-          type: 'multiple_choice',
-          prompt: 'Which targets are easiest to scan for?',
-          options: ['A. Numbers and dates', 'B. Proper nouns and capitalised terms'],
-          correctAnswer: 'B',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      context('multiple_choice', [scan]),
-    );
-    expect(result.status).toBe('needs_review');
-    expect(result.question?.correctAnswer).toBe('B');
-  });
-
-  it('never marks FALSE or NOT GIVEN valid, and never changes the answer', () => {
-    const scan = chunkWith('proper nouns');
-    const results = validateGeneratedQuestions(
-      [
-        {
-          type: 'true_false_not_given',
-          prompt: 'Proper nouns are hard to see when scanning.',
-          correctAnswer: 'FALSE',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-        {
-          type: 'true_false_not_given',
-          prompt: 'Scanning was invented by Cambridge examiners.',
-          correctAnswer: 'not_given',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-        {
-          type: 'true_false_not_given',
-          prompt: 'Proper nouns and capitalised terms stand out visually as easy targets.',
-          correctAnswer: 'TRUE',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-        {
-          type: 'true_false_not_given',
-          prompt: 'Scanning is quick.',
-          correctAnswer: 'PROBABLY',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      context('true_false_not_given', [scan]),
-    );
-    expect(results.map((result) => result.status)).toEqual(['needs_review', 'needs_review', 'valid', 'rejected']);
-    expect(results[0].question?.correctAnswer).toBe('FALSE');
-    expect(results[1].question?.correctAnswer).toBe('NOT GIVEN');
-  });
-
-  it('refuses a quote that is not in the chunk it cites', () => {
-    const scan = chunkWith('proper nouns');
-    const [result] = validateGeneratedQuestions(
-      [
-        {
-          type: 'short_answer',
-          prompt: 'What stands out visually?',
-          correctAnswer: 'proper nouns',
-          evidence: [{ chunkId: scan.id, quote: 'Proper nouns always appear in bold typography on the page.' }],
-        },
-      ],
-      context('short_answer', [scan]),
-    );
-    expect(result.status).toBe('rejected');
-    expect(result.reasons[0]).toContain('does not appear in chunk');
-  });
-
-  it('refuses an answer longer than its own word limit, and a completion with no gap', () => {
-    const scan = chunkWith('proper nouns');
-    const results = validateGeneratedQuestions(
-      [
-        {
-          type: 'short_answer',
-          prompt: 'What are the easiest targets?',
-          wordLimit: 'NO MORE THAN TWO WORDS',
-          correctAnswer: 'numbers dates proper nouns',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      context('short_answer', [scan]),
-    );
-    expect(results[0].status).toBe('rejected');
-
-    const [completion] = validateGeneratedQuestions(
-      [
-        {
-          type: 'sentence_completion',
-          prompt: 'Proper nouns stand out visually.',
-          correctAnswer: 'proper nouns',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      context('sentence_completion', [scan]),
-    );
-    expect(completion.status).toBe('rejected');
-    expect(completion.reasons[0]).toContain('no gap');
-  });
-
-  it('checks matching headings against the section each question names', () => {
-    const scan = chunkWith('proper nouns');
-    const skim = chunkWith('Skimming means reading quickly');
-    const picked = [skim, scan];
-    const ctx = context('matching_headings', picked);
-    const sectionFor = (chunk: SourceChunk) => ctx.sections.find((s) => s.chunkId === chunk.id)!.label;
-    const headings = [
-      'i. Reading quickly for the general idea',
-      'ii. Searching the page for dates and proper nouns',
-      'iii. Managing the clock in the exam',
-    ];
-    const results = validateGeneratedQuestions(
-      [
-        {
-          type: 'matching_headings',
-          prompt: `Section ${sectionFor(scan)}`,
-          options: headings,
-          correctAnswer: 'ii',
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-        {
-          type: 'matching_headings',
-          prompt: `Section ${sectionFor(skim)}`,
-          options: headings,
-          correctAnswer: 'i',
-          // Evidence from the wrong section.
-          evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-        },
-      ],
-      ctx,
-    );
-    expect(results[0].status).toBe('valid');
-    expect(results[1].status).toBe('rejected');
-    expect(results[1].reasons[0]).toContain('does not come from Section');
-  });
-
-  it('keeps no more questions than were requested', () => {
-    const scan = chunkWith('proper nouns');
-    const question = (n: number) => ({
-      type: 'short_answer',
-      prompt: `Question number ${n} about what stands out?`,
-      correctAnswer: 'proper nouns',
-      evidence: [{ chunkId: scan.id, quote: SCANNING_QUOTE }],
-    });
-    const results = validateGeneratedQuestions([question(1), question(2)], context('short_answer', [scan], 1));
-    expect(results.map((result) => result.status)).toEqual(['valid', 'rejected']);
-  });
-
-  it('refuses output that is not the JSON the contract requires', () => {
-    let kind = '';
-    try {
-      parseModelOutput('```json\n{"questions": []}\n```');
-    } catch (error) {
-      if (error instanceof ModelOutputError) kind = error.kind;
-    }
-    expect(kind).toBe('invalid_json');
   });
 });

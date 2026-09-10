@@ -56,7 +56,9 @@ export interface ImportDiagnostic {
     /** Book → Test: validation refused a generated question. */
     | 'generation_rejected'
     /** Book → Test: fewer usable questions came back than were requested. */
-    | 'generation_incomplete';
+    | 'generation_incomplete'
+    /** Book → Test: machine validation flagged the question. Display only; the gate reads the generation record. */
+    | 'generation_needs_review';
   message: string;
   /** The question this concerns, when it concerns one. */
   questionNumber?: number;

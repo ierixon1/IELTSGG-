@@ -1,6 +1,7 @@
 import type { AdminMaterial } from '../types/admin';
 import type { Question } from '../types';
-import type { StoredGenerationRecord } from '../schemas/material';
+import type { StoredGenerationRecord, StoredGenerationReview } from '../schemas/material';
+import { questionContentHash } from './bookToTest/questionHash';
 import { QuestionSchema } from '../schemas/question';
 import { extractAssetIds } from './assetStore';
 
@@ -33,7 +34,8 @@ export interface PublishBlocker {
     | 'writing_task_missing'
     | 'speaking_incomplete'
     | 'generation_unverified'
-    | 'generation_provenance_missing';
+    | 'generation_provenance_missing'
+    | 'generation_confirmation_stale';
   message: string;
   /** The question this concerns, when it concerns one. */
   questionNumber?: number;
@@ -253,6 +255,8 @@ function generationBlockers(material: AdminMaterial): PublishBlocker[] {
   if (!record) return [];
 
   const entries = new Map(record.questions.map((entry) => [entry.generatedQuestionId, entry]));
+  const reviews =
+    (material.content as { generationReviews?: StoredGenerationReview[] }).generationReviews ?? [];
   const blockers: PublishBlocker[] = [];
 
   for (const question of questionsOf(material)) {
@@ -269,14 +273,31 @@ function generationBlockers(material: AdminMaterial): PublishBlocker[] {
       });
       continue;
     }
-    if (entry.status !== 'valid') {
-      const why = entry.reasons.length > 0 ? ` (${entry.reasons.join(' ')})` : '';
+    if (entry.status === 'valid') continue;
+
+    const latest = [...reviews].reverse().find((review) => review.generatedQuestionId === entry.generatedQuestionId);
+    if (entry.status === 'needs_review' && latest?.decision === 'confirmed') {
+      // The one promotion path: a person confirmed this exact version of the
+      // question. The machine verdict is untouched — the confirmation is a
+      // separate, attributed record, and it lapses if the question changes.
+      if (latest.questionHash === questionContentHash(question)) continue;
       blockers.push({
-        code: 'generation_unverified',
+        code: 'generation_confirmation_stale',
         questionNumber: number,
-        message: `Question ${number} was generated, but its answer could not be verified against the source${why}. Exclude it or regenerate.`,
+        message: `Question ${number} was confirmed by ${latest.reviewer.displayName || latest.reviewer.username} at ${latest.reviewedAt}, but has been edited since. Confirm the current version again.`,
       });
+      continue;
     }
+
+    const why = entry.reasons.length > 0 ? ` (${entry.reasons.join(' ')})` : '';
+    const upheld = latest?.decision === 'rejected' ? ` A reviewer upheld the flag: "${latest.note}".` : '';
+    blockers.push({
+      code: 'generation_unverified',
+      questionNumber: number,
+      message: entry.status === 'rejected'
+        ? `Question ${number} was rejected by validation${why}.`
+        : `Question ${number} was generated, but did not pass validation${why}.${upheld} A reviewer can confirm it from the review screen, or it can be excluded.`,
+    });
   }
 
   return blockers;

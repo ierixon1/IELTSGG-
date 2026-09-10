@@ -14,6 +14,10 @@ import {
   type GenerationOutcome,
 } from '../services/bookToTest/generate';
 import { reviewInputFor } from '../services/bookToTest/reviewAdapter';
+import { nanoid } from 'nanoid';
+import { questionContentHash } from '../services/bookToTest/questionHash';
+import { MaterialValidationError } from '../services/adminStore';
+import type { StoredGenerationReview } from '../schemas/material';
 
 /**
  * The source library: ingest a book, see what came of it, search inside it.
@@ -257,10 +261,15 @@ function describeOutcome(outcome: GenerationOutcome) {
     questions: outcome.questions.map((item) => ({
       generatedQuestionId: item.generatedQuestionId,
       status: item.status,
+      groundingVerdict: item.groundingVerdict,
+      qualityVerdict: item.qualityVerdict,
       reasons: item.reasons,
       question: item.question,
       candidate: item.candidate,
       evidence: item.evidence,
+      questionEvidence: item.questionEvidence,
+      answerEvidence: item.answerEvidence,
+      distractorEvidence: item.distractorEvidence,
       chunkIds: item.chunkIds,
     })),
     passage: outcome.passage,
@@ -330,9 +339,23 @@ sourceRouter.get('/generated/:materialId/review', async (req, res) => {
       questions: material.content.passage.questions,
     });
 
+    // Each decision says whether its question is still in the draft, and if so
+    // whether it still covers that question as stored now. An excluded question
+    // is not a changed one, and the screen must not say it was.
+    const storedQuestions = new Map(material.content.passage.questions.map((question) => [question.id, question]));
+    const generationReviews = (material.content.generationReviews ?? []).map((review) => {
+      const question = storedQuestions.get(review.generatedQuestionId);
+      return {
+        ...review,
+        inDraft: Boolean(question),
+        current: question ? questionContentHash(question) === review.questionHash : false,
+      };
+    });
+
     return res.json({
       materialId: material.id,
       status: material.status,
+      generationReviews,
       classification: {
         section: 'reading',
         module: material.module,
@@ -346,5 +369,88 @@ sourceRouter.get('/generated/:materialId/review', async (req, res) => {
   } catch (error) {
     console.error('[BookToTest] review read failed:', error);
     return res.status(500).json({ error: 'Unable to open the generated draft.' });
+  }
+});
+
+/**
+ * A person's decision about one question machine validation flagged.
+ *
+ * The only way a needs-review question can become publishable. The decision is
+ * appended, never overwritten; the reviewer is the admin in the session, not
+ * anyone the request names; the machine verdict is copied in as it stood; and
+ * the question's content hash is recorded, so editing the question afterwards
+ * makes the confirmation lapse. Valid questions have nothing to confirm, and
+ * rejected ones cannot be promoted at all.
+ */
+sourceRouter.post('/generated/:materialId/questions/:questionId/reviews', async (req: AdminRequest, res) => {
+  try {
+    const decision = req.body?.decision;
+    if (decision !== 'confirmed' && decision !== 'rejected') {
+      return res.status(400).json({ error: 'Choose to confirm the question or uphold the flag.', code: 'decision_required' });
+    }
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+    if (note.length < 10) {
+      return res.status(400).json({ error: 'Say what you checked against the source (at least 10 characters).', code: 'note_required' });
+    }
+    const reviewer = req.adminUser;
+    if (!reviewer?.id) return res.status(401).json({ error: 'Sign in again to record a decision.', code: 'no_reviewer' });
+
+    const material = await adminStore.getMaterial('reading', req.params.materialId).catch(() => null);
+    if (!material || material.section !== 'reading') return res.status(404).json({ error: 'Material not found.' });
+    const record = material.content.generationRecord;
+    if (!record) return res.status(404).json({ error: 'This material was not generated from a source.' });
+    if (material.status !== 'draft') {
+      return res.status(409).json({ error: 'Only a draft can be reviewed. Unpublish it first.', code: 'not_draft' });
+    }
+
+    const entry = record.questions.find((item) => item.generatedQuestionId === req.params.questionId);
+    if (!entry) return res.status(404).json({ error: 'That question is not part of this generation.', code: 'question_not_found' });
+    if (entry.status !== 'needs_review') {
+      return res.status(409).json({
+        error:
+          entry.status === 'valid'
+            ? 'This question already passed validation; there is nothing to confirm.'
+            : 'A question rejected by validation cannot be promoted.',
+        code: 'not_needs_review',
+      });
+    }
+    const question = material.content.passage.questions.find((item) => item.id === entry.generatedQuestionId);
+    if (!question) {
+      return res.status(409).json({
+        error: 'This question is not in the saved material. Include it and save the draft before deciding on it.',
+        code: 'question_not_in_material',
+      });
+    }
+
+    const review: StoredGenerationReview = {
+      reviewId: `rev-${Date.now()}-${nanoid(6)}`,
+      generatedQuestionId: entry.generatedQuestionId,
+      decision,
+      note,
+      reviewer: {
+        id: reviewer.id,
+        username: reviewer.username,
+        displayName: reviewer.displayName || reviewer.username,
+      },
+      reviewedAt: new Date().toISOString(),
+      questionHash: questionContentHash(question),
+      machineVerdict: {
+        status: entry.status,
+        groundingStatus: entry.groundingVerdict?.status ?? entry.status,
+        qualityStatus: entry.qualityVerdict?.status ?? entry.status,
+        reasonCodes: [...(entry.groundingVerdict?.reasons ?? []), ...(entry.qualityVerdict?.reasons ?? [])].map(
+          (reason) => reason.code,
+        ),
+      },
+    };
+
+    const updated = await adminStore.appendGenerationReview('reading', material.id, review);
+    return res.status(201).json({ review, item: updated });
+  } catch (error) {
+    if (error instanceof MaterialValidationError) {
+      return res.status(400).json({ error: 'The decision could not be recorded.', issues: error.issues });
+    }
+    console.error('[BookToTest] review record failed:', error);
+    return res.status(500).json({ error: 'Unable to record the decision.' });
   }
 });

@@ -323,6 +323,11 @@ export async function generateReadingFromSource(input: GenerateReadingInput): Pr
       chunkIds: item.chunkIds,
       evidence: item.evidence,
       candidate: item.status === 'rejected' ? item.candidate : undefined,
+      groundingVerdict: item.groundingVerdict,
+      qualityVerdict: item.qualityVerdict,
+      questionEvidence: item.questionEvidence,
+      answerEvidence: item.answerEvidence,
+      distractorEvidence: item.distractorEvidence,
     })),
     summary,
   };

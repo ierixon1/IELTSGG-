@@ -100,6 +100,18 @@ export type StoredImportRecord = z.infer<typeof ImportRecordSchema>;
 
 const ChunkRef = z.string().trim().min(1).max(200);
 
+const EvidenceEntry = z.object({ chunkId: ChunkRef, quote: Trimmed(2000) });
+
+/** One dimension of a machine verdict: source grounding, or IELTS quality. */
+const VerdictSchema = z.object({
+  status: z.enum(['valid', 'needs_review', 'rejected']),
+  evaluated: z.boolean().default(true),
+  reasons: z
+    .array(z.object({ code: Trimmed(64), message: Trimmed(1000) }))
+    .max(40)
+    .default([]),
+});
+
 /**
  * How a generated material was produced, precisely enough to reproduce the
  * question the model was asked and check every answer it gave.
@@ -184,6 +196,23 @@ export const GenerationRecordSchema = z.object({
           .default([]),
         /** What the model returned for a rejected question, kept for review only. */
         candidate: z.record(z.string(), z.unknown()).optional(),
+        /** Is every claim the question makes established by the supplied source? */
+        groundingVerdict: VerdictSchema.optional(),
+        /** Is it a sound IELTS question: one defensible answer, real distractors? */
+        qualityVerdict: VerdictSchema.optional(),
+        questionEvidence: z.array(EvidenceEntry).max(10).default([]),
+        answerEvidence: z.array(EvidenceEntry).max(10).default([]),
+        distractorEvidence: z
+          .array(
+            z.object({
+              option: Trimmed(1000),
+              chunkId: ChunkRef.optional(),
+              quote: Trimmed(2000).optional(),
+              reason: Trimmed(1000).optional(),
+            }),
+          )
+          .max(10)
+          .default([]),
       }),
     )
     .max(50),
@@ -201,6 +230,39 @@ export const GenerationRecordSchema = z.object({
 export type StoredGenerationRecord = z.infer<typeof GenerationRecordSchema>;
 
 /**
+ * A person's decision about one question the machine could not verify.
+ *
+ * Append-only, and separate from the generation record on purpose: the
+ * machine verdict stays exactly what it was, and the human decision sits
+ * beside it with a name, a time and a reason. The reviewer is taken from the
+ * admin session by the route, never from the request body.
+ *
+ * `questionHash` fixes what was confirmed. If the question is edited after
+ * the decision, the hash no longer matches and the confirmation lapses.
+ */
+export const GenerationReviewSchema = z.object({
+  reviewId: z.string().trim().min(1).max(80),
+  generatedQuestionId: z.string().trim().min(1).max(128),
+  decision: z.enum(['confirmed', 'rejected']),
+  note: z.string().trim().min(10).max(2000),
+  reviewer: z.object({
+    id: z.string().trim().min(1).max(160),
+    username: Trimmed(160),
+    displayName: Trimmed(200),
+  }),
+  reviewedAt: Trimmed(40),
+  questionHash: z.string().regex(/^[a-f0-9]{64}$/),
+  machineVerdict: z.object({
+    status: z.enum(['valid', 'needs_review', 'rejected']),
+    groundingStatus: z.enum(['valid', 'needs_review', 'rejected']),
+    qualityStatus: z.enum(['valid', 'needs_review', 'rejected']),
+    reasonCodes: z.array(Trimmed(64)).max(40),
+  }),
+});
+
+export type StoredGenerationReview = z.infer<typeof GenerationReviewSchema>;
+
+/**
  * Keeps a generated material honest about its questions.
  *
  * A question the record lists must keep its provenance, a question claiming
@@ -209,11 +271,20 @@ export type StoredGenerationRecord = z.infer<typeof GenerationRecordSchema>;
  * an id the record does not know — are left to the ordinary rules.
  */
 function checkGeneratedQuestions(
-  content: { generationRecord?: StoredGenerationRecord; passage: { questions: Question[] } },
+  content: {
+    generationRecord?: StoredGenerationRecord;
+    generationReviews?: StoredGenerationReview[];
+    passage: { questions: Question[] };
+  },
   addIssue: (message: string) => void,
 ) {
   const record = content.generationRecord;
-  if (!record) return;
+  if (!record) {
+    if ((content.generationReviews ?? []).length > 0) {
+      addIssue('Reviewer decisions exist, but this material has no generation record for them to concern.');
+    }
+    return;
+  }
   const entries = new Map(record.questions.map((entry) => [entry.generatedQuestionId, entry]));
 
   for (const question of content.passage.questions) {
@@ -240,6 +311,16 @@ function checkGeneratedQuestions(
       addIssue(`${label} was rejected by validation and cannot be saved into the material.`);
     }
   }
+
+  // A decision may only concern a question the machine actually flagged.
+  for (const review of content.generationReviews ?? []) {
+    const entry = entries.get(review.generatedQuestionId);
+    if (!entry) {
+      addIssue(`Review ${review.reviewId} concerns "${review.generatedQuestionId}", which the generation record does not contain.`);
+    } else if (entry.status !== 'needs_review') {
+      addIssue(`Review ${review.reviewId} concerns a question the machine marked ${entry.status}; only needs-review questions can be decided.`);
+    }
+  }
 }
 
 const AssetRefs = {
@@ -252,6 +333,8 @@ export const ReadingContentSchema = z.object({
   ...AssetRefs,
   // Reading is the only section Book → Test generates.
   generationRecord: GenerationRecordSchema.optional(),
+  /** Append-only reviewer decisions. Written by `appendGenerationReview` alone. */
+  generationReviews: z.array(GenerationReviewSchema).max(500).optional(),
   passage: z.object({
     passageNumber: z.number().int().min(1).max(3).default(1),
     title: RequiredText(500),

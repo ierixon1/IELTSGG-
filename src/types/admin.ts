@@ -1,5 +1,5 @@
 import type { Question } from '../types';
-import type { StoredGenerationRecord, StoredImportRecord } from '../schemas/material';
+import type { StoredGenerationRecord, StoredGenerationReview, StoredImportRecord } from '../schemas/material';
 
 // Types for Admin CMS, Examiners, and Full CDI Bundles
 export interface AdminUser {
@@ -67,6 +67,8 @@ export interface MaterialAssetRefs {
    * concluded about every question. Written once, like `importRecord`.
    */
   generationRecord?: StoredGenerationRecord;
+  /** Reviewer decisions about flagged generated questions, oldest first. */
+  generationReviews?: StoredGenerationReview[];
 }
 
 export interface AdminSpeakingMaterial extends BaseAdminMaterial {

@@ -5,6 +5,7 @@ import { getFirestoreDb } from './firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { AdminSpeakingMaterial, AdminReadingMaterial, AdminListeningMaterial, AdminWritingMaterial, AdminMaterial, FullCdiBundle, AdminStats, MaterialLifecycleStatus } from '../types/admin';
 import { parseMaterialForWrite, migrateStoredMaterial } from '../schemas/material';
+import type { StoredGenerationReview } from '../schemas/material';
 import { publishBlockers } from './publishGate';
 import type { PublishBlocker, PublishGateContext } from './publishGate';
 import type { QuestionIssue } from '../schemas/question';
@@ -166,11 +167,55 @@ class AdminStore {
     if(previousContent?.generationRecord&&contentNow&&typeof contentNow==="object"&&!Array.isArray(contentNow)){
       candidate.content={...contentNow,generationRecord:previousContent.generationRecord};
     }
+    // Reviewer decisions are appended by `appendGenerationReview` alone, which
+    // takes the reviewer from the session. A save carries the existing log
+    // forward and discards whatever the request sent, so a confirmation can be
+    // neither forged nor erased by editing the material.
+    const contentForReviews=candidate.content as Record<string,unknown>|undefined;
+    if(contentForReviews&&typeof contentForReviews==="object"&&!Array.isArray(contentForReviews)){
+      const {generationReviews:_discarded,...rest}=contentForReviews;
+      candidate.content=previousContent?.generationReviews?{...rest,generationReviews:previousContent.generationReviews}:rest;
+    }
     const parsed=parseMaterialForWrite(section,candidate);
     if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
     return parsed.material as unknown as AdminMaterial;
   }
   public async deleteMaterial(section:SectionType,id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id),snap=await ref.get();if(!snap.exists)return false;await ref.delete();return true;}const items=this.readCollection<any>(section),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection(section,filtered);return true;}
+  /**
+   * Appends one reviewer decision to a generated material.
+   *
+   * The only write path for `generationReviews`. The whole material is validated
+   * again, so a decision about a question the record does not know, or one the
+   * machine did not flag, is refused here as well as at the route.
+   */
+  public async appendGenerationReview(section:SectionType,id:string,review:StoredGenerationReview):Promise<AdminMaterial>{
+    assertId(id);
+    let row:Record<string,unknown>|null=null;
+    if(useFirestore()){
+      const snap=await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).get();
+      row=snap.exists?(snap.data() as Record<string,unknown>):null;
+    }else{
+      row=this.readCollection<Record<string,unknown>>(section).find(item=>item.id===id)||null;
+    }
+    if(!row)throw new Error('Material not found.');
+    const content=(row.content??{}) as Record<string,unknown>;
+    const existing=Array.isArray(content.generationReviews)?content.generationReviews:[];
+    const next={...row,content:{...content,generationReviews:[...existing,review]},updatedAt:new Date().toISOString()};
+    const parsed=parseMaterialForWrite(section,next);
+    if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
+    const material=parsed.material as unknown as AdminMaterial;
+    if(useFirestore()){
+      await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).set(material);
+    }else{
+      const items=this.readCollection<Record<string,unknown>>(section);
+      const index=items.findIndex(item=>item.id===id);
+      if(index<0)throw new Error('Material not found.');
+      items[index]=material as unknown as Record<string,unknown>;
+      this.writeCollection(section,items);
+    }
+    return material;
+  }
+
   /**
    * One material, alongside the questions its stored row cannot make canonical.
    *

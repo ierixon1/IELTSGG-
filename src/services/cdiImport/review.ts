@@ -1,5 +1,5 @@
 import { QuestionSchema } from '../../schemas/question';
-import type { StoredGenerationRecord } from '../../schemas/material';
+import type { StoredGenerationRecord, StoredGenerationReview } from '../../schemas/material';
 import type { MediaRef, Question, QuestionLayout, QuestionType } from '../../types';
 import type {
   AnswerStatus,
@@ -92,6 +92,16 @@ export interface ReviewState {
    * material unchanged; nothing on this screen edits it.
    */
   generationRecord?: StoredGenerationRecord;
+  /** Reviewer decisions about flagged generated questions, oldest first. Read-only here. */
+  generationReviews?: ReviewConfirmation[];
+}
+
+/** A reviewer decision, with whether it still covers the question as it is stored now. */
+export interface ReviewConfirmation extends StoredGenerationReview {
+  /** False once the question was excluded from the draft; such a decision covers nothing. */
+  inDraft: boolean;
+  /** The question is in the draft and unchanged since the decision. */
+  current: boolean;
 }
 
 /**
@@ -212,6 +222,7 @@ export function buildReviewState(
     sourceAssetId?: string;
     materialId?: string;
     generationRecord?: StoredGenerationRecord;
+    generationReviews?: ReviewConfirmation[];
   } = { sourceHtml: '' },
 ): ReviewState {
   const questions: ReviewQuestion[] = result.questions.map((entry, index) => ({
@@ -250,6 +261,7 @@ export function buildReviewState(
     stats: result.stats,
     materialId: options.materialId,
     generationRecord: options.generationRecord,
+    generationReviews: options.generationReviews,
   };
 
   state.phase = phaseFor(state);

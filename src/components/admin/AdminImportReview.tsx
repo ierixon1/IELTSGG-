@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Save,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import type { AnswerValue, Question, QuestionType } from '../../types';
@@ -52,6 +53,8 @@ interface AdminImportReviewProps {
   onChange: (state: ReviewState) => void;
   onSaveDraft: (payload: NonNullable<ReturnType<typeof toSavePayload>>) => Promise<void>;
   onCancel: () => void;
+  /** Records a reviewer decision about a flagged generated question. */
+  onReviewGenerated?: (generatedQuestionId: string, decision: 'confirmed' | 'rejected', note: string) => Promise<void>;
 }
 
 const STATUS_TONES: Record<string, string> = {
@@ -92,12 +95,235 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; tone?: string }> =
   </div>
 );
 
+const VERDICT_TONE: Record<string, string> = {
+  valid: 'parsed',
+  needs_review: 'needs_review',
+  rejected: 'unsupported',
+};
+
+interface VerdictLike {
+  status: string;
+  evaluated: boolean;
+  reasons: Array<{ code: string; message: string }>;
+}
+
+const dimensionLabel = (verdict: VerdictLike | undefined, fallback: string) =>
+  !verdict ? fallback.replace(/_/g, ' ') : !verdict.evaluated ? 'not evaluated' : verdict.status.replace(/_/g, ' ');
+
+/**
+ * Why machine validation said what it said about one generated question, and
+ * the one place a person can decide otherwise.
+ *
+ * Everything above the decision controls is the machine's record, shown as it
+ * was written at generation time and not editable here. The decision is a
+ * separate, attributed entry; it never rewrites the verdict above it.
+ */
+const GenerationVerdictPanel: React.FC<{
+  question: ReviewQuestion;
+  state: ReviewState;
+  onReviewGenerated?: (generatedQuestionId: string, decision: 'confirmed' | 'rejected', note: string) => Promise<void>;
+}> = ({ question, state, onReviewGenerated }) => {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const record = state.generationRecord;
+  const id = question.draft.provenance?.generatedQuestionId ?? question.draft.id;
+  const entry = record?.questions.find((item) => item.generatedQuestionId === id);
+  if (!record || !entry) return null;
+
+  const citation = (chunkId: string) => {
+    const chunk = record.chunks.find((item) => item.chunkId === chunkId);
+    if (!chunk) return chunkId;
+    const trail = chunk.path.join(' › ') || 'untitled section';
+    return `Section ${chunk.label ?? '?'} · ${trail}${chunk.page ? ` · p. ${chunk.page}` : ''}`;
+  };
+  const decisions = (state.generationReviews ?? []).filter((item) => item.generatedQuestionId === entry.generatedQuestionId);
+  const dimensions: Array<[string, VerdictLike | undefined]> = [
+    ['grounding', entry.groundingVerdict],
+    ['quality', entry.qualityVerdict],
+  ];
+
+  const decide = async (decision: 'confirmed' | 'rejected') => {
+    if (!onReviewGenerated) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onReviewGenerated(entry.generatedQuestionId, decision, note);
+      setNote('');
+    } catch (decisionError: unknown) {
+      setError(decisionError instanceof Error ? decisionError.message : 'The decision could not be recorded.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const evidenceBlock = (title: string, items: Array<{ chunkId: string; quote: string }>, empty: string, kind: string) => (
+    <div data-evidence-kind={kind}>
+      <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-500">{title}</div>
+      {items.length === 0 ? (
+        <p className="mt-0.5 text-[11px] italic text-ink-400">{empty}</p>
+      ) : (
+        <ul className="mt-0.5 space-y-1">
+          {items.map((item) => (
+            <li key={`${item.chunkId}-${item.quote}`} className="text-[11px] text-ink-700">
+              “{item.quote}”
+              <span className="ml-1 font-mono text-[10px] text-ink-400">{citation(item.chunkId)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      data-generation-verdicts={entry.generatedQuestionId}
+      data-final={entry.status}
+      data-grounding={entry.groundingVerdict?.status ?? entry.status}
+      data-quality={entry.qualityVerdict?.status ?? entry.status}
+      className="space-y-2.5 rounded-lg border border-brand-200 bg-brand-50/40 p-2.5"
+    >
+      <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-600">
+        Machine verdict — recorded at generation, not editable
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <StatusPill status={VERDICT_TONE[entry.status]}>final: {entry.status.replace(/_/g, ' ')}</StatusPill>
+        {dimensions.map(([name, verdict]) => (
+          <StatusPill key={name} status={VERDICT_TONE[verdict?.status ?? entry.status]}>
+            {name}: {dimensionLabel(verdict, entry.status)}
+          </StatusPill>
+        ))}
+      </div>
+
+      {dimensions.map(([name, verdict]) =>
+        verdict && verdict.reasons.length > 0 ? (
+          <div key={name} data-dimension={name}>
+            <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-500">
+              {name === 'grounding' ? 'Source grounding — why' : 'IELTS quality — why'}
+            </div>
+            <ul className="mt-0.5 space-y-1 text-[11px] text-ink-700">
+              {verdict.reasons.map((reason) => (
+                <li key={`${reason.code}-${reason.message}`} data-reason-code={reason.code}>
+                  <span className="font-mono text-[10px] text-ink-400">{reason.code}</span> {reason.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null,
+      )}
+      {!entry.groundingVerdict && entry.reasons.length > 0 && (
+        <ul className="space-y-1 text-[11px] text-ink-700">
+          {entry.reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      )}
+
+      {evidenceBlock(
+        'Question evidence — what the question is about',
+        entry.questionEvidence.length > 0 ? entry.questionEvidence : entry.evidence,
+        'None cited.',
+        'question',
+      )}
+      {evidenceBlock(
+        'Answer evidence — what establishes the answer',
+        entry.answerEvidence,
+        'None cited. A NOT GIVEN answer has no answer evidence by definition.',
+        'answer',
+      )}
+      {entry.distractorEvidence.length > 0 && (
+        <div data-evidence-kind="distractor">
+          <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-500">
+            Distractor evidence — the model's own account, not trusted by validation
+          </div>
+          <ul className="mt-0.5 space-y-1 text-[11px] text-ink-700">
+            {entry.distractorEvidence.map((item) => (
+              <li key={item.option}>
+                <b>{item.option}</b> — {item.reason ?? 'no reason given'}
+                {item.quote ? <span className="text-ink-500"> (“{item.quote}”)</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {decisions.length > 0 && (
+        <div data-review-history>
+          <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-500">Reviewer decisions</div>
+          <ul className="mt-0.5 space-y-1 text-[11px] text-ink-700">
+            {decisions.map((item) => (
+              <li key={item.reviewId} data-review-decision={item.decision} data-review-current={String(item.current)}>
+                <b>{item.decision === 'confirmed' ? 'Confirmed' : 'Flag upheld'}</b> by {item.reviewer.displayName || item.reviewer.username} ({item.reviewer.username}) at{' '}
+                <span className="font-mono">{item.reviewedAt}</span> — “{item.note}”. Machine verdict at the time: {item.machineVerdict.status.replace(/_/g, ' ')}.{' '}
+                {!item.inDraft ? (
+                  <span className="text-ink-500">The question is not in the saved draft.</span>
+                ) : item.current ? (
+                  <span className="text-success-700">Covers the question as saved.</span>
+                ) : (
+                  <span className="text-danger-700">Lapsed — the question changed after this decision.</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {entry.status === 'needs_review' &&
+        (state.materialId && onReviewGenerated ? (
+          <div className="space-y-1.5" data-confirm-panel>
+            <textarea
+              data-confirm-note
+              rows={2}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="What did you check against the source? Required."
+              className="w-full rounded-lg border border-ink-200 p-2 text-xs"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                data-confirm-action="confirmed"
+                disabled={busy || note.trim().length < 10}
+                onClick={() => void decide('confirmed')}
+                className="inline-flex items-center gap-1 rounded-lg bg-success-600 px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+              >
+                <ShieldCheck className="h-3 w-3" />
+                Confirm against the source
+              </button>
+              <button
+                type="button"
+                data-confirm-action="rejected"
+                disabled={busy || note.trim().length < 10}
+                onClick={() => void decide('rejected')}
+                className="rounded-lg border border-ink-300 px-2.5 py-1 text-[11px] font-semibold text-ink-700 disabled:opacity-50"
+              >
+                Uphold the flag
+              </button>
+            </div>
+            <p className="text-[10px] text-ink-500">
+              Recorded with your name and the time. It does not change the machine verdict, and it lapses if
+              this question is edited afterwards. Save the draft first if you have changed it here.
+            </p>
+            {error && <p className="text-[11px] text-danger-700">{error}</p>}
+          </div>
+        ) : (
+          <p className="text-[11px] text-ink-500">Save this draft before recording a decision on this question.</p>
+        ))}
+      {entry.status === 'rejected' && (
+        <p className="text-[11px] text-danger-700">A question rejected by validation cannot be promoted.</p>
+      )}
+    </div>
+  );
+};
+
 /** One row: what the parser said, what it is now, and how to change it. */
 const QuestionRow: React.FC<{
   question: ReviewQuestion;
   state: ReviewState;
   onChange: (state: ReviewState) => void;
-}> = ({ question, state, onChange }) => {
+  onReviewGenerated?: (generatedQuestionId: string, decision: 'confirmed' | 'rejected', note: string) => Promise<void>;
+}> = ({ question, state, onChange, onReviewGenerated }) => {
   // Anything the parser could not finish opens on arrival. A review screen
   // whose purpose is not hiding parser errors must not fold them away by
   // default; a clean row stays collapsed so the ones needing attention stand out.
@@ -303,6 +529,8 @@ const QuestionRow: React.FC<{
             </div>
           )}
 
+          <GenerationVerdictPanel question={question} state={state} onReviewGenerated={onReviewGenerated} />
+
           <div className="flex flex-wrap items-center gap-2">
             {(['include', 'mark_unsupported', 'exclude'] as ReviewDecision[]).map((decision) => (
               <button
@@ -356,11 +584,13 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
   onChange,
   onSaveDraft,
   onCancel,
+  onReviewGenerated,
 }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewAnswers, setPreviewAnswers] = useState<Record<string, AnswerValue>>({});
 
+  const generated = Boolean(state.generationRecord);
   const phase = phaseFor(state);
   const blockers = blockingReasons(state);
   const ready = useMemo<Question[]>(() => includedQuestions(state), [state]);
@@ -394,24 +624,30 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
     <div className="space-y-6" id="admin-import-review">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-200 pb-4">
         <div>
-          <h3 className="text-lg font-bold text-ink-900">Review imported material</h3>
+          <h3 className="text-lg font-bold text-ink-900">
+            {generated ? 'Review generated material' : 'Review imported material'}
+          </h3>
           <p className="text-xs text-ink-500">
-            What the parser understood, and what it could not. Nothing is saved until you confirm it.
+            {generated
+              ? 'What validation established from the source, and what it could not. Nothing is published from here.'
+              : 'What the parser understood, and what it could not. Nothing is saved until you confirm it.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <StatusPill status={phase === 'ready' ? 'parsed' : phase === 'blocked' ? 'unsupported' : 'needs_review'}>
             {PHASE_LABEL[phase]}
           </StatusPill>
-          <span className="font-mono text-[10px] text-ink-400">parser {state.parserVersion}</span>
+          <span className="font-mono text-[10px] text-ink-400">
+            {generated ? 'generator' : 'parser'} {state.parserVersion}
+          </span>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Detected" value={counts.detected} />
-        <Stat label="Parsed" value={counts.parsed} tone="text-success-700" />
+        <Stat label={generated ? 'Valid' : 'Parsed'} value={counts.parsed} tone="text-success-700" />
         <Stat label="Needs review" value={counts.needsReview} tone="text-warning-700" />
-        <Stat label="Unsupported" value={counts.unsupported} tone="text-danger-700" />
+        <Stat label={generated ? 'Rejected' : 'Unsupported'} value={counts.unsupported} tone="text-danger-700" />
       </div>
 
       {blockers.length > 0 && (
@@ -598,7 +834,13 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
           Questions ({state.questions.length})
         </h4>
         {state.questions.map((question) => (
-          <QuestionRow key={question.key} question={question} state={state} onChange={onChange} />
+          <QuestionRow
+            key={question.key}
+            question={question}
+            state={state}
+            onChange={onChange}
+            onReviewGenerated={onReviewGenerated}
+          />
         ))}
       </section>
 

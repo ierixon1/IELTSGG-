@@ -242,6 +242,15 @@ export interface QuestionProvenance {
   pages: number[];
   locations: QuestionProvenanceLocation[];
   evidence: Array<{ chunkId: string; quote: string }>;
+  /** The sentence(s) the question is about. */
+  questionEvidence?: Array<{ chunkId: string; quote: string }>;
+  /** The text that establishes the answer. Empty for NOT GIVEN. */
+  answerEvidence?: Array<{ chunkId: string; quote: string }>;
+  /** The model’s account of why each distractor is wrong. Recorded, never trusted. */
+  distractorEvidence?: Array<{ option: string; chunkId?: string; quote?: string; reason?: string }>;
+  /** Display copies of the two machine verdicts; the generation record holds the originals. */
+  groundingStatus?: 'valid' | 'needs_review';
+  qualityStatus?: 'valid' | 'needs_review';
   validation: 'valid' | 'needs_review';
 }
 

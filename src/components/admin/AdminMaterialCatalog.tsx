@@ -27,6 +27,8 @@ interface AdminMaterialCatalogProps {
   searchQuery: string;
   onEdit: (material: AdminMaterial) => void;
   onPreview: (material: AdminMaterial) => void;
+  /** Opens a generated draft in the review screen, where its flagged questions are decided. */
+  onOpenGeneratedReview?: (material: AdminMaterial) => void;
   onDelete: (material: AdminMaterial) => void;
   /** Re-reads the catalog after a lifecycle change. */
   onChanged: () => void;
@@ -86,6 +88,7 @@ export const AdminMaterialCatalog: React.FC<AdminMaterialCatalogProps> = ({
   searchQuery,
   onEdit,
   onPreview,
+  onOpenGeneratedReview,
   onDelete,
   onChanged,
   onToast,
@@ -290,6 +293,21 @@ export const AdminMaterialCatalog: React.FC<AdminMaterialCatalogProps> = ({
                         <Edit className="h-3.5 w-3.5" />
                         <span className="hidden sm:inline">Edit</span>
                       </button>
+
+                      {material.status === 'draft' &&
+                        material.section === 'reading' &&
+                        material.content.generationRecord &&
+                        onOpenGeneratedReview && (
+                          <button
+                            id={`btn-review-${material.id}`}
+                            onClick={() => onOpenGeneratedReview(material)}
+                            className="flex items-center gap-1 rounded-lg border border-brand-200 px-2 py-1.5 text-xs font-semibold text-brand-700 hover:border-brand-400"
+                            title="Machine verdicts, source evidence and reviewer decisions for each generated question"
+                          >
+                            <FileCode className="h-3.5 w-3.5" />
+                            Review
+                          </button>
+                        )}
 
                       {material.status !== 'published' && (
                         <>

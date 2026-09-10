@@ -5,9 +5,12 @@
  * `GENERATOR_VERSION` when the validation rules change: a question that was
  * accepted under an older rule is not wrong, but a reviewer looking at it next
  * year needs to know which rules it passed.
+ *
+ * 2.0.0 — evidence split into question / answer / distractor evidence, and
+ * verdicts split into source grounding and IELTS quality.
  */
-export const GENERATOR_VERSION = 'book-to-test/reading/1.0.0';
-export const PROMPT_VERSION = 'reading-grounded/1.0.0';
+export const GENERATOR_VERSION = 'book-to-test/reading/2.0.0';
+export const PROMPT_VERSION = 'reading-grounded/2.0.0';
 
 /**
  * The model the rest of the server already uses for structured generation, so

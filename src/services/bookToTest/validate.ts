@@ -1,27 +1,34 @@
 import type { Question, QuestionProvenance } from '../../types';
 import type { SourceChunk } from '../../types/source';
 import { QuestionSchema, TRUE_FALSE_ANSWERS } from '../../schemas/question';
-import { answerMatchesOption, answerMatchesOptions } from '../../utils/answerMatching';
-import { queryTerms } from '../sourceIngest/retrieve';
+import { answerMatchesOptions } from '../../utils/answerMatching';
 import type { PassageSection } from './passage';
 import type { GeneratableType, GeneratedQuestionStatus } from './types';
 import { GENERATOR_VERSION } from './version';
+import { VerdictBuilder, worst, type Verdict } from './quality/reasons';
+import { checkFamily, checkHeadingSet, type EvidenceItem, type HeadingInfo } from './quality/families';
+import { normalizeForMatch, sentencesOf, stripOptionLabel } from './quality/text';
+
+export { normalizeForMatch } from './quality/text';
+export type { EvidenceItem } from './quality/families';
 
 /**
  * Deciding what the model's output is worth.
  *
- *   generated question → provenance check → schema validation → evidence check
+ *   generated question → provenance → schema → grounding → IELTS quality
  *   → valid | needs_review | rejected
  *
- * The model's `correctAnswer` is a claim, not a fact. This module never changes
- * an answer, never picks a "better" option, and never fills in a missing field.
- * It can do three things with a question: accept it, send it to a human, or
- * refuse it — and every one of those comes with the reason.
+ * The model's `correctAnswer` is a claim. This module never changes it, never
+ * picks a "better" option and never fills a missing field. It accepts, sends to
+ * a human, or refuses — and says why, in machine-readable codes, separately for
+ * whether the question is grounded in the source and whether it is a sound IELTS
+ * question.
  *
- * What is mechanically checkable is checked. What is not — whether a paraphrased
- * option really means what the source means, whether a statement is FALSE rather
- * than merely absent — is marked `needs_review`, because a heuristic that
- * "usually agrees" would quietly promote exactly the answers that are wrong.
+ * Evidence comes in three kinds and they are not interchangeable: the sentence
+ * a question is *about*, the text that establishes its *answer*, and the model's
+ * account of why each *distractor* is wrong. An answer string appearing somewhere
+ * in the passage is not answer evidence; a distractor rationale from the model is
+ * recorded, never trusted.
  */
 
 export class ModelOutputError extends Error {
@@ -34,13 +41,7 @@ export class ModelOutputError extends Error {
   }
 }
 
-/**
- * Reads the model's response as the JSON shape the prompt required.
- *
- * Strict on purpose: no stripping of code fences, no hunting for the first `{`.
- * The request asked for JSON; a response that is not JSON is a failed
- * generation, and treating it as one is more honest than repairing it.
- */
+/** Reads the model's response as the JSON the prompt required, and nothing more lenient. */
 export function parseModelOutput(text: string): unknown[] {
   let parsed: unknown;
   try {
@@ -49,20 +50,14 @@ export function parseModelOutput(text: string): unknown[] {
     throw new ModelOutputError('The model did not return valid JSON.', 'invalid_json');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new ModelOutputError(
-      'The model returned JSON, but not an object with a "questions" list.',
-      'invalid_shape',
-    );
+    throw new ModelOutputError('The model returned JSON, but not an object with a "questions" list.', 'invalid_shape');
   }
   const list = (parsed as Record<string, unknown>).questions;
   if (!Array.isArray(list)) {
     throw new ModelOutputError('The model response has no "questions" list.', 'invalid_shape');
   }
   if (list.length === 0) {
-    throw new ModelOutputError(
-      'The model returned no questions: the excerpts may not support this request.',
-      'empty',
-    );
+    throw new ModelOutputError('The model returned no questions: the excerpts may not support this request.', 'empty');
   }
   return list;
 }
@@ -79,166 +74,177 @@ export interface ValidationContext {
   sourceId: string;
 }
 
+export interface DistractorEvidence {
+  option: string;
+  chunkId?: string;
+  quote?: string;
+  reason?: string;
+}
+
 export interface ValidatedQuestion {
   generatedQuestionId: string;
   status: GeneratedQuestionStatus;
+  groundingVerdict: Verdict;
+  qualityVerdict: Verdict;
+  /** Every reason as a sentence, grounding first. */
   reasons: string[];
-  /** Present for `valid` and `needs_review`: schema-valid, with provenance. */
+  /** Present unless rejected: schema-valid, with provenance. */
   question?: Question;
-  /** What the model returned, verbatim, for display and the record. */
   candidate: Record<string, unknown>;
-  evidence: Array<{ chunkId: string; quote: string }>;
+  questionEvidence: EvidenceItem[];
+  answerEvidence: EvidenceItem[];
+  /** The model's own account of its distractors. Recorded, not trusted. */
+  distractorEvidence: DistractorEvidence[];
+  /** Answer evidence, or question evidence where there is none (NOT GIVEN). */
+  evidence: EvidenceItem[];
   chunkIds: string[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-
-/** Case, curly quotes, dashes and whitespace do not make a quote a different quote. */
-export function normalizeForMatch(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[–—]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-const contentWords = (value: string) => queryTerms(value).filter((term) => term.length > 2);
-
-/** Share of `words` that occur in `haystack`, using the retrieval tokenizer for both. */
-function coverage(words: string[], haystack: string): number {
-  if (words.length === 0) return 0;
-  const available = new Set(queryTerms(haystack));
-  return words.filter((word) => available.has(word)).length / words.length;
-}
-
-const stripOptionLabel = (option: string) =>
-  option.replace(/^\s*([A-Za-z]{1,4}|\d{1,3})\s*[.)\]:-]\s+/, '').trim();
-
-const WORD_NUMBERS: Record<string, number> = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
-
-function wordLimitOf(limit: string): number | null {
-  const match = /NO MORE THAN\s+(ONE|TWO|THREE|FOUR|FIVE|\d+)\s+WORDS?/i.exec(limit);
-  if (!match) return null;
-  const token = match[1].toUpperCase();
-  return WORD_NUMBERS[token] ?? Number(token);
-}
-
-const percent = (value: number) => `${Math.round(value * 100)}%`;
 const unique = <T>(values: T[]) => [...new Set(values)];
 
-function validateOne(
+function readEvidence(value: unknown): EvidenceItem[] | 'malformed' {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return 'malformed';
+  const items: EvidenceItem[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || !text(item.chunkId) || !text(item.quote)) return 'malformed';
+    items.push({ chunkId: text(item.chunkId), quote: text(item.quote) });
+  }
+  return items;
+}
+
+function readDistractors(value: unknown): DistractorEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .filter((item) => text(item.option))
+    .slice(0, 10)
+    .map((item) => ({
+      option: text(item.option).slice(0, 1000),
+      chunkId: text(item.chunkId) || undefined,
+      quote: text(item.quote).slice(0, 2000) || undefined,
+      reason: text(item.reason).slice(0, 1000) || undefined,
+    }));
+}
+
+interface Pending {
+  generatedQuestionId: string;
+  candidate: Record<string, unknown>;
+  grounding: VerdictBuilder;
+  quality: VerdictBuilder;
+  questionEvidence: EvidenceItem[];
+  answerEvidence: EvidenceItem[];
+  distractorEvidence: DistractorEvidence[];
+  question?: Question;
+  heading?: HeadingInfo;
+}
+
+function assess(
   entry: unknown,
   index: number,
   context: ValidationContext,
   chunkById: Map<string, SourceChunk>,
   seenPrompts: Set<string>,
-): ValidatedQuestion {
-  const generatedQuestionId = `${context.generationId}-q${index + 1}`;
-  const candidate = isRecord(entry) ? entry : { value: entry };
-  let evidence: Array<{ chunkId: string; quote: string }> = [];
-  let chunkIds: string[] = [];
+  family: { sentences: ReturnType<typeof sentencesOf>; passageText: string },
+): Pending {
+  const pending: Pending = {
+    generatedQuestionId: `${context.generationId}-q${index + 1}`,
+    candidate: isRecord(entry) ? entry : { value: entry },
+    grounding: new VerdictBuilder(),
+    quality: new VerdictBuilder(),
+    questionEvidence: [],
+    answerEvidence: [],
+    distractorEvidence: [],
+  };
+  const { grounding, quality } = pending;
+  const stop = (code: Parameters<VerdictBuilder['reject']>[0], message: string) => {
+    grounding.reject(code, message);
+    quality.skip();
+    return pending;
+  };
 
-  const reject = (reason: string): ValidatedQuestion => ({
-    generatedQuestionId,
-    status: 'rejected',
-    reasons: [reason],
-    candidate,
-    evidence,
-    chunkIds,
-  });
-
-  if (!isRecord(entry)) return reject('The model returned something that is not a question object.');
+  if (!isRecord(entry)) return stop('not_a_question_object', 'The model returned something that is not a question object.');
   if (index >= context.requestedCount) {
-    return reject(`More questions came back than the ${context.requestedCount} requested; extras are not kept.`);
+    return stop('over_requested_count', `More questions came back than the ${context.requestedCount} requested; extras are not kept.`);
   }
-
-  // 1. The family asked for, and nothing else.
   if (entry.type !== context.questionType) {
-    return reject(
-      `The model returned type "${String(entry.type)}", but only ${context.questionType} was requested.`,
-    );
+    return stop('type_not_requested', `The model returned type "${String(entry.type)}", but only ${context.questionType} was requested.`);
   }
 
   const prompt = text(entry.prompt);
-  if (!prompt) return reject('The question has no prompt.');
+  if (!prompt) return stop('prompt_missing', 'The question has no prompt.');
   const promptKey = normalizeForMatch(prompt);
-  if (seenPrompts.has(promptKey)) return reject('This question duplicates an earlier one.');
+  if (seenPrompts.has(promptKey)) return stop('duplicate_question', 'This question duplicates an earlier one.');
   seenPrompts.add(promptKey);
 
-  // 2. Provenance: every citation must point at a supplied chunk and quote it exactly.
-  if (!Array.isArray(entry.evidence) || entry.evidence.length === 0) {
-    return reject('The question carries no evidence, so its provenance cannot be established.');
-  }
-  for (const item of entry.evidence) {
-    if (!isRecord(item) || !text(item.chunkId) || !text(item.quote)) {
-      return reject('An evidence entry is missing its chunk id or its quote.');
-    }
-  }
-  evidence = entry.evidence.map((item) => ({
-    chunkId: text((item as Record<string, unknown>).chunkId),
-    quote: text((item as Record<string, unknown>).quote),
-  }));
-  chunkIds = unique(evidence.map((item) => item.chunkId));
-
-  for (const item of evidence) {
-    const chunk = chunkById.get(item.chunkId);
-    if (!chunk) {
-      return reject(`Evidence cites chunk "${item.chunkId}", which was not supplied to the model.`);
-    }
-    if (normalizeForMatch(item.quote).split(' ').length < 4) {
-      return reject(`The evidence quote "${item.quote}" is too short to verify against the source.`);
-    }
-    if (!normalizeForMatch(chunk.text).includes(normalizeForMatch(item.quote))) {
-      return reject(
-        `The evidence quote "${item.quote.slice(0, 90)}" does not appear in chunk ${item.chunkId}.`,
-      );
-    }
-  }
-
-  // 3. The answer, as the family defines it. Never corrected — only accepted or refused.
   const answer = text(entry.correctAnswer);
-  if (!answer) return reject('The question has no answer.');
+  if (!answer) return stop('answer_missing', 'The question has no answer.');
 
   const type = context.questionType;
-  let options: string[] | undefined;
   let correctAnswer = answer;
-  let wordLimit: string | undefined;
-
-  if (type === 'multiple_choice' || type === 'matching_headings') {
-    if (!Array.isArray(entry.options) || entry.options.some((option) => !text(option))) {
-      return reject(`${type} needs a list of non-empty options.`);
-    }
-    options = entry.options.map((option) => text(option));
-    if (options.length < 2) return reject(`${type} needs at least two options.`);
-    const keys = options.map((option) => normalizeForMatch(stripOptionLabel(option)));
-    if (new Set(keys).size !== keys.length) return reject('Two or more options are identical.');
-    if (!answerMatchesOptions(answer, options)) {
-      return reject(`The answer "${answer}" does not name one of the options.`);
-    }
-  } else if (type === 'true_false_not_given') {
-    // Spelling only — "Not Given" and "NOT_GIVEN" are the same answer. A value
-    // that is not one of the three is refused, not mapped to the nearest one.
+  if (type === 'true_false_not_given') {
     const spelled = answer.toUpperCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
     if (!(TRUE_FALSE_ANSWERS as readonly string[]).includes(spelled)) {
-      return reject(`true_false_not_given allows only TRUE, FALSE or NOT GIVEN — got "${answer}".`);
+      return stop('answer_not_allowed', `true_false_not_given allows only TRUE, FALSE or NOT GIVEN — got "${answer}".`);
     }
     correctAnswer = spelled;
-  } else {
-    wordLimit = text(entry.wordLimit) || undefined;
-    const limit = wordLimit ? wordLimitOf(wordLimit) : null;
-    if (limit !== null && answer.split(/\s+/).length > limit) {
-      return reject(`The answer "${answer}" is longer than its own word limit (${wordLimit}).`);
+  }
+
+  // Provenance: what the question is about, and what establishes its answer.
+  const questionEvidence = readEvidence(entry.questionEvidence);
+  const answerEvidence = readEvidence(entry.answerEvidence);
+  if (questionEvidence === 'malformed' || answerEvidence === 'malformed') {
+    return stop('evidence_malformed', 'An evidence entry is missing its chunk id or its quote.');
+  }
+  pending.questionEvidence = questionEvidence;
+  pending.answerEvidence = answerEvidence;
+  pending.distractorEvidence = readDistractors(entry.distractorEvidence);
+
+  if (questionEvidence.length === 0) {
+    return stop('question_evidence_missing', 'The question cites no question evidence, so what it is about cannot be traced to the source.');
+  }
+  if (answerEvidence.length === 0 && correctAnswer !== 'NOT GIVEN') {
+    return stop('answer_evidence_missing', 'The question cites no answer evidence, so its answer cannot be traced to the source.');
+  }
+  for (const item of [...questionEvidence, ...answerEvidence]) {
+    const chunk = chunkById.get(item.chunkId);
+    if (!chunk) return stop('evidence_chunk_not_supplied', `Evidence cites chunk "${item.chunkId}", which was not supplied to the model.`);
+    if (normalizeForMatch(item.quote).split(' ').length < 4) {
+      return stop('evidence_too_short', `The evidence quote "${item.quote}" is too short to verify against the source.`);
     }
-    if (type === 'sentence_completion' && !/_{3,}|…|\.{3}/.test(prompt)) {
-      return reject('The sentence has no gap for the answer to fill.');
+    if (!normalizeForMatch(chunk.text).includes(normalizeForMatch(item.quote))) {
+      return stop('evidence_quote_not_in_source', `The evidence quote "${item.quote.slice(0, 90)}" does not appear in chunk ${item.chunkId}.`);
     }
   }
 
+  let options: string[] | undefined;
+  if (type === 'multiple_choice' || type === 'matching_headings') {
+    if (!Array.isArray(entry.options) || entry.options.some((option) => !text(option))) {
+      return stop('options_invalid', `${type} needs a list of non-empty options.`);
+    }
+    options = entry.options.map((option) => text(option));
+    if (options.length < 2) return stop('options_invalid', `${type} needs at least two options.`);
+    const keys = options.map((option) => normalizeForMatch(stripOptionLabel(option)));
+    if (new Set(keys).size !== keys.length) {
+      grounding.reject('options_invalid', 'Two or more options are identical.');
+      quality.reject('duplicate_options', 'Two or more options are identical.');
+      return pending;
+    }
+    if (!answerMatchesOptions(answer, options)) {
+      return stop('answer_not_an_option', `The answer "${answer}" does not name one of the options.`);
+    }
+  }
+
+  const acceptableAnswers = Array.isArray(entry.acceptableAnswers)
+    ? unique(entry.acceptableAnswers.map((value) => text(value)).filter(Boolean)).filter(
+        (value) => normalizeForMatch(value) !== normalizeForMatch(correctAnswer),
+      )
+    : [];
+  const wordLimit = text(entry.wordLimit) || undefined;
+  const chunkIds = unique([...answerEvidence, ...questionEvidence].map((item) => item.chunkId));
   const locations = chunkIds.map((chunkId) => {
     const chunk = chunkById.get(chunkId) as SourceChunk;
     return { chunkId, page: chunk.location.page, path: chunk.location.path };
@@ -247,7 +253,7 @@ function validateOne(
   const provenance: QuestionProvenance = {
     kind: 'generated',
     generationId: context.generationId,
-    generatedQuestionId,
+    generatedQuestionId: pending.generatedQuestionId,
     generatorVersion: GENERATOR_VERSION,
     model: context.model,
     generatedAt: context.generatedAt,
@@ -257,122 +263,101 @@ function validateOne(
       locations.map((location) => location.page).filter((page): page is number => typeof page === 'number'),
     ).sort((a, b) => a - b),
     locations,
-    evidence,
+    evidence: answerEvidence.length > 0 ? answerEvidence : questionEvidence,
+    questionEvidence,
+    answerEvidence,
+    distractorEvidence: pending.distractorEvidence,
     validation: 'needs_review',
   };
 
   const question: Question = {
-    id: generatedQuestionId,
+    id: pending.generatedQuestionId,
     questionNumber: index + 1,
     type,
     prompt,
-    options,
-    wordLimit,
+    options: type === 'true_false_not_given' ? undefined : options,
+    wordLimit: type === 'short_answer' || type === 'sentence_completion' ? wordLimit : undefined,
     correctAnswer,
+    acceptableAnswers: acceptableAnswers.length > 0 ? acceptableAnswers : undefined,
     provenance,
   };
 
-  // 4. The canonical schema, exactly as a hand-authored question would face it.
   const parsed = QuestionSchema.safeParse(question);
   if (!parsed.success) {
-    return reject(
-      `It is not a valid ${type} question: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`,
-    );
+    return stop('schema_invalid', `It is not a valid ${type} question: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`);
   }
+  pending.question = question;
 
-  // 5. Does the cited source actually establish the answer?
-  const quotes = evidence.map((item) => item.quote).join(' ');
-  const suppliedText = context.chunks.map((chunk) => chunk.text).join(' ');
-  let status: 'valid' | 'needs_review' = 'needs_review';
-  const reasons: string[] = [];
-
-  if (type === 'short_answer' || type === 'sentence_completion') {
-    if (normalizeForMatch(quotes).includes(normalizeForMatch(correctAnswer))) {
-      status = 'valid';
-    } else if (normalizeForMatch(suppliedText).includes(normalizeForMatch(correctAnswer))) {
-      reasons.push('The answer is in the source, but not in the sentence cited as evidence.');
-    } else {
-      return reject(`The answer "${correctAnswer}" does not appear anywhere in the source text supplied to the model.`);
-    }
-  } else if (type === 'multiple_choice') {
-    const list = options as string[];
-    const keyed = list.find((option) => answerMatchesOption(correctAnswer, option)) as string;
-    const keyedWords = contentWords(stripOptionLabel(keyed));
-    const keyedCoverage = coverage(keyedWords, quotes);
-    const bestRival = Math.max(
-      0,
-      ...list
-        .filter((option) => option !== keyed)
-        .map((option) => coverage(contentWords(stripOptionLabel(option)), quotes)),
-    );
-
-    if (keyedWords.length === 0) {
-      reasons.push('The keyed option has no content words that could be checked against the evidence.');
-    } else if (bestRival >= keyedCoverage && bestRival >= 0.6) {
-      reasons.push('Another option is supported by the evidence at least as well as the keyed answer.');
-    } else if (keyedCoverage >= 0.6) {
-      status = 'valid';
-    } else {
-      reasons.push(
-        `Only ${percent(keyedCoverage)} of the keyed option's words appear in the evidence; it may be a paraphrase that cannot be checked mechanically.`,
-      );
-    }
-  } else if (type === 'true_false_not_given') {
-    if (correctAnswer === 'TRUE') {
-      const statementCoverage = coverage(contentWords(prompt), quotes);
-      if (statementCoverage >= 0.8) status = 'valid';
-      else {
-        reasons.push(
-          `Only ${percent(statementCoverage)} of the statement's words appear in the evidence, which is not enough to confirm TRUE mechanically.`,
-        );
-      }
-    } else {
-      reasons.push(
-        `A ${correctAnswer} answer rests on contradiction or absence, which matching text cannot establish.`,
-      );
-    }
-  } else {
-    // matching_headings
-    const label = /section\s+([A-Z])\b/i.exec(prompt)?.[1]?.toUpperCase();
-    const section = context.sections.find((item) => item.label === label);
-    if (!section) return reject('The prompt does not name one of the passage sections.');
-    if (!chunkIds.includes(section.chunkId)) {
-      return reject(`The evidence does not come from Section ${section.label}, which the question is about.`);
-    }
-    const sectionChunk = chunkById.get(section.chunkId) as SourceChunk;
-    const sectionText = `${sectionChunk.heading ?? ''} ${sectionChunk.text}`;
-    const list = options as string[];
-    const keyed = list.find((option) => answerMatchesOption(correctAnswer, option)) as string;
-    const keyedCoverage = coverage(contentWords(stripOptionLabel(keyed)), sectionText);
-    const bestRival = Math.max(
-      0,
-      ...list
-        .filter((option) => option !== keyed)
-        .map((option) => coverage(contentWords(stripOptionLabel(option)), sectionText)),
-    );
-    if (keyedCoverage >= 0.5 && bestRival < keyedCoverage) status = 'valid';
-    else {
-      reasons.push(
-        `The keyed heading shares ${percent(keyedCoverage)} of its words with Section ${section.label}; a closer or equal match exists or the heading is too abstract to check mechanically.`,
-      );
-    }
-  }
-
-  provenance.validation = status;
-  return {
-    generatedQuestionId,
-    status,
-    reasons,
-    question: { ...question, provenance },
-    candidate,
-    evidence,
-    chunkIds,
-  };
+  pending.heading = checkFamily(
+    {
+      type,
+      prompt,
+      options,
+      correctAnswer,
+      acceptableAnswers,
+      wordLimit,
+      questionEvidence,
+      answerEvidence,
+    },
+    { chunks: context.chunks, sections: context.sections, sentences: family.sentences, passageText: family.passageText },
+    grounding,
+    quality,
+  );
+  if (grounding.rejected) quality.skip();
+  return pending;
 }
 
-/** Validates every returned question independently, in the order the model gave them. */
+/** Validates every returned question, then checks the heading set as a set. */
 export function validateGeneratedQuestions(raw: unknown[], context: ValidationContext): ValidatedQuestion[] {
   const chunkById = new Map(context.chunks.map((chunk) => [chunk.id, chunk]));
   const seenPrompts = new Set<string>();
-  return raw.map((entry, index) => validateOne(entry, index, context, chunkById, seenPrompts));
+  const family = {
+    sentences: sentencesOf(context.chunks),
+    passageText: context.chunks.map((chunk) => chunk.text).join('\n\n'),
+  };
+
+  const pending = raw.map((entry, index) => assess(entry, index, context, chunkById, seenPrompts, family));
+
+  checkHeadingSet(
+    pending
+      .filter((item) => item.heading && !item.grounding.rejected)
+      .map((item) => ({ info: item.heading as HeadingInfo, quality: item.quality })),
+    { chunks: context.chunks, sections: context.sections, sentences: family.sentences, passageText: family.passageText },
+  );
+
+  return pending.map((item) => {
+    const groundingVerdict = item.grounding.build();
+    const qualityVerdict = item.quality.build();
+    const status = worst(groundingVerdict.status, qualityVerdict.status);
+    const reasons = [...groundingVerdict.reasons, ...qualityVerdict.reasons].map((reason) => reason.message);
+
+    let question: Question | undefined;
+    if (item.question && status !== 'rejected' && item.question.provenance) {
+      question = {
+        ...item.question,
+        provenance: {
+          ...item.question.provenance,
+          validation: status,
+          groundingStatus: groundingVerdict.status === 'valid' ? 'valid' : 'needs_review',
+          qualityStatus: qualityVerdict.status === 'valid' ? 'valid' : 'needs_review',
+        },
+      };
+    }
+
+    const evidence = item.answerEvidence.length > 0 ? item.answerEvidence : item.questionEvidence;
+    return {
+      generatedQuestionId: item.generatedQuestionId,
+      status,
+      groundingVerdict,
+      qualityVerdict,
+      reasons,
+      question,
+      candidate: item.candidate,
+      questionEvidence: item.questionEvidence,
+      answerEvidence: item.answerEvidence,
+      distractorEvidence: item.distractorEvidence,
+      evidence,
+      chunkIds: unique([...item.answerEvidence, ...item.questionEvidence].map((entry) => entry.chunkId)),
+    };
+  });
 }

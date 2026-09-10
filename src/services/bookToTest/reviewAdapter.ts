@@ -57,9 +57,11 @@ function evidenceRange(
 }
 
 /** A rejected question's model output, as far as it can be shown without trusting it. */
-function draftFromCandidate(candidate: Record<string, unknown> | undefined): Partial<Question> {
-  if (!candidate) return {};
-  const draft: Partial<Question> = {};
+function draftFromCandidate(candidate: Record<string, unknown> | undefined, id: string): Partial<Question> {
+  // The id is kept so the row can be matched to its record entry; without
+  // provenance it still cannot become an includable question.
+  const draft: Partial<Question> = { id };
+  if (!candidate) return draft;
   if (typeof candidate.prompt === 'string') draft.prompt = candidate.prompt;
   if (typeof candidate.correctAnswer === 'string') draft.correctAnswer = candidate.correctAnswer;
   if (Array.isArray(candidate.options)) {
@@ -86,7 +88,7 @@ export function reviewInputFor(args: ReviewInputArgs): GeneratedReviewInput {
         questionNumber: entry.questionNumber,
         sourceRange,
         detectedAs: 'rejected by validation',
-        draft: draftFromCandidate(entry.candidate),
+        draft: draftFromCandidate(entry.candidate, entry.generatedQuestionId),
         diagnostics: [
           {
             code: 'generation_rejected',
@@ -108,6 +110,7 @@ export function reviewInputFor(args: ReviewInputArgs): GeneratedReviewInput {
         questionNumber: entry.questionNumber,
         sourceRange,
         detectedAs: 'excluded from the material',
+        draft: { id: entry.generatedQuestionId },
         diagnostics: [],
       });
       continue;
@@ -117,10 +120,12 @@ export function reviewInputFor(args: ReviewInputArgs): GeneratedReviewInput {
       entry.status === 'needs_review'
         ? [
             {
-              // Also the code the existing publish gate refuses while the question
-              // is included — a second lock on the same door.
-              code: 'answer_key_ambiguous',
-              message: entry.reasons.join(' ') || 'The answer could not be verified against the source.',
+              // Display only. Per-question diagnostics are not persisted into the
+              // import record, so this never reached the publish gate (an earlier
+              // comment here said otherwise). The gate reads the generation record,
+              // which is also what lets a reviewer's confirmation promote the question.
+              code: 'generation_needs_review',
+              message: entry.reasons.join(' ') || 'The question could not be verified against the source.',
               questionNumber: question.questionNumber,
             },
           ]

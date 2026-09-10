@@ -206,13 +206,39 @@ export const QuestionProvenanceSchema = z
       .array(z.object({ chunkId: NonEmptyString.max(200), quote: NonEmptyString.max(2000) }))
       .min(1)
       .max(10),
+    questionEvidence: z
+      .array(z.object({ chunkId: NonEmptyString.max(200), quote: NonEmptyString.max(2000) }))
+      .max(10)
+      .optional(),
+    answerEvidence: z
+      .array(z.object({ chunkId: NonEmptyString.max(200), quote: NonEmptyString.max(2000) }))
+      .max(10)
+      .optional(),
+    distractorEvidence: z
+      .array(
+        z.object({
+          option: NonEmptyString.max(1000),
+          chunkId: NonEmptyString.max(200).optional(),
+          quote: NonEmptyString.max(2000).optional(),
+          reason: NonEmptyString.max(1000).optional(),
+        }),
+      )
+      .max(10)
+      .optional(),
+    groundingStatus: z.enum(['valid', 'needs_review']).optional(),
+    qualityStatus: z.enum(['valid', 'needs_review']).optional(),
     validation: z.enum(['valid', 'needs_review']),
   })
   .superRefine((provenance, ctx) => {
     // Evidence and locations may only cite chunks this question was built from:
     // a citation to a chunk outside that set is a citation nobody can check.
     const cited = new Set(provenance.chunkIds);
-    for (const [index, item] of provenance.evidence.entries()) {
+    const allEvidence = [
+      ...provenance.evidence,
+      ...(provenance.questionEvidence ?? []),
+      ...(provenance.answerEvidence ?? []),
+    ];
+    for (const [index, item] of allEvidence.entries()) {
       if (!cited.has(item.chunkId)) {
         ctx.addIssue({
           code: 'custom',

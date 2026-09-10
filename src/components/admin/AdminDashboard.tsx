@@ -32,6 +32,7 @@ import type { ReviewState } from '../../services/cdiImport/review';
 import { AdminPreviewModal } from './AdminPreviewModal';
 import { AdminMaterialCatalog } from './AdminMaterialCatalog';
 import { AdminSourceLibrary } from './AdminSourceLibrary';
+import { loadGeneratedReview } from './generatedReview';
 
 interface AdminDashboardProps {
   adminUser: AdminUser;
@@ -164,6 +165,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setImportReview(null);
     setEditorMode('none');
     fetchData();
+  };
+
+  /**
+   * Records a reviewer's decision about a flagged generated question, then
+   * refreshes only the decision log in the open review, so unsaved corrections
+   * on the screen are left as they are.
+   */
+  const handleReviewGenerated = async (generatedQuestionId: string, decision: 'confirmed' | 'rejected', note: string) => {
+    const materialId = importReview?.materialId;
+    if (!materialId) throw new Error('Save the draft before recording a decision.');
+    const base = `/api/admin/sources/generated/${encodeURIComponent(materialId)}`;
+    const res = await fetch(`${base}/questions/${encodeURIComponent(generatedQuestionId)}/reviews`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, note }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.issues?.length ? `${data.error} ${data.issues.join(' ')}` : data.error || 'The decision could not be recorded.');
+    }
+    const refreshed = await fetch(`${base}/review`, { credentials: 'same-origin' });
+    const body = await refreshed.json();
+    if (refreshed.ok) {
+      setImportReview((current) => (current ? { ...current, generationReviews: body.generationReviews } : current));
+    }
+    showToast(decision === 'confirmed' ? 'Confirmation recorded.' : 'Flag upheld.');
   };
 
   const handleDeleteMaterial = async (id: string) => {
@@ -415,6 +443,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               state={importReview}
               onChange={setImportReview}
               onSaveDraft={handleSaveImportedDraft}
+              onReviewGenerated={handleReviewGenerated}
               onCancel={() => {
                 setEditorMode('none');
                 setImportReview(null);
@@ -502,6 +531,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           materials={materials}
           searchQuery={searchQuery}
           onPreview={setPreviewMaterial}
+          onOpenGeneratedReview={(item) => {
+            loadGeneratedReview(item.id)
+              .then((state) => {
+                setImportReview(state);
+                setEditorMode('import');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              })
+              .catch((error: unknown) => {
+                showToast(error instanceof Error ? error.message : 'The draft could not be opened.');
+              });
+          }}
           onEdit={(item) => {
             setEditingItem(item);
             setEditorMode(item.section as 'speaking' | 'reading' | 'listening' | 'writing');
