@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GENERATABLE_TYPES } from '../services/bookToTest/types';
 import type { Question } from '../types';
 import {
   QuestionIssue,
@@ -97,6 +98,150 @@ export const ImportRecordSchema = z.object({
 
 export type StoredImportRecord = z.infer<typeof ImportRecordSchema>;
 
+const ChunkRef = z.string().trim().min(1).max(200);
+
+/**
+ * How a generated material was produced, precisely enough to reproduce the
+ * question the model was asked and check every answer it gave.
+ *
+ * It records the exact chunks the model was given — not the chunks retrieval
+ * could have returned — because "grounded in the book" is only a checkable claim
+ * about the text that was actually in the prompt. It records every question
+ * validation saw, including the rejected ones, because a generation that
+ * produced five questions and kept three has to be able to say which two it
+ * dropped and why.
+ *
+ * Write-once. `adminStore.finalise` carries it forward over every later edit.
+ */
+export const GenerationRecordSchema = z.object({
+  generationId: z.string().trim().min(1).max(80),
+  generatorVersion: Trimmed(64),
+  promptVersion: Trimmed(64),
+  model: Trimmed(120),
+  modelVersion: Trimmed(120).optional(),
+  generatedAt: Trimmed(40),
+  source: z.object({
+    sourceId: z.string().trim().min(1).max(160),
+    title: Trimmed(500),
+    filename: Trimmed(500),
+    // Deliberately not `*AssetId`. `extractAssetIds` treats any such key as a
+    // reference, and the learner asset route serves whatever a published
+    // material references — which would hand the whole book to any learner.
+    originalAsset: z.string().trim().min(1).max(64),
+    extractionAsset: z.string().trim().min(1).max(64).optional(),
+    extractorVersion: Trimmed(64),
+    chunkerVersion: Trimmed(64),
+  }),
+  request: z.object({
+    topic: Trimmed(500),
+    questionType: z.enum(GENERATABLE_TYPES),
+    requestedCount: z.number().int().min(1).max(20),
+  }),
+  retrieval: z.object({
+    query: Trimmed(500),
+    terms: z.array(Trimmed(80)).max(60),
+    hits: z
+      .array(
+        z.object({
+          chunkId: ChunkRef,
+          score: z.number(),
+          confidence: z.number().min(0).max(1),
+          matchedTerms: z.array(Trimmed(80)).max(60),
+        }),
+      )
+      .min(1)
+      .max(20),
+  }),
+  /** The chunks that were in the prompt, and where each sits in the passage. */
+  chunks: z
+    .array(
+      z.object({
+        chunkId: ChunkRef,
+        ordinal: z.number().int().min(0),
+        label: Trimmed(20).optional(),
+        page: z.number().int().min(1).optional(),
+        path: z.array(Trimmed(500)).max(12),
+        charStart: z.number().int().min(0),
+        charEnd: z.number().int().min(0),
+        contentHash: Trimmed(64),
+        passageStart: z.number().int().min(0),
+        passageEnd: z.number().int().min(0),
+      }),
+    )
+    .min(1)
+    .max(20),
+  questions: z
+    .array(
+      z.object({
+        generatedQuestionId: z.string().trim().min(1).max(128),
+        questionNumber: z.number().int().min(1).max(200).optional(),
+        status: z.enum(['valid', 'needs_review', 'rejected']),
+        reasons: z.array(Trimmed(1000)).max(20).default([]),
+        chunkIds: z.array(ChunkRef).max(20).default([]),
+        evidence: z
+          .array(z.object({ chunkId: ChunkRef, quote: Trimmed(2000) }))
+          .max(10)
+          .default([]),
+        /** What the model returned for a rejected question, kept for review only. */
+        candidate: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .max(50),
+  summary: z.object({
+    requested: z.number().int().min(0),
+    returned: z.number().int().min(0),
+    valid: z.number().int().min(0),
+    needsReview: z.number().int().min(0),
+    rejected: z.number().int().min(0),
+    /** False when fewer usable questions came back than were asked for. */
+    complete: z.boolean(),
+  }),
+});
+
+export type StoredGenerationRecord = z.infer<typeof GenerationRecordSchema>;
+
+/**
+ * Keeps a generated material honest about its questions.
+ *
+ * A question the record lists must keep its provenance, a question claiming
+ * provenance must be one the record lists, and a question validation rejected
+ * must never be in the material at all. Hand-authored questions — no provenance,
+ * an id the record does not know — are left to the ordinary rules.
+ */
+function checkGeneratedQuestions(
+  content: { generationRecord?: StoredGenerationRecord; passage: { questions: Question[] } },
+  addIssue: (message: string) => void,
+) {
+  const record = content.generationRecord;
+  if (!record) return;
+  const entries = new Map(record.questions.map((entry) => [entry.generatedQuestionId, entry]));
+
+  for (const question of content.passage.questions) {
+    const label = `Question ${question.questionNumber}`;
+    const provenance = question.provenance;
+
+    if (!provenance) {
+      if (entries.has(question.id)) {
+        addIssue(`${label} was generated from a source and its provenance cannot be removed.`);
+      }
+      continue;
+    }
+
+    if (provenance.generationId !== record.generationId) {
+      addIssue(`${label} cites generation "${provenance.generationId}", but this material came from "${record.generationId}".`);
+      continue;
+    }
+    const entry = entries.get(provenance.generatedQuestionId);
+    if (!entry) {
+      addIssue(`${label} claims to be generated question "${provenance.generatedQuestionId}", which the generation record does not contain.`);
+      continue;
+    }
+    if (entry.status === 'rejected') {
+      addIssue(`${label} was rejected by validation and cannot be saved into the material.`);
+    }
+  }
+}
+
 const AssetRefs = {
   assetIds: z.array(z.string().trim().min(1).max(64)).max(50).optional(),
   sourceAssetId: z.string().trim().min(1).max(64).optional(),
@@ -105,6 +250,8 @@ const AssetRefs = {
 
 export const ReadingContentSchema = z.object({
   ...AssetRefs,
+  // Reading is the only section Book → Test generates.
+  generationRecord: GenerationRecordSchema.optional(),
   passage: z.object({
     passageNumber: z.number().int().min(1).max(3).default(1),
     title: RequiredText(500),
@@ -113,7 +260,11 @@ export const ReadingContentSchema = z.object({
     questions: QuestionsField('rea'),
   }),
   htmlContent: Trimmed(1_000_000).optional(),
-});
+}).superRefine((content, ctx) =>
+  checkGeneratedQuestions(content, (message) =>
+    ctx.addIssue({ code: 'custom', path: ['passage', 'questions'], message }),
+  ),
+);
 
 export const ListeningContentSchema = z.object({
   ...AssetRefs,

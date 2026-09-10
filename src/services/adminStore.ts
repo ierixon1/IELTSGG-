@@ -159,6 +159,13 @@ class AdminStore {
     if(previousContent?.importRecord&&nextContent&&typeof nextContent==="object"&&!Array.isArray(nextContent)){
       candidate.content={...nextContent,importRecord:previousContent.importRecord};
     }
+    // The generation record is evidence in the same sense, and more exposed: it
+    // holds the validation verdict the publish gate trusts. A request that could
+    // rewrite it could turn a needs-review question into a valid one by assertion.
+    const contentNow=candidate.content as Record<string,unknown>|undefined;
+    if(previousContent?.generationRecord&&contentNow&&typeof contentNow==="object"&&!Array.isArray(contentNow)){
+      candidate.content={...contentNow,generationRecord:previousContent.generationRecord};
+    }
     const parsed=parseMaterialForWrite(section,candidate);
     if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
     return parsed.material as unknown as AdminMaterial;

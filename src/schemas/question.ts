@@ -167,12 +167,79 @@ export const MediaRefSchema = z.object({
 const AnswerSchema = z.union([NonEmptyString.max(500), z.array(NonEmptyString.max(500)).min(1)]);
 
 /**
+ * Where a generated question came from, precisely enough to check it.
+ *
+ * Declared in the canonical schema rather than riding along as an extra key,
+ * because Zod strips what it does not know: a question generated from a book
+ * would otherwise lose every trace of that book the first time it was saved.
+ *
+ * `validation` is a copy for display. The authoritative verdict lives in the
+ * material's write-once generation record, which is what the publish gate
+ * reads — this copy travels through editors and requests, so it is not trusted.
+ */
+export const QuestionProvenanceSchema = z
+  .object({
+    kind: z.literal('generated'),
+    generationId: NonEmptyString.max(80),
+    /** Equal to the question's own `id`, so the record entry is findable. */
+    generatedQuestionId: NonEmptyString.max(128),
+    generatorVersion: NonEmptyString.max(64),
+    model: NonEmptyString.max(120),
+    generatedAt: NonEmptyString.max(40),
+    sourceId: NonEmptyString.max(160),
+    /** The retrieved chunks this question was written from. */
+    chunkIds: z.array(NonEmptyString.max(200)).min(1).max(20),
+    /** Printed pages, where the source format records them. */
+    pages: z.array(z.number().int().min(1)).max(50).default([]),
+    locations: z
+      .array(
+        z.object({
+          chunkId: NonEmptyString.max(200),
+          page: z.number().int().min(1).optional(),
+          path: z.array(z.string().max(500)).max(12),
+        }),
+      )
+      .min(1)
+      .max(20),
+    /** Verbatim text from those chunks that the answer rests on. */
+    evidence: z
+      .array(z.object({ chunkId: NonEmptyString.max(200), quote: NonEmptyString.max(2000) }))
+      .min(1)
+      .max(10),
+    validation: z.enum(['valid', 'needs_review']),
+  })
+  .superRefine((provenance, ctx) => {
+    // Evidence and locations may only cite chunks this question was built from:
+    // a citation to a chunk outside that set is a citation nobody can check.
+    const cited = new Set(provenance.chunkIds);
+    for (const [index, item] of provenance.evidence.entries()) {
+      if (!cited.has(item.chunkId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['evidence', index, 'chunkId'],
+          message: `Evidence cites chunk "${item.chunkId}", which is not one of this question's chunks.`,
+        });
+      }
+    }
+    for (const [index, location] of provenance.locations.entries()) {
+      if (!cited.has(location.chunkId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['locations', index, 'chunkId'],
+          message: `Location cites chunk "${location.chunkId}", which is not one of this question's chunks.`,
+        });
+      }
+    }
+  });
+
+/**
  * A canonical question, with the cross-field rules that make it answerable and
  * markable. Unknown keys are dropped rather than stored: the generators emit
  * `paragraphLocation` and `targetSkill`, which nothing renders.
  */
 export const QuestionSchema = z
   .object({
+    provenance: QuestionProvenanceSchema.optional(),
     id: NonEmptyString.max(128),
     questionNumber: z.number().int().min(1).max(200),
     type: QuestionTypeSchema,
@@ -455,6 +522,11 @@ export function normalizeAuthoredQuestion(
     layout: item.layout,
     mediaRef: item.mediaRef,
     group: firstString(item, ['group', 'groupId']),
+    // Every stored question passes through here on write and again on read, so
+    // a field not copied onto the candidate is a field that silently vanishes.
+    // Provenance is the one that must never vanish: a generated question that
+    // loses it can no longer be checked against the book it came from.
+    provenance: item.provenance,
   };
 
   const parsed = QuestionSchema.safeParse(candidate);

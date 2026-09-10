@@ -13,9 +13,15 @@ import {
 } from 'lucide-react';
 import type { SourceChunk, StoredSource, StoredSourceSummary } from '../../types/source';
 import type { RetrievalOutcome } from '../../services/sourceIngest/retrieve';
+import type { ReviewState } from '../../services/cdiImport/review';
+import { AdminBookToTest } from './AdminBookToTest';
 
 interface AdminSourceLibraryProps {
   onToast: (message: string) => void;
+  /** Hands a generated draft to the existing import review screen. */
+  onOpenReview?: (state: ReviewState) => void;
+  /** Materials changed outside the catalog, e.g. a generated draft was created. */
+  onMaterialsChanged?: () => void;
 }
 
 interface SpanCheck {
@@ -55,7 +61,7 @@ export function citationOf(chunk: SourceChunk): string {
  * book was read correctly, and the way to answer that is to search it and check
  * that what comes back is really on the page the citation names.
  */
-export const AdminSourceLibrary: React.FC<AdminSourceLibraryProps> = ({ onToast }) => {
+export const AdminSourceLibrary: React.FC<AdminSourceLibraryProps> = ({ onToast, onOpenReview, onMaterialsChanged }) => {
   const [sources, setSources] = useState<StoredSourceSummary[]>([]);
   const [supported, setSupported] = useState<string[]>([]);
   const [selected, setSelected] = useState<StoredSource | null>(null);
@@ -513,6 +519,15 @@ export const AdminSourceLibrary: React.FC<AdminSourceLibraryProps> = ({ onToast 
                   </div>
                 )}
               </div>
+            )}
+
+            {selected.status === 'ready' && onOpenReview && (
+              <AdminBookToTest
+                source={selected}
+                onOpenReview={onOpenReview}
+                onToast={onToast}
+                onDraftCreated={() => onMaterialsChanged?.()}
+              />
             )}
           </div>
         )}

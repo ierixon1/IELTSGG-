@@ -7,6 +7,13 @@ import { ingestSource, UnsupportedSourceError } from '../services/sourceIngest/i
 import { SUPPORTED_EXTENSIONS, fileKindFor } from '../services/sourceIngest/extract';
 import { retrieve } from '../services/sourceIngest/retrieve';
 import { validateUpload } from '../services/fileTypeSniffer';
+import { adminStore } from '../services/adminStore';
+import {
+  generateReadingFromSource,
+  GenerationRequestError,
+  type GenerationOutcome,
+} from '../services/bookToTest/generate';
+import { reviewInputFor } from '../services/bookToTest/reviewAdapter';
 
 /**
  * The source library: ingest a book, see what came of it, search inside it.
@@ -223,5 +230,121 @@ sourceRouter.delete('/:id', async (req, res) => {
   } catch (error) {
     console.error('[Sources] delete failed:', error);
     return res.status(500).json({ error: 'Unable to delete the source.' });
+  }
+});
+
+/* -------------------------------------------------------------------------- */
+/* Book → Test                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** What the admin screen needs to show a generation, and nothing it should not. */
+function describeOutcome(outcome: GenerationOutcome) {
+  return {
+    status: outcome.status,
+    materialId: outcome.material?.id,
+    materialStatus: outcome.material?.status,
+    generation: outcome.generationRecord,
+    retrieved: outcome.retrieved.map((item) => ({
+      chunkId: item.chunk.id,
+      label: item.label,
+      heading: item.chunk.heading,
+      location: item.chunk.location,
+      text: item.chunk.text,
+      score: item.score,
+      confidence: item.confidence,
+      matchedTerms: item.matchedTerms,
+    })),
+    questions: outcome.questions.map((item) => ({
+      generatedQuestionId: item.generatedQuestionId,
+      status: item.status,
+      reasons: item.reasons,
+      question: item.question,
+      candidate: item.candidate,
+      evidence: item.evidence,
+      chunkIds: item.chunkIds,
+    })),
+    passage: outcome.passage,
+  };
+}
+
+/**
+ * Generates one Reading material from a source, grounded in retrieved chunks.
+ *
+ * 201 with a draft when at least one question survived validation. 422 when the
+ * source had nothing relevant (the model is never called) or when the model
+ * answered and every question was rejected (nothing is stored). Nothing here
+ * publishes.
+ */
+sourceRouter.post('/:id/generate', async (req: AdminRequest, res) => {
+  try {
+    const outcome = await generateReadingFromSource({
+      sourceId: req.params.id,
+      topic: req.body?.topic,
+      questionType: req.body?.questionType,
+      count: req.body?.count,
+      module: req.body?.module,
+      targetBand: req.body?.targetBand,
+      title: req.body?.title,
+      author: req.adminUser?.displayName || 'Admin',
+    });
+    const body = describeOutcome(outcome);
+    if (outcome.status === 'all_rejected') {
+      return res.status(422).json({
+        ...body,
+        code: 'all_rejected',
+        error: 'The model answered, but no generated question survived validation. No draft was created.',
+      });
+    }
+    return res.status(201).json(body);
+  } catch (error) {
+    if (error instanceof GenerationRequestError) {
+      return res.status(error.status).json({ error: error.message, code: error.code, ...error.details });
+    }
+    console.error('[BookToTest] generation failed:', error);
+    return res.status(500).json({ error: 'Generation failed.', code: 'generation_failed' });
+  }
+});
+
+/**
+ * A generated draft, shaped for the existing import review screen.
+ *
+ * Built from the material as it is now, so reopening a draft that was edited
+ * shows the edits rather than the original generation output.
+ */
+sourceRouter.get('/generated/:materialId/review', async (req, res) => {
+  try {
+    const material = await adminStore.getMaterial('reading', req.params.materialId).catch(() => null);
+    if (!material || material.section !== 'reading') {
+      return res.status(404).json({ error: 'Material not found.' });
+    }
+    const record = material.content.generationRecord;
+    if (!record) {
+      return res.status(404).json({ error: 'This material was not generated from a source.' });
+    }
+
+    const input = reviewInputFor({
+      title: material.title,
+      passageText: material.content.passage.text,
+      passageHtml: material.content.passage.htmlContent ?? material.content.htmlContent ?? '',
+      record,
+      questions: material.content.passage.questions,
+    });
+
+    return res.json({
+      materialId: material.id,
+      status: material.status,
+      classification: {
+        section: 'reading',
+        module: material.module,
+        theme: material.theme ?? '',
+        targetBand: material.targetBand ?? '',
+        title: material.title,
+        part: material.content.passage.passageNumber,
+      },
+      ...input,
+    });
+  } catch (error) {
+    console.error('[BookToTest] review read failed:', error);
+    return res.status(500).json({ error: 'Unable to open the generated draft.' });
   }
 });

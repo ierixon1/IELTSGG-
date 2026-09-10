@@ -1,5 +1,5 @@
 import type { Question } from '../types';
-import type { StoredImportRecord } from '../schemas/material';
+import type { StoredGenerationRecord, StoredImportRecord } from '../schemas/material';
 
 // Types for Admin CMS, Examiners, and Full CDI Bundles
 export interface AdminUser {
@@ -61,6 +61,12 @@ export interface MaterialAssetRefs {
    * the material editor neither shows nor rewrites it.
    */
   importRecord?: StoredImportRecord;
+  /**
+   * How a generated material was produced: the source, the exact chunks the
+   * model was given, the model, the prompt version, and what validation
+   * concluded about every question. Written once, like `importRecord`.
+   */
+  generationRecord?: StoredGenerationRecord;
 }
 
 export interface AdminSpeakingMaterial extends BaseAdminMaterial {

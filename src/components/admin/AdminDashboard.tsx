@@ -142,10 +142,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    * The write boundary from phase 4 validates it again on the way in, so a
    * review that let something through is still caught before it is stored.
    */
-  const handleSaveImportedDraft = async (payload: { section: string; title: string }) => {
-    const res = await fetch('/api/admin/materials', {
+  const handleSaveImportedDraft = async (payload: { id?: string; section: string; title: string }) => {
+    // A generated draft exists before review opens; saving it updates that
+    // material instead of creating a second copy beside it.
+    const url = payload.id
+      ? `/api/admin/materials/${payload.section}/${encodeURIComponent(payload.id)}`
+      : '/api/admin/materials';
+    const res = await fetch(url, {
       credentials: 'same-origin',
-      method: 'POST',
+      method: payload.id ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
@@ -582,7 +587,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* Source Library Tab */}
-      {activeTab === 'sources' && <AdminSourceLibrary onToast={showToast} />}
+      {activeTab === 'sources' && (
+        <AdminSourceLibrary
+          onToast={showToast}
+          onMaterialsChanged={fetchData}
+          onOpenReview={(state) => {
+            setImportReview(state);
+            setEditorMode('import');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+        />
+      )}
 
       {/* Analytics Tab */}
       {activeTab === 'analytics' && stats && (

@@ -216,6 +216,35 @@ export interface MediaRef {
  */
 export type AnswerValue = string | string[];
 
+/** One location a generated question was written from. */
+export interface QuestionProvenanceLocation {
+  chunkId: string;
+  page?: number;
+  path: string[];
+}
+
+/**
+ * Machine-readable proof of where a generated question came from.
+ *
+ * Enough for a reviewer to open the exact source chunks and read the sentence
+ * the answer rests on. `validation` is a display copy; the authoritative
+ * verdict is the material’s write-once generation record.
+ */
+export interface QuestionProvenance {
+  kind: 'generated';
+  generationId: string;
+  generatedQuestionId: string;
+  generatorVersion: string;
+  model: string;
+  generatedAt: string;
+  sourceId: string;
+  chunkIds: string[];
+  pages: number[];
+  locations: QuestionProvenanceLocation[];
+  evidence: Array<{ chunkId: string; quote: string }>;
+  validation: 'valid' | 'needs_review';
+}
+
 export interface Question {
   id: string;
   questionNumber: number;
@@ -247,6 +276,11 @@ export interface Question {
    * table, the lines of a note, the items under a single rubric.
    */
   group?: string;
+  /**
+   * Where a generated question came from. Absent on hand-authored and imported
+   * questions; required on every question Book → Test produced.
+   */
+  provenance?: QuestionProvenance;
 }
 
 export interface ListeningPart {

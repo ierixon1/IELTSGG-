@@ -52,7 +52,11 @@ export interface ImportDiagnostic {
     | 'asset_missing'
     | 'script_removed'
     | 'schema_rejected'
-    | 'no_questions_found';
+    | 'no_questions_found'
+    /** Book → Test: validation refused a generated question. */
+    | 'generation_rejected'
+    /** Book → Test: fewer usable questions came back than were requested. */
+    | 'generation_incomplete';
   message: string;
   /** The question this concerns, when it concerns one. */
   questionNumber?: number;

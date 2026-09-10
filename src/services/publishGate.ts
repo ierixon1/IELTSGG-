@@ -1,5 +1,6 @@
 import type { AdminMaterial } from '../types/admin';
 import type { Question } from '../types';
+import type { StoredGenerationRecord } from '../schemas/material';
 import { QuestionSchema } from '../schemas/question';
 import { extractAssetIds } from './assetStore';
 
@@ -30,7 +31,9 @@ export interface PublishBlocker {
     | 'import_unresolved'
     | 'asset_missing'
     | 'writing_task_missing'
-    | 'speaking_incomplete';
+    | 'speaking_incomplete'
+    | 'generation_unverified'
+    | 'generation_provenance_missing';
   message: string;
   /** The question this concerns, when it concerns one. */
   questionNumber?: number;
@@ -232,6 +235,53 @@ function importBlockers(material: AdminMaterial): PublishBlocker[] {
   return blockers;
 }
 
+/**
+ * What validation concluded about each generated question, read from the record.
+ *
+ * The verdict comes from the write-once generation record, never from the copy
+ * on the question's own `provenance`: that copy travels through every editor
+ * and request, the record does not. And correcting an answer by hand does not
+ * make the source say something new, so a question that could not be verified
+ * when it was generated still cannot be published — it can be excluded, or the
+ * material regenerated.
+ *
+ * Additive: a material without a generation record gets nothing from here.
+ */
+function generationBlockers(material: AdminMaterial): PublishBlocker[] {
+  const record = (material.content as { generationRecord?: StoredGenerationRecord })
+    .generationRecord;
+  if (!record) return [];
+
+  const entries = new Map(record.questions.map((entry) => [entry.generatedQuestionId, entry]));
+  const blockers: PublishBlocker[] = [];
+
+  for (const question of questionsOf(material)) {
+    const entry = entries.get(question.provenance?.generatedQuestionId ?? question.id);
+    // Not a generated question: hand-authored questions are the ordinary rules’ business.
+    if (!entry) continue;
+
+    const number = question.questionNumber;
+    if (!question.provenance || question.provenance.generationId !== record.generationId) {
+      blockers.push({
+        code: 'generation_provenance_missing',
+        questionNumber: number,
+        message: `Question ${number} was generated from a source but no longer carries its provenance.`,
+      });
+      continue;
+    }
+    if (entry.status !== 'valid') {
+      const why = entry.reasons.length > 0 ? ` (${entry.reasons.join(' ')})` : '';
+      blockers.push({
+        code: 'generation_unverified',
+        questionNumber: number,
+        message: `Question ${number} was generated, but its answer could not be verified against the source${why}. Exclude it or regenerate.`,
+      });
+    }
+  }
+
+  return blockers;
+}
+
 function assetBlockers(material: AdminMaterial, context: PublishGateContext): PublishBlocker[] {
   const referenced = extractAssetIds(material);
   return referenced
@@ -258,6 +308,7 @@ export function publishBlockers(
     ...questionBlockers(material),
     ...needsReviewBlockers(context),
     ...importBlockers(material),
+    ...generationBlockers(material),
     ...assetBlockers(material, context),
   ];
 }

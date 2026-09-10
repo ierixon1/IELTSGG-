@@ -27,6 +27,8 @@ export const ANSWER_REVEALING_QUESTION_FIELDS = [
   'answer',
   'explanation',
   'paragraphLocation',
+  // A generated question's evidence is the sentence its answer comes from.
+  'provenance',
 ] as const;
 
 /**

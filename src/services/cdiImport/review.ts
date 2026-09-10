@@ -1,4 +1,5 @@
 import { QuestionSchema } from '../../schemas/question';
+import type { StoredGenerationRecord } from '../../schemas/material';
 import type { MediaRef, Question, QuestionLayout, QuestionType } from '../../types';
 import type {
   AnswerStatus,
@@ -80,6 +81,17 @@ export interface ReviewState {
   unsupportedRegions: CdiImportResult['unsupportedRegions'];
   classification: Classification;
   stats: CdiImportResult['stats'];
+  /**
+   * The stored material this review edits, when it edits one. A generated
+   * draft already exists when review opens, so saving updates it rather than
+   * creating a second copy.
+   */
+  materialId?: string;
+  /**
+   * Present when the questions came from Book → Test. Carried into the saved
+   * material unchanged; nothing on this screen edits it.
+   */
+  generationRecord?: StoredGenerationRecord;
 }
 
 /**
@@ -147,6 +159,30 @@ export function blockingReasons(state: ReviewState): string[] {
     );
   }
 
+  // A generated question is only as good as its trail back to the book.
+  const record = state.generationRecord;
+  if (record) {
+    const entries = new Map(record.questions.map((entry) => [entry.generatedQuestionId, entry]));
+    const rejected = included.filter((question) => {
+      const id = question.draft.provenance?.generatedQuestionId ?? question.draft.id;
+      return id !== undefined && entries.get(id)?.status === 'rejected';
+    });
+    if (rejected.length > 0) {
+      reasons.push(
+        `${rejected.length} included question(s) were rejected by validation and cannot be part of the material. Exclude them.`,
+      );
+    }
+    const unprovenanced = included.filter(
+      (question) =>
+        question.draft.id !== undefined &&
+        entries.has(question.draft.id) &&
+        !question.draft.provenance,
+    );
+    if (unprovenanced.length > 0) {
+      reasons.push(`${unprovenanced.length} generated question(s) have lost their source provenance.`);
+    }
+  }
+
   return reasons;
 }
 
@@ -171,7 +207,12 @@ export function phaseFor(state: ReviewState): ReviewPhase {
  */
 export function buildReviewState(
   result: CdiImportResult,
-  options: { sourceHtml: string; sourceAssetId?: string } = { sourceHtml: '' },
+  options: {
+    sourceHtml: string;
+    sourceAssetId?: string;
+    materialId?: string;
+    generationRecord?: StoredGenerationRecord;
+  } = { sourceHtml: '' },
 ): ReviewState {
   const questions: ReviewQuestion[] = result.questions.map((entry, index) => ({
     key: `q-${entry.questionNumber ?? `x${index}`}-${index}`,
@@ -207,6 +248,8 @@ export function buildReviewState(
       title: result.title,
     },
     stats: result.stats,
+    materialId: options.materialId,
+    generationRecord: options.generationRecord,
   };
 
   state.phase = phaseFor(state);
@@ -318,6 +361,8 @@ export function includedQuestions(state: ReviewState): Question[] {
 }
 
 export interface SavePayload {
+  /** Set when the review edits a material that already exists. */
+  id?: string;
   title: string;
   section: 'reading' | 'listening';
   module: 'academic' | 'general';
@@ -367,6 +412,7 @@ export function toSavePayload(state: ReviewState): SavePayload | null {
     sourceAssetId: state.sourceAssetId,
     assetIds,
     importRecord,
+    ...(state.generationRecord ? { generationRecord: state.generationRecord } : {}),
   };
 
   const content =
@@ -376,7 +422,9 @@ export function toSavePayload(state: ReviewState): SavePayload | null {
           passage: {
             passageNumber: classification.part ?? 1,
             title: classification.title,
-            text: '',
+            // A generated passage is the book's own text, and review ranges point
+            // into it, so it is kept. An imported page's text lives in its HTML.
+            text: state.generationRecord ? state.sourceHtml : '',
             htmlContent: state.normalizedHtml,
             questions,
           },
@@ -395,6 +443,7 @@ export function toSavePayload(state: ReviewState): SavePayload | null {
         };
 
   return {
+    ...(state.materialId ? { id: state.materialId } : {}),
     title: classification.title,
     section: classification.section,
     module: classification.module,
