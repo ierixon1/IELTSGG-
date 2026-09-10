@@ -1,9 +1,10 @@
 import { after, before, describe, it } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { expect } from './harness';
+import { removeTempRoot } from './tempDir';
 
 /**
  * The material pipeline, driven end to end.
@@ -38,13 +39,13 @@ const express = (await import('express')).default;
 const { adminStore } = await import('../src/services/adminStore');
 const { adminRouter } = await import('../src/routes/adminRoutes');
 const { bundleToAdaptedTest } = await import('../src/services/publishedTests');
+const { publishMaterial } = await import('./publishMaterial');
 
 /** Exactly what AdminReadingEditor.handleSave now emits. */
 const readingEditorPayload = {
   title: 'Academic Reading: Biofuels & Renewable Energies',
   section: 'reading' as const,
   module: 'academic' as const,
-  status: 'published' as const,
   theme: 'Renewable Energy',
   targetBand: '7.5',
   content: {
@@ -118,7 +119,7 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   process.chdir(originalCwd);
-  rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  removeTempRoot(tempRoot);
 });
 
 describe('material round trip', () => {
@@ -137,6 +138,21 @@ describe('material round trip', () => {
     expect(body.item.id).toBeTruthy();
     expect(body.item.section).toBe('reading');
     materialId = body.item.id;
+    // A save no longer publishes. The material lands as a draft and stays there
+    // until somebody asks for it to be published, against the gate.
+    expect(body.item.status).toBe('draft');
+  });
+
+  it('publishes only when asked, and only through the gate', async () => {
+    const check = await (await api(`/api/admin/materials/reading/${materialId}/publish-check`)).json();
+    expect(check.publishable).toBe(true);
+    expect(check.blockers).toHaveLength(0);
+
+    const response = await api(`/api/admin/materials/reading/${materialId}/publish`, {
+      method: 'POST',
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).item.status).toBe('published');
   });
 
   it('returns it in the list the repository screen renders', async () => {
@@ -184,7 +200,7 @@ describe('material round trip', () => {
     expect(resolved.resolvedMaterials.reading.id).toBe(materialId);
 
     const adapted = bundleToAdaptedTest(resolved);
-    const passage = adapted.test.reading.passages[0];
+    const passage = (adapted.test.reading?.passages ?? [])[0];
 
     expect(adapted.test.title).toBe('Pipeline CDI');
     expect(adapted.missingSections).toHaveLength(0);
@@ -211,11 +227,24 @@ describe('material round trip', () => {
     expect(passage.questions[0].explanation).toContain('arable land');
   });
 
-  it('keeps a draft material out of a published bundle', async () => {
-    await api(`/api/admin/materials/reading/${materialId}`, {
+  it('cannot be unpublished by a save that claims a status', async () => {
+    // The only way through is the lifecycle endpoint. A PUT carrying
+    // `status: 'draft'` is a request to publish or withdraw through the back
+    // door, and it is ignored rather than honoured.
+    const response = await api(`/api/admin/materials/reading/${materialId}`, {
       method: 'PUT',
       body: JSON.stringify({ ...readingEditorPayload, status: 'draft' }),
     });
+    expect(response.status).toBe(200);
+    expect((await response.json()).item.status).toBe('published');
+  });
+
+  it('keeps a draft material out of a published bundle', async () => {
+    const unpublished = await api(`/api/admin/materials/reading/${materialId}/unpublish`, {
+      method: 'POST',
+    });
+    expect(unpublished.status).toBe(200);
+    expect((await unpublished.json()).item.status).toBe('draft');
 
     const resolved = await (await api(`/api/admin/bundles/${bundleId}`)).json();
     expect(resolved.resolvedMaterials.reading).toBe(null);
@@ -226,8 +255,9 @@ describe('material round trip', () => {
 
     await api(`/api/admin/materials/reading/${materialId}`, {
       method: 'PUT',
-      body: JSON.stringify({ ...readingEditorPayload, status: 'published' }),
+      body: JSON.stringify(readingEditorPayload),
     });
+    await api(`/api/admin/materials/reading/${materialId}/publish`, { method: 'POST' });
   });
 
   it('survives an update without losing question data', async () => {
@@ -242,8 +272,8 @@ describe('material round trip', () => {
 
     const resolved = await (await api(`/api/admin/bundles/${bundleId}`)).json();
     const adapted = bundleToAdaptedTest(resolved);
-    expect(adapted.test.reading.passages[0].questions[0].prompt).toBe('Edited claim about farmland.');
-    expect(adapted.test.reading.passages[0].questions).toHaveLength(3);
+    expect((adapted.test.reading?.passages ?? [])[0].questions[0].prompt).toBe('Edited claim about farmland.');
+    expect((adapted.test.reading?.passages ?? [])[0].questions).toHaveLength(3);
   });
 
   it('refuses every write without an admin session', async () => {
@@ -265,7 +295,8 @@ describe('stored material authored by an older build', () => {
       title: 'Legacy Listening',
       section: 'listening',
       module: 'academic',
-      status: 'published',
+      theme: 'Campus life',
+      targetBand: '7.0',
       content: {
         section: {
           sectionNumber: 2,
@@ -285,6 +316,8 @@ describe('stored material authored by an older build', () => {
       },
     });
 
+    await publishMaterial(adminStore, 'listening', legacy);
+
     const bundle = await adminStore.saveBundle({
       title: 'Legacy CDI',
       status: 'published',
@@ -293,7 +326,7 @@ describe('stored material authored by an older build', () => {
 
     const resolved = await adminStore.getResolvedBundle(bundle.id);
     const adapted = bundleToAdaptedTest(resolved as never);
-    const part = adapted.test.listening.parts[0];
+    const part = (adapted.test.listening?.parts ?? [])[0];
 
     expect(part.title).toBe('Campus security');
     expect(part.questions).toHaveLength(1);

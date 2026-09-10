@@ -12,12 +12,31 @@ export interface AdminUser {
 export type AdminSectionType = 'speaking' | 'reading' | 'listening' | 'writing';
 export type AdminContentStatus = 'draft' | 'published';
 
+/**
+ * Where a material is in its life.
+ *
+ * Separate from the bundle status because the two are not the same idea: a
+ * bundle is assembled or not, whereas a material is written, then deliberately
+ * published, and eventually retired without being destroyed. `archived` exists
+ * so retiring a material is not a delete — the attempts that reference it stay
+ * meaningful — while still putting it out of every learner’s reach.
+ */
+export type MaterialLifecycleStatus = 'draft' | 'published' | 'archived';
+
 export interface BaseAdminMaterial {
   id: string;
   title: string;
   section: AdminSectionType;
   module: 'academic' | 'general';
-  status: AdminContentStatus;
+  status: MaterialLifecycleStatus;
+  /**
+   * Questions the stored row carries that cannot be made canonical.
+   *
+   * Computed on every read and never stored, which is why it is optional: the
+   * admin list attaches it so the catalog can show what still needs a human,
+   * and the publish gate refuses while it is non-empty.
+   */
+  needsReview?: string[];
   theme?: string;
   targetBand?: string;
   createdAt: string;

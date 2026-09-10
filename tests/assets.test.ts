@@ -1,9 +1,10 @@
 import { after, before, describe, it } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { expect } from './harness';
+import { removeTempRoot } from './tempDir';
 import { sniffFileType, validateUpload } from '../src/services/fileTypeSniffer';
 
 /**
@@ -152,7 +153,7 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   process.chdir(originalCwd);
-  rmSync(tempRoot, { recursive: true, force: true });
+  removeTempRoot(tempRoot);
 });
 
 describe('upload', () => {
@@ -264,9 +265,23 @@ describe('asset lifecycle', () => {
           title: 'Asset Listening',
           section: 'listening',
           module: 'academic',
-          status: 'published',
+          theme: 'Eco-tourism',
+          targetBand: '7.0',
           content: {
-            section: { sectionNumber: 1, title: 'Eco-farm', contextDescription: 'Call', questions: [] },
+            section: {
+              sectionNumber: 1,
+              title: 'Eco-farm',
+              contextDescription: 'Call',
+              questions: [
+                {
+                  id: 'a1',
+                  questionNumber: 1,
+                  type: 'form_completion',
+                  prompt: 'Tour departs at:',
+                  correctAnswer: '09:15',
+                },
+              ],
+            },
             audioAssetId: audio.assetId,
             audioUrl: `/api/assets/${audio.assetId}`,
             assetIds: [audio.assetId],
@@ -275,7 +290,21 @@ describe('asset lifecycle', () => {
       })
     ).json();
     expect(saved.success).toBe(true);
+    expect(saved.item.status).toBe('draft');
     expect((await assetStore.get(audio.assetId))?.state).toBe('active');
+
+    // A draft references it, so it is pinned as active — but the learner route
+    // serves only what published content names.
+    const beforePublish = await fetch(`${origin}/api/assets/${audio.assetId}`, {
+      headers: { cookie: learnerCookie },
+    });
+    expect(beforePublish.status).toBe(404);
+
+    const published = await admin(
+      `/api/admin/materials/listening/${saved.item.id}/publish`,
+      { method: 'POST' },
+    );
+    expect(published.status).toBe(200);
 
     // Now that published content references it, the learner can play it.
     const played = await fetch(`${origin}/api/assets/${audio.assetId}`, {
@@ -283,6 +312,19 @@ describe('asset lifecycle', () => {
     });
     expect(played.status).toBe(200);
     expect(played.headers.get('content-type')).toContain('audio/mpeg');
+
+    // Deleting it while published would break a link the catalog is showing.
+    const refused = await admin(`/api/admin/materials/listening/${saved.item.id}`, {
+      method: 'DELETE',
+    });
+    expect(refused.status).toBe(409);
+    expect(await assetStore.get(audio.assetId)).not.toBe(null);
+
+    const withdrawn = await admin(
+      `/api/admin/materials/listening/${saved.item.id}/unpublish`,
+      { method: 'POST' },
+    );
+    expect(withdrawn.status).toBe(200);
 
     const deleted = await admin(`/api/admin/materials/listening/${saved.item.id}`, { method: 'DELETE' });
     expect(deleted.status).toBe(200);

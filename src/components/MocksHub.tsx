@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { MockTest, SkillType, WritingGradingResult } from '../types';
-import { PublishedTestSummary } from '../services/publishedTests';
+import { PublishedTestSummary, SittableTest, sectionAvailable } from '../services/publishedTests';
+import { SectionUnavailable } from './common/SectionUnavailable';
+import { LearnerMaterialCatalog } from './LearnerMaterialCatalog';
 import { ListeningSession } from './ListeningSession';
 import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
@@ -10,7 +12,7 @@ import { useT } from '../i18n';
 import { Badge, Button, Card } from './ui';
 
 interface MocksHubProps {
-  mockTest: MockTest;
+  mockTest: SittableTest;
   onRecordScore: (skill: SkillType, band: number, raw?: number) => void;
   initialSelectedSection?: SkillType | null;
   onWritingGraded?: (result: WritingGradingResult, essay: string) => void;
@@ -22,6 +24,10 @@ interface MocksHubProps {
   onSelectTest?: (id: string) => void;
   /** Skills the selected bundle named but could not supply. */
   missingSections?: SkillType[];
+  /** Opens one published material by its exact id. */
+  onOpenMaterial?: (section: SkillType, id: string) => Promise<void> | void;
+  /** Why the last requested test or material did not open. */
+  loadError?: string | null;
 }
 
 /**
@@ -46,6 +52,8 @@ export const MocksHub: React.FC<MocksHubProps> = ({
   builtInTestId,
   onSelectTest,
   missingSections,
+  onOpenMaterial,
+  loadError,
 }) => {
   const t = useT();
   // `@types/react` is not installed, so `React.FC<Props>` provides no
@@ -57,7 +65,27 @@ export const MocksHub: React.FC<MocksHubProps> = ({
     initialSelectedSection || null,
   );
 
-  if (activeSection === 'listening') {
+  /**
+   * A section only opens when the loaded test actually carries it.
+   *
+   * The alternative used to be handled a layer down, by the adapter quietly
+   * substituting the built-in test. Refusing here is what makes that removal
+   * safe: `mockTest.reading` can be null now, and a null section has to be a
+   * visible configuration error rather than a crash or a silent swap.
+   */
+  if (activeSection && !sectionAvailable(mockTest, activeSection)) {
+    return (
+      <SectionUnavailable
+        skill={activeSection}
+        testTitle={mockTest.title}
+        testId={mockTest.id}
+        onBack={() => setActiveSection(null)}
+        backLabel={t('mocks.back')}
+      />
+    );
+  }
+
+  if (activeSection === 'listening' && mockTest.listening) {
     return (
       <ListeningSession
         listeningData={mockTest.listening}
@@ -67,7 +95,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
     );
   }
 
-  if (activeSection === 'reading') {
+  if (activeSection === 'reading' && mockTest.reading) {
     return (
       <ReadingSession
         readingData={mockTest.reading}
@@ -80,8 +108,8 @@ export const MocksHub: React.FC<MocksHubProps> = ({
   if (activeSection === 'writing') {
     return (
       <WritingSession
-        task1Data={mockTest.writing.task1}
-        task2Data={mockTest.writing.task2}
+        task1Data={mockTest.writing.task1 ?? undefined}
+        task2Data={mockTest.writing.task2 ?? undefined}
         onRecordScore={(taskNum, band) => onRecordScore('writing', band)}
         onGraded={onWritingGraded}
         onBackToMocks={() => setActiveSection(null)}
@@ -89,7 +117,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
     );
   }
 
-  if (activeSection === 'speaking') {
+  if (activeSection === 'speaking' && mockTest.speaking) {
     return (
       <SpeakingSession
         speakingData={mockTest.speaking}
@@ -122,6 +150,16 @@ export const MocksHub: React.FC<MocksHubProps> = ({
           </div>
         </div>
       </Card>
+
+      {loadError && (
+        <div
+          id="mocks-load-error"
+          className="es-enter flex items-start gap-3 rounded-[var(--radius-card)] border border-danger-500/30 bg-danger-50 p-4 text-sm text-danger-700"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{loadError}</p>
+        </div>
+      )}
 
       {gaps.length > 0 && (
         <div className="es-enter flex items-start gap-3 rounded-[var(--radius-card)] border border-warning-500/30 bg-warning-50 p-4 text-sm text-warning-700">
@@ -159,6 +197,10 @@ export const MocksHub: React.FC<MocksHubProps> = ({
         </Card>
       )}
 
+      {onOpenMaterial && (
+        <LearnerMaterialCatalog onOpen={onOpenMaterial} activeMaterialId={activeTestId} />
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         {SECTIONS.map(({ skill, icon: Icon, iconClass }, index) => (
           <Card
@@ -185,6 +227,14 @@ export const MocksHub: React.FC<MocksHubProps> = ({
               <p className="mt-2 text-sm leading-relaxed text-ink-500">
                 {t(`mocks.${skill}.body`)}
               </p>
+              {!sectionAvailable(mockTest, skill) && (
+                <p
+                  data-unavailable-skill={skill}
+                  className="mt-3 rounded-lg bg-ink-100 px-3 py-2 text-xs font-semibold text-ink-500"
+                >
+                  Not part of “{mockTest.title}”.
+                </p>
+              )}
             </div>
 
             <Button

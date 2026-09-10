@@ -30,6 +30,7 @@ import { AdminImportStart } from './AdminImportStart';
 import { buildReviewState } from '../../services/cdiImport/review';
 import type { ReviewState } from '../../services/cdiImport/review';
 import { AdminPreviewModal } from './AdminPreviewModal';
+import { AdminMaterialCatalog } from './AdminMaterialCatalog';
 
 interface AdminDashboardProps {
   adminUser: AdminUser;
@@ -43,7 +44,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('materials');
-  const [activeSection, setActiveSection] = useState<'all' | 'speaking' | 'reading' | 'listening' | 'writing'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [materials, setMaterials] = useState<AdminMaterial[]>([]);
@@ -229,15 +229,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.error('Failed to load bundle preview:', err);
     }
   };
-
-  const filteredMaterials = materials.filter((m) => {
-    const matchesSection = activeSection === 'all' || m.section === activeSection;
-    const matchesSearch =
-      !searchQuery ||
-      m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.theme?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSection && matchesSearch;
-  });
 
   const categorizedMaterials = {
     listening: materials.filter((m) => m.section === 'listening'),
@@ -490,110 +481,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Materials Tab */}
       {activeTab === 'materials' && (
-        <div className="space-y-4">
-          {/* Section Filter Pills */}
-          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1">
-            {(['all', 'speaking', 'reading', 'listening', 'writing'] as const).map((sec) => (
-              <button
-                key={sec}
-                onClick={() => setActiveSection(sec)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
-                  activeSection === sec
-                    ? 'bg-ink-900 text-white'
-                    : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
-                }`}
-              >
-                {sec} ({sec === 'all' ? materials.length : materials.filter((m) => m.section === sec).length})
-              </button>
-            ))}
-          </div>
-
-          {/* Materials Table/List */}
-          <div className="bg-white border border-ink-200 rounded-2xl overflow-hidden shadow-2xs">
-            {filteredMaterials.length === 0 ? (
-              <div className="p-8 text-center text-ink-500 text-xs">
-                No materials found matching criteria. Use the quick buttons above to upload new IELTS content.
-              </div>
-            ) : (
-              <div className="divide-y divide-ink-100">
-                {filteredMaterials.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-ink-50/70 transition-colors"
-                  >
-                    <div className="flex items-start space-x-3">
-                      <div className="mt-1">
-                        {item.section === 'speaking' && <Mic className="w-4 h-4 text-danger-500" />}
-                        {item.section === 'reading' && <BookOpen className="w-4 h-4 text-success-500" />}
-                        {item.section === 'listening' && <Headphones className="w-4 h-4 text-brand-500" />}
-                        {item.section === 'writing' && <Edit3 className="w-4 h-4 text-warning-500" />}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-bold text-ink-900">{item.title}</span>
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              item.status === 'published'
-                                ? 'bg-success-50 text-success-700'
-                                : 'bg-ink-100 text-ink-600'
-                            }`}
-                          >
-                            {item.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-2 mt-1 text-[11px] text-ink-500">
-                          <span className="capitalize font-medium">{item.section}</span>
-                          <span>•</span>
-                          <span>{item.module || 'Academic'} Module</span>
-                          <span>•</span>
-                          <span>Band {item.targetBand || '7.5'} Standard</span>
-                          {item.theme && (
-                            <>
-                              <span>•</span>
-                              <span className="text-ink-400">Theme: {item.theme}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-1 self-end sm:self-center">
-                      <button
-                        onClick={() => setPreviewMaterial(item)}
-                        className="p-1.5 text-ink-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg text-xs flex items-center space-x-1"
-                        title="Live candidate preview"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Preview</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setEditingItem(item);
-                          setEditorMode(item.section as any);
-                        }}
-                        className="p-1.5 text-ink-500 hover:text-ink-900 hover:bg-ink-100 rounded-lg text-xs flex items-center space-x-1"
-                        title="Edit material"
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Edit</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleDeleteMaterial(item.id)}
-                        className="p-1.5 text-ink-400 hover:text-danger-500 hover:bg-danger-50 rounded-lg"
-                        title="Delete material"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <AdminMaterialCatalog
+          materials={materials}
+          searchQuery={searchQuery}
+          onPreview={setPreviewMaterial}
+          onEdit={(item) => {
+            setEditingItem(item);
+            setEditorMode(item.section as 'speaking' | 'reading' | 'listening' | 'writing');
+          }}
+          onDelete={(item) => handleDeleteMaterial(item.id)}
+          onChanged={fetchData}
+          onToast={showToast}
+        />
       )}
 
       {/* Bundles Tab */}

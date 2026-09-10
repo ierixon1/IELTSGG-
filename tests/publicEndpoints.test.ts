@@ -1,9 +1,10 @@
 import { after, before, describe, it } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { expect } from './harness';
+import { removeTempRoot } from './tempDir';
 
 /**
  * Answer-key leakage, tested over real HTTP.
@@ -29,6 +30,7 @@ const { adminRouter } = await import('../src/routes/adminRoutes');
 const { learnerContentRouter } = await import('../src/routes/learnerContentRoutes');
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { enforceAdminSecurity } = await import('../src/middleware/adminSecurityMiddleware');
+const { publishMaterial } = await import('./publishMaterial');
 
 const ANSWER = 'B. Excessive upfront capital costs';
 const TRANSCRIPT = 'The eco-farm tour runs from the sixth to the twentieth of June.';
@@ -42,7 +44,6 @@ before(async () => {
     title: 'Audited Reading',
     section: 'reading',
     module: 'academic',
-    status: 'published',
     theme: 'Renewable Energy',
     targetBand: '7.5',
     content: {
@@ -70,7 +71,8 @@ before(async () => {
     title: 'Audited Listening',
     section: 'listening',
     module: 'academic',
-    status: 'published',
+    theme: 'Eco-tourism',
+    targetBand: '7.0',
     content: {
       section: {
         sectionNumber: 1,
@@ -90,6 +92,9 @@ before(async () => {
       transcript: TRANSCRIPT,
     },
   });
+
+  await publishMaterial(adminStore, 'reading', reading);
+  await publishMaterial(adminStore, 'listening', listening);
 
   const bundle = await adminStore.saveBundle({
     title: 'Audited CDI',
@@ -116,7 +121,7 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   process.chdir(originalCwd);
-  rmSync(tempRoot, { recursive: true, force: true });
+  removeTempRoot(tempRoot);
 });
 
 describe('anonymous access to published content', () => {

@@ -19,7 +19,10 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
   const [module, setModule] = useState<'academic' | 'general'>(initialData?.module || 'academic');
   const [theme, setTheme] = useState(initialData?.theme || 'Urbanization');
   const [targetBand, setTargetBand] = useState(initialData?.targetBand || '7.5');
-  const [status, setStatus] = useState<'draft' | 'published'>(initialData?.status || 'published');
+  // Read-only here on purpose. Publishing is a decision taken in the catalog,
+  // against the publish gate, not a dropdown next to the title — an editor that
+  // could publish is an editor that can publish something unfinished.
+  const status = initialData?.status ?? 'draft';
 
   // Task 1
   const [task1Prompt, setTask1Prompt] = useState(
@@ -93,7 +96,6 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
         title,
         section: 'writing',
         module,
-        status,
         theme,
         targetBand,
         content: {
@@ -131,14 +133,14 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
             <option value="academic">Academic Module (Graph / Report)</option>
             <option value="general">General Training Module (Letter)</option>
           </select>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as any)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-ink-300 bg-white"
+          <span
+            id="editor-status-badge"
+            data-status={status}
+            className="rounded-lg border border-ink-300 bg-ink-50 px-3 py-1.5 text-xs font-semibold capitalize text-ink-600"
+            title="Publishing happens in the material catalog, once the publish gate passes."
           >
-            <option value="published">Status: Published</option>
-            <option value="draft">Status: Draft</option>
-          </select>
+            Status: {status}
+          </span>
         </div>
       </div>
 

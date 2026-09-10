@@ -199,7 +199,10 @@ const MaterialBase = {
   id: z.string().trim().max(160).optional(),
   title: RequiredText(500),
   module: z.enum(['academic', 'general']).default('academic'),
-  status: z.enum(['draft', 'published']).default('draft'),
+  // Publishing is a deliberate act, so the default here is the state that
+  // reaches nobody. The transition itself lives in `adminStore.setMaterialStatus`,
+  // behind the publish gate; this field only records where it ended up.
+  status: z.enum(['draft', 'published', 'archived']).default('draft'),
   theme: Trimmed(200).optional(),
   targetBand: Trimmed(32).optional(),
   author: Trimmed(200).optional(),

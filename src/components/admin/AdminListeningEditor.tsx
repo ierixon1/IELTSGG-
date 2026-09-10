@@ -37,7 +37,10 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
   const [title, setTitle] = useState(initialData?.title || 'Listening Section 2: Campus Accommodation Tour');
   const [theme, setTheme] = useState(initialData?.theme || 'Education');
   const [targetBand, setTargetBand] = useState(initialData?.targetBand || '7.5');
-  const [status, setStatus] = useState<'draft' | 'published'>(initialData?.status || 'published');
+  // Read-only here on purpose. Publishing is a decision taken in the catalog,
+  // against the publish gate, not a dropdown next to the title — an editor that
+  // could publish is an editor that can publish something unfinished.
+  const status = initialData?.status ?? 'draft';
 
   const [sectionTitle, setSectionTitle] = useState(
     initialData?.content.section.title || 'Student Residence Orientation'
@@ -98,7 +101,6 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
         title,
         section: 'listening',
         module: 'academic',
-        status,
         theme,
         targetBand,
         content: {
@@ -136,14 +138,14 @@ export const AdminListeningEditor: React.FC<AdminListeningEditorProps> = ({
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as any)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-ink-300 bg-white"
+          <span
+            id="editor-status-badge"
+            data-status={status}
+            className="rounded-lg border border-ink-300 bg-ink-50 px-3 py-1.5 text-xs font-semibold capitalize text-ink-600"
+            title="Publishing happens in the material catalog, once the publish gate passes."
           >
-            <option value="published">Status: Published</option>
-            <option value="draft">Status: Draft</option>
-          </select>
+            Status: {status}
+          </span>
         </div>
       </div>
 

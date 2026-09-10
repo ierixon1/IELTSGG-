@@ -1,9 +1,10 @@
 import { after, before, describe, it } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { expect } from './harness';
+import { removeTempRoot } from './tempDir';
 import {
   calculateOverallBand,
   checkAnswer,
@@ -135,7 +136,7 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   process.chdir(originalCwd);
-  rmSync(tempRoot, { recursive: true, force: true });
+  removeTempRoot(tempRoot);
 });
 
 async function post(pathname: string, body: unknown) {

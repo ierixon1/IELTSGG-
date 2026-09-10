@@ -1,9 +1,10 @@
 import { after, before, describe, it } from 'node:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { expect } from './harness';
+import { removeTempRoot } from './tempDir';
 import {
   CANONICAL_QUESTION_TYPES,
   QUESTION_TYPE_ALIASES,
@@ -365,7 +366,8 @@ describe('parseMaterialForWrite', () => {
     title: 'Schema Reading',
     section: 'reading',
     module: 'academic',
-    status: 'published',
+    theme: 'Schema',
+    targetBand: '7.0',
     content: { passage: { passageNumber: 1, title: 'P', text: 'Body.', questions } },
   });
 
@@ -460,6 +462,7 @@ const express = (await import('express')).default;
 const { adminRouter } = await import('../src/routes/adminRoutes');
 const { adminStore } = await import('../src/services/adminStore');
 const { bundleToAdaptedTest } = await import('../src/services/publishedTests');
+const { assetStore } = await import('../src/services/assetStore');
 
 let server: Server;
 let origin = '';
@@ -493,7 +496,7 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   process.chdir(originalCwd);
-  rmSync(tempRoot, { recursive: true, force: true });
+  removeTempRoot(tempRoot);
 });
 
 describe('the write boundary refuses what it cannot store', () => {
@@ -501,7 +504,8 @@ describe('the write boundary refuses what it cannot store', () => {
     title: 'Boundary Reading',
     section: 'reading',
     module: 'academic',
-    status: 'published',
+    theme: 'Schema',
+    targetBand: '7.0',
     content: { passage: { passageNumber: 1, title: 'P', text: 'Body.', questions } },
   });
 
@@ -537,6 +541,16 @@ describe('the write boundary refuses what it cannot store', () => {
   });
 
   it('round-trips a full material through storage to the learner', async () => {
+    const mapAsset = await assetStore.create({
+      originalName: 'map.png',
+      content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      mimeType: 'image/png',
+      kind: 'image',
+      createdBy: 'schema-test',
+      sourceType: 'upload',
+    });
+    const mapAssetId = mapAsset.id;
+
     const saved = await admin('/api/admin/materials', {
       method: 'POST',
       body: JSON.stringify(
@@ -563,13 +577,19 @@ describe('the write boundary refuses what it cannot store', () => {
             acceptableAnswers: ['cotton crops'],
             layout: 'note_line',
             group: 'notes-2',
-            mediaRef: { assetId: 'ast_abcdefghijklmnop', kind: 'image', alt: 'Map' },
+            mediaRef: { assetId: mapAssetId, kind: 'image', alt: 'Map' },
           },
         ]),
       ),
     });
     expect(saved.status).toBe(200);
     const material = (await saved.json()).item;
+    expect(material.status).toBe('draft');
+
+    const published = await admin(`/api/admin/materials/reading/${material.id}/publish`, {
+      method: 'POST',
+    });
+    expect(published.status).toBe(200);
 
     const bundle = await (
       await admin('/api/admin/bundles', {
@@ -584,7 +604,7 @@ describe('the write boundary refuses what it cannot store', () => {
 
     const resolved = await (await admin(`/api/admin/bundles/${bundle.bundle.id}`)).json();
     const adapted = bundleToAdaptedTest(resolved);
-    const questions = adapted.test.reading.passages[0].questions;
+    const questions = (adapted.test.reading?.passages ?? [])[0].questions;
 
     expect(adapted.issues.reading).toBeUndefined();
     expect(questions).toHaveLength(2);
@@ -600,7 +620,7 @@ describe('the write boundary refuses what it cannot store', () => {
     expect(questions[1].wordLimit).toBe('ONE WORD ONLY');
     expect(questions[1].acceptableAnswers).toEqual(['cotton crops']);
     expect(questions[1].layout).toBe('note_line');
-    expect(questions[1].mediaRef?.assetId).toBe('ast_abcdefghijklmnop');
+    expect(questions[1].mediaRef?.assetId).toBe(mapAssetId);
     expect(questions[1].mediaRef?.alt).toBe('Map');
   });
 

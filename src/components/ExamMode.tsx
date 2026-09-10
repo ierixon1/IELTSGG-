@@ -7,11 +7,13 @@ import { WritingSession } from './WritingSession';
 import { SpeakingSession } from './SpeakingSession';
 import { AlertTriangle, Award, ShieldAlert } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { SittableTest, sectionAvailable } from '../services/publishedTests';
+import { SectionUnavailable } from './common/SectionUnavailable';
 import { useT } from '../i18n';
 import { Badge, Button, Card, cx } from './ui';
 
 interface ExamModeProps {
-  mockTest: MockTest;
+  mockTest: SittableTest;
   onCompleteExam: (attempt: MockAttempt) => void;
   onExitExam: () => void;
 }
@@ -27,6 +29,35 @@ export const ExamMode: React.FC<ExamModeProps> = ({ mockTest, onCompleteExam, on
   const [focusLossCount, setFocusLossCount] = useState(0);
   const [showFocusWarning, setShowFocusWarning] = useState(false);
   const [scores, setScores] = useState<SectionScores>({});
+
+  /**
+   * Which of the four papers this test cannot supply.
+   *
+   * A full mock is scored as a whole, so a missing paper is not something to
+   * work around: it would either be substituted — which is what this phase
+   * removed — or silently skipped, leaving an overall band computed from three
+   * sections and presented as four.
+   */
+  const unavailable = SECTIONS.filter((skill) => !sectionAvailable(mockTest, skill));
+  const { listening, reading, speaking } = mockTest;
+  const { task1, task2 } = mockTest.writing;
+
+  if (unavailable.length > 0 || !listening || !reading || !speaking || !(task1 || task2)) {
+    return (
+      <div id="exam-configuration-error" className="space-y-3">
+        {(unavailable.length > 0 ? unavailable : SECTIONS).map((skill) => (
+          <SectionUnavailable
+            key={skill}
+            skill={skill}
+            testTitle={mockTest.title}
+            testId={mockTest.id}
+            onBack={onExitExam}
+            backLabel={t('exam.backToPlan')}
+          />
+        ))}
+      </div>
+    );
+  }
 
   const activeSection = SECTIONS[currentSectionIndex];
   const isFinished = finalScores !== null;
@@ -226,29 +257,29 @@ export const ExamMode: React.FC<ExamModeProps> = ({ mockTest, onCompleteExam, on
 
       {activeSection === 'listening' && (
         <ListeningSession
-          listeningData={mockTest.listening}
+          listeningData={listening}
           onRecordScore={(band) => handleRecordSectionScore(band)}
         />
       )}
 
       {activeSection === 'reading' && (
         <ReadingSession
-          readingData={mockTest.reading}
+          readingData={reading}
           onRecordScore={(band) => handleRecordSectionScore(band)}
         />
       )}
 
       {activeSection === 'writing' && (
         <WritingSession
-          task1Data={mockTest.writing.task1}
-          task2Data={mockTest.writing.task2}
+          task1Data={task1 ?? undefined}
+          task2Data={task2 ?? undefined}
           onRecordScore={(_task, band) => handleRecordSectionScore(band)}
         />
       )}
 
       {activeSection === 'speaking' && (
         <SpeakingSession
-          speakingData={mockTest.speaking}
+          speakingData={speaking}
           onRecordScore={(band) => handleRecordSectionScore(band)}
         />
       )}

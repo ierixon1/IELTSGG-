@@ -12,6 +12,8 @@ import {describeQuestionIssue} from '../schemas/question';
 import {importCdiHtml} from '../services/cdiImport';
 import {toDraftMaterial} from '../services/cdiImport/toMaterial';
 import {assetStore,extractAssetIds,isAssetId} from '../services/assetStore';
+import {publishBlockers,describePublishBlockers} from '../services/publishGate';
+import type {MaterialLifecycleStatus} from '../types/admin';
 import {MaterialValidationError} from '../services/adminStore';
 import {validateUpload,EXTENSION_EXPECTATIONS} from '../services/fileTypeSniffer';
 import type {UploadedAssetSummary} from '../types/asset';
@@ -197,7 +199,7 @@ adminRouter.post('/import/html',requireAdminAuth,requireAdminRole,async(req:Admi
   }
 });
 adminRouter.get('/materials',requireAdminAuth,async(req,res)=>{
-  const status=['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as 'all'|'published'|'draft':undefined;
+  const status=['all','published','draft','archived'].includes(String(req.query.status))?String(req.query.status) as 'all'|'published'|'draft'|'archived':undefined;
   const requested=req.query.section;
   const sections=isSection(requested)?[requested]:(['speaking','reading','listening','writing'] as const);
   const reviewed=(await Promise.all(sections.map(section=>adminStore.reviewMaterials(section,status)))).flat();
@@ -234,6 +236,13 @@ async function saveMaterialWithAssets(section:'speaking'|'reading'|'listening'|'
 async function deleteMaterialWithAssets(section:'speaking'|'reading'|'listening'|'writing',id:string){
   const material=await adminStore.getMaterial(section,id);
   if(!material)return {ok:false as const,status:404,error:'Material not found.'};
+  if(material.status==='published'){
+    // A published material is reachable from the learner catalog by id, so
+    // deleting it breaks a link somebody may be looking at right now. Retiring
+    // it is the supported move: `archive` keeps past attempts meaningful while
+    // putting it out of reach.
+    return {ok:false as const,status:409,error:'This material is published. Unpublish or archive it before deleting.'};
+  }
   const bundles=await adminStore.listBundles();
   const blocking=bundles.filter(b=>Object.values(b.materials||{}).includes(id));
   if(blocking.length>0){
@@ -253,6 +262,13 @@ async function deleteMaterialWithAssets(section:'speaking'|'reading'|'listening'
  * question with an answer that is not among its own options.
  */
 async function respondWithSave(res:Response,section:'speaking'|'reading'|'listening'|'writing',body:unknown,author:string){
+  // `status` is stripped rather than validated: the editors no longer send it,
+  // and a request that does is trying to publish through the back door. The
+  // store keeps whatever the material already had.
+  if(body&&typeof body==='object'&&!Array.isArray(body)){
+    const {status:_ignored,...rest}=body as Record<string,unknown>;
+    body=rest;
+  }
   try{
     return res.json({success:true,item:await saveMaterialWithAssets(section,body,author)});
   }catch(error){
@@ -267,6 +283,60 @@ adminRouter.put('/materials/:id',requireAdminAuth,requireAdminRole,async(req:Adm
 adminRouter.put('/materials/:section/:id',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});return respondWithSave(res,req.params.section,{...deepSanitizeHtml(req.body),id:req.params.id},req.adminUser?.displayName||'Admin');});
 adminRouter.delete('/materials/:id',requireAdminAuth,requireAdminRole,async(req,res)=>{for(const section of ['speaking','reading','listening','writing'] as const){if(await adminStore.getMaterial(section,req.params.id)){const result=await deleteMaterialWithAssets(section,req.params.id);return result.ok?res.json({success:true,releasedAssets:result.released}):res.status(result.status).json({error:result.error});}}return res.status(404).json({error:'Material not found.'});});
 adminRouter.delete('/materials/:section/:id',requireAdminAuth,requireAdminRole,async(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});const result=await deleteMaterialWithAssets(req.params.section,req.params.id);return result.ok?res.json({success:true,releasedAssets:result.released}):res.status(result.status).json({error:result.error});});
+/**
+ * Whether the assets a material names are still in the store.
+ *
+ * Read once per publish attempt rather than per asset, so a material with a
+ * dozen images does not turn one button press into a dozen round trips.
+ */
+async function assetPresence(){
+  const assets=await assetStore.list();
+  const present=new Set(assets.map(asset=>asset.id));
+  return {assetExists:(id:string)=>present.has(id)};
+}
+
+/**
+ * Why this material cannot be published, without publishing it.
+ *
+ * The catalog calls this to show the blockers next to the material, so an
+ * admin sees what has to be fixed before pressing anything.
+ */
+adminRouter.get('/materials/:section/:id/publish-check',requireAdminAuth,async(req,res)=>{
+  if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});
+  const reviewed=await adminStore.reviewMaterial(req.params.section,req.params.id);
+  if(!reviewed)return res.status(404).json({error:'Material not found.'});
+  const blockers=publishBlockers(reviewed.material,{
+    ...(await assetPresence()),
+    needsReview:reviewed.needsReview.map(describeQuestionIssue),
+  });
+  return res.json({publishable:blockers.length===0,blockers});
+});
+
+/**
+ * The lifecycle transitions, as their own verbs.
+ *
+ * `publish` is the only one that can be refused: it answers 409 with the list
+ * of reasons rather than a bare failure, because "cannot publish" is useless
+ * to somebody who has to fix it. Unpublishing and archiving always succeed —
+ * taking broken material away from learners must never be the harder path.
+ */
+const LIFECYCLE_ACTIONS:Record<string,MaterialLifecycleStatus>={publish:'published',unpublish:'draft',archive:'archived',restore:'draft'};
+adminRouter.post('/materials/:section/:id/:action(publish|unpublish|archive|restore)',requireAdminAuth,requireAdminRole,async(req,res)=>{
+  if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});
+  const status=LIFECYCLE_ACTIONS[req.params.action];
+  if(!status)return res.status(400).json({error:'Unknown lifecycle action.'});
+  try{
+    const result=await adminStore.setMaterialStatus(req.params.section,req.params.id,status,await assetPresence());
+    if(!result.ok){
+      return res.status(409).json({error:'This material is not ready to be published.',blockers:result.blockers,issues:describePublishBlockers(result.blockers)});
+    }
+    return res.json({success:true,item:result.material});
+  }catch(error){
+    if(error instanceof Error&&error.message==='Material not found.')return res.status(404).json({error:error.message});
+    console.error('[Materials] lifecycle change failed:',error);
+    return res.status(400).json({error:error instanceof Error?error.message:'Unable to change status.'});
+  }
+});
 adminRouter.get('/bundles',requireAdminAuth,async(req,res)=>res.json({bundles:await adminStore.listBundles(['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as any:undefined)}));
 adminRouter.get('/bundles/:id',requireAdminAuth,async(req,res)=>{const x=await adminStore.getResolvedBundle(req.params.id);return x?res.json(x):res.status(404).json({error:'CDI Bundle not found.'});});
 adminRouter.post('/bundles',requireAdminAuth,requireAdminRole,async(req,res)=>res.json({success:true,bundle:await adminStore.saveBundle(deepSanitizeHtml(req.body))}));

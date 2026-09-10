@@ -20,8 +20,13 @@ import { analyseLexis } from '../utils/textMetrics';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 
 interface WritingSessionProps {
-  task1Data: WritingTaskData;
-  task2Data: WritingTaskData;
+  /**
+   * Either task may be absent: a published Writing material is allowed to carry
+   * only Task 2. What is not allowed is standing in another test’s prompt for
+   * the missing one, which is what a required prop used to force.
+   */
+  task1Data?: WritingTaskData;
+  task2Data?: WritingTaskData;
   onRecordScore?: (taskNumber: 1 | 2, band: number) => void;
   /** Feeds the vocabulary deck with what the examiner flagged. */
   onGraded?: (result: WritingGradingResult, essay: string) => void;
@@ -64,7 +69,12 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
   onGraded,
 }) => {
   const t = useT();
-  const [selectedTask, setSelectedTask] = useState<1 | 2>(2);
+  const availableTasks = ([1, 2] as const).filter((task) =>
+    task === 1 ? Boolean(task1Data) : Boolean(task2Data),
+  );
+  const [selectedTask, setSelectedTask] = useState<1 | 2>(
+    () => availableTasks[availableTasks.length - 1] ?? 2,
+  );
   const [essayText, setEssayText] = useState('');
   const [isGrading, setIsGrading] = useState(false);
   const [result, setResult] = useState<WritingGradingResult | null>(null);
@@ -75,6 +85,11 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
   const [isTimerRunning, setIsTimerRunning] = useState(false);
 
   const activeTaskData = selectedTask === 1 ? task1Data : task2Data;
+
+  // Rendering nothing beats rendering a blank prompt: this happens only when a
+  // caller opens Writing on a test that carries neither task, which the hub
+  // already refuses, so it is a guard rather than a state a learner reaches.
+  if (!activeTaskData) return null;
 
   useEffect(() => {
     setSecondsRemaining(TASK_MINUTES[selectedTask] * 60);
@@ -228,7 +243,7 @@ ${activeTaskData.prompt}`,
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-[var(--radius-control)] bg-ink-100 p-1">
-            {([1, 2] as const).map((task) => (
+            {availableTasks.map((task) => (
               <button
                 key={task}
                 id={`btn-switch-task${task}`}

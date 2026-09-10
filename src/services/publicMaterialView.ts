@@ -50,10 +50,29 @@ export interface PublicMaterialSummary {
   targetBand?: string;
   createdAt?: string;
   updatedAt?: string;
+  /**
+   * The passage or section number this material is printed with.
+   *
+   * Part of the classification a publish requires, so the catalog can say
+   * "Passage 2" rather than leaving a learner to guess which one they opened.
+   */
+  part?: number;
   /** How many questions the material carries, without carrying them. */
   questionCount: number;
   hasAudio: boolean;
   hasHtml: boolean;
+}
+
+function partNumber(material: any): number | undefined {
+  const content = material?.content || {};
+  const raw =
+    material?.section === 'reading'
+      ? content.passage?.passageNumber
+      : material?.section === 'listening'
+        ? content.section?.sectionNumber
+        : undefined;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 1 ? value : undefined;
 }
 
 function countQuestions(content: any): number {
@@ -75,6 +94,7 @@ export function toPublicMaterialSummary(material: any): PublicMaterialSummary {
     targetBand: typeof material?.targetBand === 'string' ? material.targetBand : undefined,
     createdAt: typeof material?.createdAt === 'string' ? material.createdAt : undefined,
     updatedAt: typeof material?.updatedAt === 'string' ? material.updatedAt : undefined,
+    part: partNumber(material),
     questionCount: countQuestions(content),
     hasAudio: Boolean(content.audioUrl || content.audioFileName),
     hasHtml: Boolean(content.htmlContent || content.passage?.htmlContent || content.section?.htmlContent),

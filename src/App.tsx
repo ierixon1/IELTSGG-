@@ -8,7 +8,14 @@ import {
 } from './types';
 import { MOCK_TEST_1 } from './data/mockBank';
 import { MockTest } from './types';
-import { PublishedTestSummary, fetchAdaptedTest, fetchPublishedTests } from './services/publishedTests';
+import {
+  PublishedTestSummary,
+  SittableTest,
+  builtInSittableTest,
+  fetchAdaptedTest,
+  fetchLearnerMaterial,
+  fetchPublishedTests,
+} from './services/publishedTests';
 import { VocabCard, WritingGradingResult } from './types';
 import { fetchInitialData, syncDataToServer, fetchVocabCards, saveVocabCards } from './services/api';
 import { generateInitialPlan, recalculatePlan, RecalculationResult } from './utils/planEngine';
@@ -73,8 +80,16 @@ export default function App() {
    * swaps the material every session screen works from.
    */
   const [publishedTests, setPublishedTests] = useState<PublishedTestSummary[]>([]);
-  const [activeTest, setActiveTest] = useState<MockTest>(MOCK_TEST_1);
+  const [activeTest, setActiveTest] = useState<SittableTest>(() => builtInSittableTest());
   const [activeTestId, setActiveTestId] = useState<string>(MOCK_TEST_1.id);
+  /**
+   * Why the last requested test could not be opened.
+   *
+   * Previously a failed load simply returned, leaving whatever was already
+   * loaded on screen under the newly chosen name — the learner had no way to
+   * tell that the test they picked had not opened.
+   */
+  const [activeTestError, setActiveTestError] = useState<string | null>(null);
   /** Skills the selected bundle named but could not supply. */
   const [activeTestGaps, setActiveTestGaps] = useState<SkillType[]>([]);
 
@@ -200,21 +215,50 @@ export default function App() {
   };
 
   const handleSelectTest = async (id: string) => {
+    setActiveTestError(null);
     if (id === MOCK_TEST_1.id) {
-      setActiveTest(MOCK_TEST_1);
+      setActiveTest(builtInSittableTest());
       setActiveTestId(MOCK_TEST_1.id);
       setActiveTestGaps([]);
       return;
     }
 
     const adapted = await fetchAdaptedTest(id);
-    if (adapted) {
-      setActiveTest(adapted.test);
-      setActiveTestId(id);
-      // Recorded, not hidden: a bundle that could not supply a skill is still
-      // opened with built-in material today, and the learner has to be told.
-      setActiveTestGaps(adapted.missingSections);
+    if (!adapted) {
+      // Not a fallback: the previously loaded test stays visible under its own
+      // name, and the learner is told this one did not open.
+      setActiveTestError(
+        `That test could not be opened (${id}). It may have been unpublished or removed.`,
+      );
+      return;
     }
+    setActiveTest(adapted.test);
+    setActiveTestId(id);
+    setActiveTestGaps(adapted.missingSections);
+  };
+
+  /**
+   * Opens one published material by its exact id.
+   *
+   * The catalog lists published materials; this loads the one that was clicked
+   * and nothing else. Every other section of the resulting test is null, so a
+   * learner cannot wander from a Reading passage into unrelated Listening.
+   */
+  const handleOpenMaterial = async (section: SkillType, id: string) => {
+    setActiveTestError(null);
+    const adapted = await fetchLearnerMaterial(
+      section as 'listening' | 'reading' | 'writing' | 'speaking',
+      id,
+    );
+    if (!adapted) {
+      setActiveTestError(
+        `That material could not be opened (${id}). It may have been unpublished or archived.`,
+      );
+      return;
+    }
+    setActiveTest(adapted.test);
+    setActiveTestId(id);
+    setActiveTestGaps(adapted.missingSections);
   };
 
   const persistVocab = (cards: VocabCard[]) => {
@@ -361,7 +405,7 @@ export default function App() {
         className="es-enter flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8"
       >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
-        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} missingSections={activeTestGaps} />}
+        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} missingSections={activeTestGaps} onOpenMaterial={handleOpenMaterial} loadError={activeTestError} />}
         {activeTab === 'exam' && <ExamMode mockTest={activeTest} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}
         {activeTab === 'vocab' && <VocabTrainer cards={vocabCards} onUpdateCards={persistVocab} />}

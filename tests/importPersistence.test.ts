@@ -1,8 +1,9 @@
 import { after, describe, it } from 'node:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect } from './harness';
+import { removeTempRoot } from './tempDir';
 import type { ReviewState } from '../src/services/cdiImport/review';
 
 /**
@@ -37,7 +38,7 @@ const { parseMaterialForWrite } = await import('../src/schemas/material');
 
 after(() => {
   process.chdir(originalCwd);
-  rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  removeTempRoot(tempRoot);
 });
 
 const SOURCE_ASSET = 'ast_source000000001';

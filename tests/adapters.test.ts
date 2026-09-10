@@ -6,7 +6,7 @@ import {
   isCanonicalQuestionType,
   normalizeAuthoredQuestions,
 } from '../src/schemas/question';
-import { bundleToAdaptedTest } from '../src/services/publishedTests';
+import { bundleToAdaptedTest, sectionAvailable } from '../src/services/publishedTests';
 import { MOCK_TEST_1 } from '../src/data/mockBank';
 import type { FullCdiBundle } from '../src/types/admin';
 
@@ -203,10 +203,11 @@ describe('bundleToAdaptedTest', () => {
 
     expect(adapted.test.id).toBe('cdi-test');
     expect(adapted.test.title).toBe('Adapter Bundle');
-    expect(adapted.test.reading.passages).toHaveLength(1);
-    expect(adapted.test.reading.passages[0].title).toBe('Algae');
-    expect(adapted.test.reading.passages[0].passageNumber).toBe(2);
-    expect(adapted.test.reading.passages[0].questions[0].prompt).toBe('Claim one.');
+    const passages = adapted.test.reading?.passages ?? [];
+    expect(passages).toHaveLength(1);
+    expect(passages[0].title).toBe('Algae');
+    expect(passages[0].passageNumber).toBe(2);
+    expect(passages[0].questions[0].prompt).toBe('Claim one.');
     expect(adapted.missingSections).toHaveLength(0);
   });
 
@@ -224,7 +225,7 @@ describe('bundleToAdaptedTest', () => {
       },
     });
 
-    const questions = adapted.test.reading.passages[0].questions;
+    const questions = adapted.test.reading?.passages[0].questions ?? [];
     expect(questions).toHaveLength(2);
     expect(questions.filter((q) => !q.prompt)).toHaveLength(0);
   });
@@ -244,9 +245,12 @@ describe('bundleToAdaptedTest', () => {
     });
 
     expect(adapted.missingSections).toEqual(['listening']);
-    // Until Phase 9 the screen still opens on built-in material — but the gap is
-    // reported rather than passed off as the bundle's own content.
-    expect(adapted.test.listening).toEqual(MOCK_TEST_1.listening);
+    // Nothing is substituted for it. The screen refuses to open Listening and
+    // says which test is misconfigured, instead of seating the learner in front
+    // of the built-in paper under this bundle's title.
+    expect(adapted.test.listening).toBe(null);
+    expect(sectionAvailable(adapted.test, 'listening')).toBe(false);
+    expect(sectionAvailable(adapted.test, 'reading')).toBe(true);
   });
 
   it('surfaces question issues per skill', () => {
@@ -291,9 +295,9 @@ describe('bundleToAdaptedTest', () => {
 
     // Both tasks used to receive the same adapted object, so Task 2 showed the
     // Task 1 prompt.
-    expect(adapted.test.writing.task1.prompt).toBe('Describe the chart.');
-    expect(adapted.test.writing.task2.prompt).toBe('To what extent do you agree?');
-    expect(adapted.test.writing.task1.minWordCount).toBe(150);
-    expect(adapted.test.writing.task2.minWordCount).toBe(250);
+    expect(adapted.test.writing.task1?.prompt).toBe('Describe the chart.');
+    expect(adapted.test.writing.task2?.prompt).toBe('To what extent do you agree?');
+    expect(adapted.test.writing.task1?.minWordCount).toBe(150);
+    expect(adapted.test.writing.task2?.minWordCount).toBe(250);
   });
 });

@@ -3,9 +3,12 @@ import path from 'path';
 import { nanoid } from 'nanoid';
 import { getFirestoreDb } from './firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { AdminSpeakingMaterial, AdminReadingMaterial, AdminListeningMaterial, AdminWritingMaterial, AdminMaterial, FullCdiBundle, AdminStats } from '../types/admin';
+import { AdminSpeakingMaterial, AdminReadingMaterial, AdminListeningMaterial, AdminWritingMaterial, AdminMaterial, FullCdiBundle, AdminStats, MaterialLifecycleStatus } from '../types/admin';
 import { parseMaterialForWrite, migrateStoredMaterial } from '../schemas/material';
+import { publishBlockers } from './publishGate';
+import type { PublishBlocker, PublishGateContext } from './publishGate';
 import type { QuestionIssue } from '../schemas/question';
+import { describeQuestionIssue } from '../schemas/question';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'admin_content');
 const PRIVATE_UPLOADS_DIR = path.join(process.cwd(), 'data', 'private_uploads');
@@ -18,6 +21,9 @@ if (!useFirestore()) {
 }
 
 type SectionType = 'speaking' | 'reading' | 'listening' | 'writing';
+/** Bundles are assembled or not; materials have a life beyond that. */
+type BundleStatusFilter='all'|'published'|'draft';
+type MaterialStatusFilter='all'|'published'|'draft'|'archived';
 const assertId = (v:string) => { if (!/^[A-Za-z0-9_.-]{1,160}$/.test(v)) throw new Error('Invalid identifier.'); };
 
 /**
@@ -44,7 +50,7 @@ class AdminStore {
   private getFilePath(collection:string){return path.join(DATA_DIR,`${collection}.json`);}
   private readCollection<T>(collection:string):T[]{const filePath=this.getFilePath(collection);try{if(!fs.existsSync(filePath)){fs.writeFileSync(filePath,'[]','utf-8');return [];}const value=JSON.parse(fs.readFileSync(filePath,'utf-8'));return Array.isArray(value)?value as T[]:[];}catch{return [];}}
   private writeCollection<T>(collection:string,items:T[]):void{const filePath=this.getFilePath(collection),tmp=`${filePath}.tmp.${process.pid}.${Date.now()}.${nanoid(4)}`;fs.writeFileSync(tmp,JSON.stringify(items,null,2),'utf-8');fs.renameSync(tmp,filePath);}
-  private async firestoreList<T>(section:string,statusFilter?:'all'|'published'|'draft'):Promise<T[]>{let q:any=getFirestoreDb().collection('admin_content').doc(section).collection('items');if(statusFilter&&statusFilter!=='all')q=q.where('status','==',statusFilter);const s=await q.get();return s.docs.map((d:any)=>d.data() as T);}
+  private async firestoreList<T>(section:string,statusFilter?:MaterialStatusFilter):Promise<T[]>{let q:any=getFirestoreDb().collection('admin_content').doc(section).collection('items');if(statusFilter&&statusFilter!=='all')q=q.where('status','==',statusFilter);const s=await q.get();return s.docs.map((d:any)=>d.data() as T);}
   /**
    * Published or draft materials in one section, with any legacy question
    * shapes migrated to canonical on the way out.
@@ -52,7 +58,7 @@ class AdminStore {
    * Migration is read-only: the row on disk is untouched, so a question that
    * cannot be converted is reported by `reviewMaterials` rather than lost.
    */
-  public async listMaterials(section:SectionType,statusFilter?:'all'|'published'|'draft'):Promise<AdminMaterial[]>{
+  public async listMaterials(section:SectionType,statusFilter?:MaterialStatusFilter):Promise<AdminMaterial[]>{
     const rows=useFirestore()
       ?await this.firestoreList<Record<string,unknown>>(section,statusFilter)
       :this.readCollection<Record<string,unknown>>(section).filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);
@@ -64,7 +70,7 @@ class AdminStore {
    * canonical. Nothing is invented to fill a gap: a material with entries here
    * needs a human before it is fit to sit.
    */
-  public async reviewMaterials(section:SectionType,statusFilter?:'all'|'published'|'draft'):Promise<Array<{material:AdminMaterial;needsReview:QuestionIssue[]}>>{
+  public async reviewMaterials(section:SectionType,statusFilter?:MaterialStatusFilter):Promise<Array<{material:AdminMaterial;needsReview:QuestionIssue[]}>>{
     const rows=useFirestore()
       ?await this.firestoreList<Record<string,unknown>>(section,statusFilter)
       :this.readCollection<Record<string,unknown>>(section).filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);
@@ -134,7 +140,9 @@ class AdminStore {
       ...incoming,
       id,
       section,
-      status:incoming.status??previous?.status??'published',
+      // A save never publishes. `setMaterialStatus` is the only transition, and
+      // a material starts out in the state that reaches nobody.
+      status:previous?.status??'draft',
       author:incoming.author??previous?.author??author,
       createdAt:previous?.createdAt??now,
       updatedAt:now,
@@ -156,7 +164,63 @@ class AdminStore {
     return parsed.material as unknown as AdminMaterial;
   }
   public async deleteMaterial(section:SectionType,id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id),snap=await ref.get();if(!snap.exists)return false;await ref.delete();return true;}const items=this.readCollection<any>(section),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection(section,filtered);return true;}
-  public async listBundles(statusFilter?:'all'|'published'|'draft'):Promise<FullCdiBundle[]>{return useFirestore()?this.firestoreList<FullCdiBundle>('bundles',statusFilter):this.readCollection<FullCdiBundle>('bundles').filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);}
+  /**
+   * One material, alongside the questions its stored row cannot make canonical.
+   *
+   * `getMaterial` migrates on read, so the unconvertible questions are gone from
+   * what it returns. Anything deciding whether a material is fit to publish has
+   * to see the row as it really is.
+   */
+  public async reviewMaterial(section:SectionType,id:string):Promise<{material:AdminMaterial;needsReview:QuestionIssue[]}|null>{
+    assertId(id);
+    let row:unknown=null;
+    if(useFirestore()){
+      const snap=await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).get();
+      row=snap.exists?snap.data()||null:null;
+    }else{
+      row=this.readCollection<Record<string,unknown>>(section).find(item=>item.id===id)||null;
+    }
+    if(!row)return null;
+    const result=migrateStoredMaterial(row);
+    return {material:result.material as AdminMaterial,needsReview:result.needsReview};
+  }
+
+  /**
+   * Moves a material between lifecycle states, and nothing else.
+   *
+   * Separated from `saveMaterial` because the two answer different questions:
+   * a save asks whether the content is well formed, a publish asks whether it
+   * is fit for a learner. While they were one act, anything that could be
+   * written could be published — including a material whose answer key the
+   * importer never found.
+   *
+   * The gate runs only on the way to `published`. Withdrawing or retiring a
+   * material is always allowed: refusing to unpublish something broken would
+   * be exactly backwards.
+   */
+  public async setMaterialStatus(section:SectionType,id:string,status:MaterialLifecycleStatus,context:PublishGateContext):Promise<{ok:true;material:AdminMaterial}|{ok:false;blockers:PublishBlocker[]}>{
+    assertId(id);
+    const reviewed=await this.reviewMaterial(section,id);
+    if(!reviewed)throw new Error('Material not found.');
+    const material=reviewed.material;
+    if(status==='published'){
+      const blockers=publishBlockers(material,{...context,needsReview:reviewed.needsReview.map(describeQuestionIssue)});
+      if(blockers.length>0)return{ok:false,blockers};
+    }
+    const now=new Date().toISOString();
+    if(useFirestore()){
+      const ref=getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id);
+      await ref.set({status,updatedAt:now},{merge:true});
+      return{ok:true,material:{...material,status,updatedAt:now}};
+    }
+    const items=this.readCollection<Record<string,unknown>>(section);
+    const index=items.findIndex(x=>x.id===id);
+    if(index<0)throw new Error('Material not found.');
+    items[index]={...items[index],status,updatedAt:now};
+    this.writeCollection(section,items);
+    return{ok:true,material:{...material,status,updatedAt:now}};
+  }
+  public async listBundles(statusFilter?:BundleStatusFilter):Promise<FullCdiBundle[]>{return useFirestore()?this.firestoreList<FullCdiBundle>('bundles',statusFilter):this.readCollection<FullCdiBundle>('bundles').filter(x=>!statusFilter||statusFilter==='all'||x.status===statusFilter);}
   public async getBundle(id:string):Promise<FullCdiBundle|null>{assertId(id);if(useFirestore()){const s=await getFirestoreDb().collection('admin_content').doc('bundles').collection('items').doc(id).get();return s.exists?s.data() as FullCdiBundle:null;}return this.readCollection<FullCdiBundle>('bundles').find(x=>x.id===id)||null;}
   public async saveBundle(bundleData:Partial<FullCdiBundle>):Promise<FullCdiBundle>{validateBundle(bundleData);const now=new Date().toISOString();if(useFirestore()){const db=getFirestoreDb(),id=String(bundleData.id||`cdi-bundle-${Date.now()}-${nanoid(5)}`);assertId(id);const ref=db.collection('admin_content').doc('bundles').collection('items').doc(id),existing=await ref.get();const item=(existing.exists?{...(existing.data()||{}),...bundleData,id,updatedAt:now}:{id,title:bundleData.title||'Untitled IELTS Full CDI Test',module:bundleData.module||'academic',targetBand:bundleData.targetBand||'7.0-7.5',status:bundleData.status||'draft',description:bundleData.description||'',createdAt:now,updatedAt:now,timings:bundleData.timings||{listeningMinutes:30,readingMinutes:60,writingMinutes:60,speakingMinutes:15},materials:bundleData.materials||{}}) as FullCdiBundle;await ref.set(item,{merge:true});return item;}const items=this.readCollection<FullCdiBundle>('bundles');if(bundleData.id){const index=items.findIndex(b=>b.id===bundleData.id);if(index>=0){const updated={...items[index],...bundleData,updatedAt:now} as FullCdiBundle;items[index]=updated;this.writeCollection('bundles',items);return updated;}}const item={id:bundleData.id||`cdi-bundle-${Date.now()}-${nanoid(5)}`,title:bundleData.title||'Untitled IELTS Full CDI Test',module:bundleData.module||'academic',targetBand:bundleData.targetBand||'7.0-7.5',status:bundleData.status||'draft',description:bundleData.description||'',createdAt:now,updatedAt:now,timings:bundleData.timings||{listeningMinutes:30,readingMinutes:60,writingMinutes:60,speakingMinutes:15},materials:bundleData.materials||{}} as FullCdiBundle;items.unshift(item);this.writeCollection('bundles',items);return item;}
   public async deleteBundle(id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc('bundles').collection('items').doc(id),s=await ref.get();if(!s.exists)return false;await ref.delete();return true;}const items=this.readCollection<FullCdiBundle>('bundles'),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection('bundles',filtered);return true;}
