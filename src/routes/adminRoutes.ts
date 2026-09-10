@@ -9,6 +9,8 @@ import {adminStore,PRIVATE_UPLOADS_DIR} from '../services/adminStore';
 import {toPublicMaterialSummary} from '../services/publicMaterialView';
 import {namespaceCdiId} from '../utils/cdiIds';
 import {describeQuestionIssue} from '../schemas/question';
+import {importCdiHtml} from '../services/cdiImport';
+import {toDraftMaterial} from '../services/cdiImport/toMaterial';
 import {assetStore,extractAssetIds,isAssetId} from '../services/assetStore';
 import {MaterialValidationError} from '../services/adminStore';
 import {validateUpload,EXTENSION_EXPECTATIONS} from '../services/fileTypeSniffer';
@@ -122,6 +124,77 @@ adminRouter.post('/upload',requireAdminAuth,requireAdminRole,upload.single('file
 
     return res.json({success:true,file:summary,asset:summary});
   }catch(error){console.error('[Upload] failed:',error);return res.status(500).json({error:'File upload failed.'});}
+});
+
+/**
+ * Analyses a pasted or uploaded CDI page and reports what could be read from it.
+ *
+ * This endpoint only *reads*. It stores the original bytes — so a better parser
+ * can be run over them later — and stores any asset the page carries inline,
+ * because those cannot be recovered once the page is discarded. It saves no
+ * material: what comes back is a draft plus every reason it is not finished,
+ * and phase 7 is where a human turns that into published content.
+ *
+ * The page is never executed. Script is removed during normalisation, and the
+ * display markup goes through the same sanitiser as any other imported HTML.
+ */
+adminRouter.post('/import/html',requireAdminAuth,requireAdminRole,async(req:AdminRequest,res)=>{
+  const raw=typeof req.body?.html==='string'?req.body.html:typeof req.body==='string'?req.body:'';
+  if(!raw.trim())return res.status(400).json({error:'No HTML was supplied.'});
+
+  const buffer=Buffer.from(raw,'utf8');
+  const check=validateHtmlFileBuffer(buffer);
+  if(!check.valid)return res.status(400).json({error:check.error});
+
+  try{
+    const createdBy=req.adminUser?.id||'admin';
+    // The untouched original, kept private and never served as a page.
+    const sourceAsset=await assetStore.create({originalName:String(req.body?.filename||'pasted-import.html').slice(0,200),content:buffer,mimeType:'text/html',kind:'html',createdBy,sourceType:req.body?.filename?'upload':'paste'});
+
+    const stored:Array<{originalSrc:string;assetId:string}>=[];
+    const result=importCdiHtml(raw,{
+      resolveAsset:(asset)=>{
+        // Only what the page actually contains can be stored. A path or an
+        // external URL is reported instead, never fetched.
+        if(asset.origin!=='inline'||!asset.inlineData)return null;
+        const id=`pending-${stored.length}`;
+        stored.push({originalSrc:asset.originalSrc,assetId:id});
+        return id;
+      },
+    });
+
+    // Inline assets are written after parsing, then their real ids are patched
+    // in — so a parse that throws does not leave files behind.
+    for(const entry of stored){
+      const asset=result.assets.find(a=>a.originalSrc===entry.originalSrc);
+      if(!asset?.inlineData)continue;
+      const created=await assetStore.create({originalName:`imported-${asset.kind}`,content:Buffer.from(asset.inlineData.base64,'base64'),mimeType:asset.inlineData.mimeType,kind:asset.kind,createdBy,sourceType:'derived',derivedFromAssetId:sourceAsset.id});
+      asset.assetId=created.id;
+      for(const question of result.questions){
+        if(question.question?.mediaRef?.assetId===entry.assetId)question.question.mediaRef.assetId=created.id;
+        if(question.draft?.mediaRef?.assetId===entry.assetId)question.draft.mediaRef.assetId=created.id;
+      }
+    }
+
+    const draft=toDraftMaterial(result,{sourceAssetId:sourceAsset.id});
+    return res.json({
+      parserVersion:result.parserVersion,
+      sourceAssetId:sourceAsset.id,
+      detectedSection:result.detectedSection,
+      title:result.title,
+      material:draft,
+      questions:result.questions,
+      assets:result.assets.map(({inlineData:_inlineData,...rest})=>rest),
+      unsupportedRegions:result.unsupportedRegions,
+      diagnostics:result.diagnostics,
+      transcript:result.transcript,
+      stats:result.stats,
+      needsReview:result.stats.needsReview+result.stats.unsupported,
+    });
+  }catch(error){
+    console.error('[Import] failed:',error);
+    return res.status(500).json({error:'The page could not be analysed.'});
+  }
 });
 adminRouter.get('/materials',requireAdminAuth,async(req,res)=>{
   const status=['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as 'all'|'published'|'draft':undefined;

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head><title>Mixed Construct Sample</title>
+<script>document.write('<p>built by script</p>'); var answers={q1:'x'};</script>
+</head>
+<body>
+<div class=wrapper>
+  <h1>Mixed Construct Sample &amp; Edge Cases</h1>
+  <img src="images/campus-map.png" alt="Campus plan">
+  <img src="https://cdn.example.com/tracking.png" alt="remote">
+
+  <h3>Questions 1-2</h3>
+  <p>Label the map below.</p>
+  <p>Write <strong>ONE WORD ONLY</strong> for each answer.</p>
+  <ul>
+    <li>1. The library is located at the <input name="q1" type="text"></li>
+    <li>2. The refectory is beside the <input name="q2" type="text" data-answer="quad"></li>
+  </ul>
+
+  <h3>Questions 3-4</h3>
+  <p>Choose the correct letter, A, B or C.</p>
+  <fieldset>
+    <legend>3. Which statement is supported?</legend>
+    <label><input type="radio" name="q3" value="A" checked> The first option.</label>
+    <label><input type="radio" name="q3" value="B"> The second option.</label>
+    <label><input type="radio" name="q3" value="C"> The third option.</label>
+  </fieldset>
+  <fieldset>
+    <legend>4. An ambiguous one</legend>
+    <label><input type="radio" name="q4" value="A"> Alpha
+    <label><input type="radio" name="q4" value="B"> Beta
+  </fieldset>
+
+  <h3>Questions 5-6</h3>
+  <p>Drag each label to the correct position on the diagram.</p>
+  <div class="drag-area">
+    <div class="drag-item" draggable="true" data-drag-id="d1">Nucleus</div>
+    <div class="drag-item" draggable="true" data-drag-id="d2">Membrane</div>
+    <div class="drop-zone" id="zone5" data-question="5"></div>
+    <div class="drop-zone" id="zone6" data-question="6"></div>
+  </div>
+
+  <h3>Questions 7-8</h3>
+  <p>Use the interactive plotter below.</p>
+  <canvas id="plot" width="400" height="300" data-question="7"></canvas>
+  <div class="proprietary-widget" data-widget="hotspot" data-question="8">Hotspot widget</div>
+
+  <h2>Answers</h2>
+  <p>1. entrance</p>
+  <p>3. A</p>
+  <p>3. B</p>
+</div>
+</body>
+</html>
