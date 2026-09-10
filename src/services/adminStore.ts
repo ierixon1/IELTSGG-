@@ -129,7 +129,7 @@ class AdminStore {
    * action.
    */
   private finalise(section:SectionType,previous:Record<string,unknown>|undefined,incoming:Record<string,unknown>,id:string,author:string,now:string):AdminMaterial{
-    const candidate={
+    const candidate:Record<string,unknown>={
       ...(previous||{}),
       ...incoming,
       id,
@@ -139,6 +139,18 @@ class AdminStore {
       createdAt:previous?.createdAt??now,
       updatedAt:now,
     };
+    // An import record is evidence of where a material came from, not editable
+    // content, so it is written once and then carried forward. The merge above
+    // replaces `content` wholesale, so an ordinary edit through the material
+    // editor — which knows nothing about importing — would otherwise erase the
+    // provenance of an imported material the first time somebody fixed a typo in
+    // it, and a crafted request could otherwise rewrite the record to claim the
+    // parser had read an answer key it never saw.
+    const previousContent=previous?.content as Record<string,unknown>|undefined;
+    const nextContent=candidate.content as Record<string,unknown>|undefined;
+    if(previousContent?.importRecord&&nextContent&&typeof nextContent==="object"&&!Array.isArray(nextContent)){
+      candidate.content={...nextContent,importRecord:previousContent.importRecord};
+    }
     const parsed=parseMaterialForWrite(section,candidate);
     if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
     return parsed.material as unknown as AdminMaterial;

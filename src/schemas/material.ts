@@ -42,9 +42,65 @@ const QuestionsField = (idPrefix: string) =>
 
 const SpeakingPromptList = z.array(RequiredText(2000)).max(60).default([]);
 
+const SourceRangeSchema = z.object({
+  start: z.number().int().min(0),
+  end: z.number().int().min(0),
+  excerpt: Trimmed(8000).default(''),
+});
+
+const ImportDiagnosticSchema = z.object({
+  code: Trimmed(64),
+  message: Trimmed(4000),
+  questionNumber: z.number().int().min(0).max(5000).optional(),
+  sourceRange: SourceRangeSchema.optional(),
+});
+
+/**
+ * The provenance of an imported material.
+ *
+ * This belongs in the storage contract rather than riding along as an extra
+ * key, because Zod strips what it does not know: without it the review screen
+ * would assemble a complete import record and the saved material would contain
+ * none of it. What the parser could not read, and what a human decided about
+ * it, has to stay recoverable from the material months later. The source bytes
+ * themselves are not copied here — they stay in the asset named by
+ * `sourceAssetId`, which nothing in the editor rewrites.
+ */
+export const ImportRecordSchema = z.object({
+  parserVersion: Trimmed(64),
+  sourceAssetId: z.string().trim().min(1).max(64).optional(),
+  diagnostics: z.array(ImportDiagnosticSchema).max(1000).default([]),
+  unsupportedRegions: z
+    .array(
+      z.object({
+        construct: Trimmed(200),
+        reason: Trimmed(4000),
+        sourceRange: SourceRangeSchema,
+      }),
+    )
+    .max(500)
+    .default([]),
+  reviewedQuestions: z
+    .array(
+      z.object({
+        questionNumber: z.number().int().min(0).max(5000).optional(),
+        originalStatus: z.enum(['parsed', 'needs_review', 'unsupported']),
+        originalAnswerStatus: z.enum(['extracted', 'missing', 'uncertain']),
+        decision: z.enum(['include', 'mark_unsupported', 'exclude']),
+        edited: z.boolean().default(false),
+        sourceRange: SourceRangeSchema,
+      }),
+    )
+    .max(1000)
+    .default([]),
+});
+
+export type StoredImportRecord = z.infer<typeof ImportRecordSchema>;
+
 const AssetRefs = {
   assetIds: z.array(z.string().trim().min(1).max(64)).max(50).optional(),
   sourceAssetId: z.string().trim().min(1).max(64).optional(),
+  importRecord: ImportRecordSchema.optional(),
 };
 
 export const ReadingContentSchema = z.object({

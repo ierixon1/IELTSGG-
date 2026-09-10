@@ -1,4 +1,5 @@
 import type { Question } from '../types';
+import type { StoredImportRecord } from '../schemas/material';
 
 // Types for Admin CMS, Examiners, and Full CDI Bundles
 export interface AdminUser {
@@ -35,6 +36,12 @@ export interface MaterialAssetRefs {
   assetIds?: string[];
   /** The untouched original of an imported document; never served to a browser. */
   sourceAssetId?: string;
+  /**
+   * How an imported material was produced, and what the reviewer decided.
+   * Written once by the import review screen and carried forward by the store;
+   * the material editor neither shows nor rewrites it.
+   */
+  importRecord?: StoredImportRecord;
 }
 
 export interface AdminSpeakingMaterial extends BaseAdminMaterial {

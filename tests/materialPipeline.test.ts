@@ -118,7 +118,7 @@ before(async () => {
 after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   process.chdir(originalCwd);
-  rmSync(tempRoot, { recursive: true, force: true });
+  rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 });
 
 describe('material round trip', () => {

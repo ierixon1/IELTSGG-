@@ -13,6 +13,7 @@ import {
   LogOut, 
   Sparkles, 
   FileText,
+  FileCode,
   Search,
   CheckCircle2,
   Clock,
@@ -24,6 +25,10 @@ import { AdminReadingEditor } from './AdminReadingEditor';
 import { AdminListeningEditor } from './AdminListeningEditor';
 import { AdminWritingEditor } from './AdminWritingEditor';
 import { AdminCdiBundleBuilder } from './AdminCdiBundleBuilder';
+import { AdminImportReview } from './AdminImportReview';
+import { AdminImportStart } from './AdminImportStart';
+import { buildReviewState } from '../../services/cdiImport/review';
+import type { ReviewState } from '../../services/cdiImport/review';
 import { AdminPreviewModal } from './AdminPreviewModal';
 
 interface AdminDashboardProps {
@@ -49,8 +54,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Editor states
   const [editorMode, setEditorMode] = useState<
-    'none' | 'speaking' | 'reading' | 'listening' | 'writing' | 'bundle'
+    'none' | 'speaking' | 'reading' | 'listening' | 'writing' | 'bundle' | 'import'
   >('none');
+  /**
+   * An import in progress. It lives here rather than in the review screen so a
+   * correction survives a re-render, and so nothing is written until the admin
+   * saves — parsing a page is not publishing it.
+   */
+  const [importReview, setImportReview] = useState<ReviewState | null>(null);
   const [editingItem, setEditingItem] = useState<any | null>(null);
 
   // Preview state
@@ -122,6 +133,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (err: any) {
       alert(err.message);
     }
+  };
+
+  /**
+   * Saves a reviewed import as a draft material.
+   *
+   * The write boundary from phase 4 validates it again on the way in, so a
+   * review that let something through is still caught before it is stored.
+   */
+  const handleSaveImportedDraft = async (payload: { section: string; title: string }) => {
+    const res = await fetch('/api/admin/materials', {
+      credentials: 'same-origin',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(
+        data.issues?.length ? `${data.error} ${data.issues.join(' ')}` : data.error || 'Failed to save the draft.',
+      );
+    }
+    showToast(`Saved "${payload.title}" as a draft.`);
+    setImportReview(null);
+    setEditorMode('none');
+    fetchData();
   };
 
   const handleDeleteMaterial = async (id: string) => {
@@ -277,6 +313,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>+ Writing</span>
             </button>
             <button
+              id="btn-import-cdi-html"
+              onClick={() => {
+                setEditingItem(null);
+                setImportReview(null);
+                setEditorMode('import');
+              }}
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-brand-200 hover:bg-ink-700 transition-colors"
+            >
+              <FileCode className="w-3.5 h-3.5 text-brand-300" />
+              <span>Import HTML</span>
+            </button>
+            <button
               onClick={() => {
                 setEditingItem(null);
                 setEditorMode('bundle');
@@ -349,6 +397,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               onCancel={() => {
                 setEditorMode('none');
                 setEditingItem(null);
+              }}
+            />
+          )}
+
+          {editorMode === 'import' && !importReview && (
+            <AdminImportStart
+              onParsed={(result, sourceHtml, sourceAssetId) =>
+                setImportReview(buildReviewState(result, { sourceHtml, sourceAssetId }))
+              }
+              onCancel={() => {
+                setEditorMode('none');
+                setImportReview(null);
+              }}
+            />
+          )}
+
+          {editorMode === 'import' && importReview && (
+            <AdminImportReview
+              state={importReview}
+              onChange={setImportReview}
+              onSaveDraft={handleSaveImportedDraft}
+              onCancel={() => {
+                setEditorMode('none');
+                setImportReview(null);
               }}
             />
           )}
