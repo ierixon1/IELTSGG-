@@ -165,18 +165,31 @@ class AssetStore {
   }
 
   /**
-   * Every asset id referenced by any stored material, across all four sections
-   * and all bundles.
+   * Every asset id referenced by any stored material or ingested source.
    *
    * Computed by scanning rather than by keeping a counter: a counter that
    * drifts silently deletes a file that is still in use, and there are few
    * enough materials that scanning is not worth optimising away.
+   *
+   * Sources are scanned here for the same reason materials are. An ingested
+   * textbook's whole value is that the original bytes are still there to run a
+   * better extractor over — and without this the reaper would collect every
+   * one of them once its staged grace period elapsed.
    */
   public async collectReferencedIds(): Promise<Set<string>> {
     const sections = ['speaking', 'reading', 'listening', 'writing'] as const;
     const lists = await Promise.all(sections.map((section) => adminStore.listMaterials(section)));
     const referenced = new Set<string>();
     for (const item of lists.flat()) for (const id of extractAssetIds(item)) referenced.add(id);
+
+    // Imported lazily: `sourceStore` does not depend on assets, but this module
+    // is imported by the ingestion job, and a static import would close the
+    // cycle at module-evaluation time.
+    const { sourceStore } = await import('./sourceStore');
+    for (const source of await sourceStore.list()) {
+      for (const id of extractAssetIds(source)) referenced.add(id);
+    }
+
     return referenced;
   }
 

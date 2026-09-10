@@ -3,7 +3,7 @@ import path from 'path';
 import { nanoid } from 'nanoid';
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
 import { DataStore, DailyQuota } from './DataStore';
-import { GeneratedTestRecord, StoredTextbook, StoredTextbookSummary, TextbookChunk } from './types';
+import { GeneratedTestRecord } from './types';
 
 const DATA_DIR=path.join(process.cwd(),'data');
 function assertUserId(userId:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(userId))throw new Error('Invalid user identifier.');}
@@ -30,10 +30,4 @@ export class LocalJsonDataStore implements DataStore{
  async incrementGenerationCount(userId:string){return this.withLock(`${userId}:quota`,async()=>{const q=await this.getDailyQuota(userId),all=this.read<any>(userId,'quota.json',{});all[q.dateStr]={...q,generationsCount:q.generationsCount+1};this.write(userId,'quota.json',all);return this.getDailyQuota(userId);});}
  async reserveGeneration(userId:string,maxGenerations:number){return this.withLock(`${userId}:quota`,async()=>{const q=await this.getDailyQuota(userId);if(q.generationsCount>=maxGenerations)return null;const all=this.read<any>(userId,'quota.json',{});all[q.dateStr]={...q,generationsCount:q.generationsCount+1};this.write(userId,'quota.json',all);return this.getDailyQuota(userId);});}
  async incrementUploadCount(userId:string){return this.withLock(`${userId}:quota`,async()=>{const q=await this.getDailyQuota(userId),all=this.read<any>(userId,'quota.json',{});all[q.dateStr]={...q,uploadsCount:q.uploadsCount+1};this.write(userId,'quota.json',all);return this.getDailyQuota(userId);});}
- async saveTextbook(textbook:StoredTextbook){await this.withLock(`${textbook.userId}:textbooks`,async()=>{const all=this.read<StoredTextbook[]>(textbook.userId,'textbooks.json',[]),i=all.findIndex(x=>x.id===textbook.id);if(i>=0)all[i]=textbook;else all.push(textbook);this.write(textbook.userId,'textbooks.json',all);});}
- async getTextbook(userId:string,textbookId:string){return this.read<StoredTextbook[]>(userId,'textbooks.json',[]).find(x=>x.id===textbookId)||null;}
- async listUserTextbooks(userId:string):Promise<StoredTextbookSummary[]>{return (await this.read<StoredTextbook[]>(userId,'textbooks.json',[])).map(v=>{const{tableOfContents,...summary}=v;return{...summary,unitCount:tableOfContents?.length||0};});}
- async deleteTextbook(userId:string,textbookId:string){await this.withLock(`${userId}:textbooks`,async()=>{this.write(userId,'textbooks.json',this.read<StoredTextbook[]>(userId,'textbooks.json',[]).filter(x=>x.id!==textbookId));this.write(userId,`textbook_${textbookId}_chunks.json`,[]);});}
- async saveTextbookChunks(userId:string,textbookId:string,chunks:TextbookChunk[]){await this.withLock(`${userId}:textbook:${textbookId}`,async()=>this.write(userId,`textbook_${textbookId}_chunks.json`,chunks));}
- async getTextbookChunks(userId:string,textbookId:string){return this.read<TextbookChunk[]>(userId,`textbook_${textbookId}_chunks.json`,[]);}
 }

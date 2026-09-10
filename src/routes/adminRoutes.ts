@@ -19,6 +19,7 @@ import {validateUpload,EXTENSION_EXPECTATIONS} from '../services/fileTypeSniffer
 import type {UploadedAssetSummary} from '../types/asset';
 import {authService} from '../services/authService';
 import {storageProvider} from '../services/storage';
+import {sourceRouter} from './sourceRoutes';
 
 export const adminRouter=express.Router();
 type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string};adminSessionToken?:string};
@@ -84,6 +85,15 @@ adminRouter.get('/assets/:id',requireAdminAuth,async(req,res)=>{try{const asset=
 adminRouter.get('/assets',requireAdminAuth,async(_req,res)=>{try{return res.json({items:await assetStore.list()});}catch{return res.status(500).json({error:'Unable to list assets.'});}});
 adminRouter.post('/assets/reap',requireAdminAuth,requireAdminRole,async(_req,res)=>{try{return res.json({removed:await assetStore.reapUnreferenced()});}catch(error){console.error('[Assets] reap failed:',error);return res.status(500).json({error:'Unable to reap assets.'});}});
 adminRouter.get('/stats',requireAdminAuth,async(_req,res)=>{try{return res.json({stats:await adminStore.getStats()});}catch{return res.status(500).json({error:'Unable to load stats.'});}});
+/**
+ * The source library.
+ *
+ * Mounted at a path so its guards apply to it alone: an ingested textbook is
+ * licensed material whose entire extracted text is readable through these
+ * routes, and a pathless mount would also have put those guards in front of
+ * the anonymous `/public/*` routes below.
+ */
+adminRouter.use('/sources',requireAdminAuth,requireAdminRole,sourceRouter);
 /**
  * Accepts one file, verifies it really is what it claims, and stores it as a
  * staged asset.

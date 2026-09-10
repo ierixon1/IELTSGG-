@@ -2,7 +2,7 @@ import { getApps, initializeApp, applicationDefault, cert } from 'firebase-admin
 import { getFirestore, FieldValue, Firestore } from 'firebase-admin/firestore';
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
 import { DataStore, DailyQuota } from './DataStore';
-import { GeneratedTestRecord, StoredTextbook, StoredTextbookSummary, TextbookChunk } from './types';
+import { GeneratedTestRecord } from './types';
 
 function initFirestore(): Firestore { if(!getApps().length){const projectId=process.env.FIREBASE_PROJECT_ID,clientEmail=process.env.FIREBASE_CLIENT_EMAIL,privateKey=process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g,'\n');if(projectId&&clientEmail&&privateKey)initializeApp({credential:cert({projectId,clientEmail,privateKey}),projectId});else if(projectId)initializeApp({projectId,credential:applicationDefault()});else initializeApp({credential:applicationDefault()});}return getFirestore(); }
 function assertUserId(userId:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(userId))throw new Error('Invalid user identifier.');}
@@ -26,10 +26,4 @@ export class FirestoreDataStore implements DataStore{
  async incrementGenerationCount(userId:string):Promise<DailyQuota>{const date=new Date().toISOString().slice(0,10);await this.quotaRef(userId,date).set({generationsCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});return this.getDailyQuota(userId);}
  async reserveGeneration(userId:string,maxGenerations:number):Promise<DailyQuota|null>{const date=new Date().toISOString().slice(0,10),ref=this.quotaRef(userId,date);return this.db.runTransaction(async tx=>{const snap=await tx.get(ref),d=snap.data()||{},count=Number(d.generationsCount||0);if(count>=maxGenerations)return null;const next=count+1;tx.set(ref,{generationsCount:next,updatedAt:FieldValue.serverTimestamp()},{merge:true});return{dateStr:date,generationsCount:next,uploadsCount:Number(d.uploadsCount||0)};});}
  async incrementUploadCount(userId:string):Promise<DailyQuota>{const date=new Date().toISOString().slice(0,10);await this.quotaRef(userId,date).set({uploadsCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});return this.getDailyQuota(userId);}
- async saveTextbook(textbook:StoredTextbook){await this.subRef(textbook.userId,'textbooks').doc(textbook.id).set({...textbook,userId:textbook.userId});}
- async getTextbook(userId:string,textbookId:string){const s=await this.subRef(userId,'textbooks').doc(textbookId).get();return s.exists?s.data() as StoredTextbook:null;}
- async listUserTextbooks(userId:string):Promise<StoredTextbookSummary[]>{const s=await this.subRef(userId,'textbooks').get();return s.docs.map(d=>{const v=d.data() as StoredTextbook;const{tableOfContents,...summary}=v;return{...summary,unitCount:tableOfContents?.length||0};});}
- async deleteTextbook(userId:string,textbookId:string){await this.subRef(userId,'textbooks').doc(textbookId).delete();const c=await this.subRef(userId,'textbooks').doc(textbookId).collection('chunks').get();if(!c.empty){const b=this.db.batch();c.docs.forEach(d=>b.delete(d.ref));await b.commit();}}
- async saveTextbookChunks(userId:string,textbookId:string,chunks:TextbookChunk[]){const c=this.subRef(userId,'textbooks').doc(textbookId).collection('chunks'),old=await c.get(),b=this.db.batch();old.docs.forEach(d=>b.delete(d.ref));chunks.forEach(x=>b.set(c.doc(x.id),x));await b.commit();}
- async getTextbookChunks(userId:string,textbookId:string){const s=await this.subRef(userId,'textbooks').doc(textbookId).collection('chunks').orderBy('id').get();return s.docs.map(d=>d.data() as TextbookChunk);}
 }

@@ -1,5 +1,5 @@
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
-import { GeneratedTestRecord, StoredTextbook, StoredTextbookSummary, TextbookChunk } from './types';
+import { GeneratedTestRecord } from './types';
 export interface DailyQuota { dateStr:string; generationsCount:number; uploadsCount:number; }
 export interface DataStore {
  getUserProfile(userId:string):Promise<UserProfile|null>; saveUserProfile(userId:string,profile:UserProfile):Promise<void>;
@@ -9,5 +9,4 @@ export interface DataStore {
  getUserVocab(userId:string):Promise<VocabCard[]>; saveUserVocab(userId:string,cards:VocabCard[]):Promise<void>;
  recordGeneratedTest(userId:string,test:GeneratedTestRecord):Promise<void>; getRecentGenerations(userId:string,limit?:number):Promise<GeneratedTestRecord[]>; getGeneratedTestById(userId:string,testId:string):Promise<GeneratedTestRecord|null>;
  getDailyQuota(userId:string):Promise<DailyQuota>; incrementGenerationCount(userId:string):Promise<DailyQuota>; reserveGeneration(userId:string,maxGenerations:number):Promise<DailyQuota|null>; incrementUploadCount(userId:string):Promise<DailyQuota>;
- saveTextbook(textbook:StoredTextbook):Promise<void>; getTextbook(userId:string,textbookId:string):Promise<StoredTextbook|null>; listUserTextbooks(userId:string):Promise<StoredTextbookSummary[]>; deleteTextbook(userId:string,textbookId:string):Promise<void>; saveTextbookChunks(userId:string,textbookId:string,chunks:TextbookChunk[]):Promise<void>; getTextbookChunks(userId:string,textbookId:string):Promise<TextbookChunk[]>;
 }

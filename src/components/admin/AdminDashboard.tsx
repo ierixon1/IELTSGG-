@@ -31,13 +31,14 @@ import { buildReviewState } from '../../services/cdiImport/review';
 import type { ReviewState } from '../../services/cdiImport/review';
 import { AdminPreviewModal } from './AdminPreviewModal';
 import { AdminMaterialCatalog } from './AdminMaterialCatalog';
+import { AdminSourceLibrary } from './AdminSourceLibrary';
 
 interface AdminDashboardProps {
   adminUser: AdminUser;
   onLogout: () => void;
 }
 
-type TabKey = 'materials' | 'bundles' | 'analytics';
+type TabKey = 'materials' | 'bundles' | 'sources' | 'analytics';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminUser,
@@ -454,6 +455,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             Full CDI Bundles ({bundles.length})
           </button>
           <button
+            id="tab-source-library"
+            onClick={() => setActiveTab('sources')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'sources'
+                ? 'bg-ink-900 text-white shadow-sm'
+                : 'text-ink-600 hover:text-ink-900 hover:bg-ink-100'
+            }`}
+          >
+            Source Library
+          </button>
+          <button
             onClick={() => setActiveTab('analytics')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'analytics'
@@ -568,6 +580,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Source Library Tab */}
+      {activeTab === 'sources' && <AdminSourceLibrary onToast={showToast} />}
 
       {/* Analytics Tab */}
       {activeTab === 'analytics' && stats && (

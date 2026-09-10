@@ -14,48 +14,12 @@ export interface GeneratedTestRecord {
   data: any; // Full generated test JSON
 }
 
-export interface TextbookChunk {
-  id: string;
-  textbookId: string;
-  chunkIndex: number;
-  pageNumber?: number;
-  sectionTitle?: string;
-  content: string;
-  tokenCount: number;
-}
-
-export interface TextbookTOCItem {
-  id: string;
-  title: string;
-  pageNumber?: number;
-  level: number;
-  coveredSkills: string[];
-  keyVocabulary: string[];
-  exerciseTypes: string[];
-  summary?: string;
-}
-
-export interface StoredTextbook {
-  id: string;
-  userId: string;
-  title: string;
-  author: string;
-  description: string;
-  targetModules: Array<'academic' | 'general'>;
-  targetSections: Array<'reading' | 'listening' | 'writing' | 'speaking'>;
-  fileStoragePath: string;
-  fileSize: number;
-  fileType: string;
-  status: 'uploading' | 'processing' | 'ready' | 'error';
-  errorMessage?: string;
-  tableOfContents: TextbookTOCItem[];
-  geminiCacheName?: string; // Gemini Context Cache resource name if cached
-  geminiCacheExpireTime?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type StoredTextbookSummary = Omit<StoredTextbook, 'tableOfContents'> & {
-  unitCount: number;
-  chunkCount?: number;
-};
+/**
+ * Textbooks used to live here, per learner, with a chunk that could record only
+ * a page number and a section title. Nothing ever called any of it.
+ *
+ * A source library is shared admin content rather than one learner's upload,
+ * and a chunk has to carry enough provenance to quote it back with a citation —
+ * neither of which that model could do. It is replaced by `types/source.ts`
+ * and `services/sourceStore.ts`.
+ */
