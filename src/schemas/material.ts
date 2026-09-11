@@ -131,6 +131,14 @@ export const GenerationRecordSchema = z.object({
   promptVersion: Trimmed(64),
   model: Trimmed(120),
   modelVersion: Trimmed(120).optional(),
+  /** The request that produced it. The same request id arriving again replays this draft. */
+  requestId: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_-]{8,64}$/)
+    .optional(),
+  /** Model calls the generation took, the successful one included. */
+  attempts: z.number().int().min(1).max(10).optional(),
   generatedAt: Trimmed(40),
   source: z.object({
     sourceId: z.string().trim().min(1).max(160),

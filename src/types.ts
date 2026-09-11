@@ -235,7 +235,11 @@ export interface QuestionProvenance {
   generationId: string;
   generatedQuestionId: string;
   generatorVersion: string;
+  /** The prompt contract the question was generated under. */
+  promptVersion?: string;
   model: string;
+  /** The version the provider reported answering with, when it reported one. */
+  modelVersion?: string;
   generatedAt: string;
   sourceId: string;
   chunkIds: string[];

@@ -1,6 +1,7 @@
 import './env';
 import { after, before, describe, it } from 'node:test';
 import { mkdtempSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
@@ -44,6 +45,7 @@ const { sourceStore } = await import('../src/services/sourceStore');
 const { adminStore } = await import('../src/services/adminStore');
 const { assetStore, extractAssetIds } = await import('../src/services/assetStore');
 const { setGenerationModel } = await import('../src/services/bookToTest/model');
+const { setGenerationPolicy } = await import('../src/services/bookToTest/reliability');
 const { redactAnswerKeys } = await import('../src/services/publicMaterialView');
 const { buildReviewState, setClassification, setDecision, toSavePayload } = await import(
   '../src/services/cdiImport/review'
@@ -168,8 +170,12 @@ const api = (url: string, init: RequestInit = {}) =>
     headers: { 'Content-Type': 'application/json', cookie: adminCookie, ...(init.headers || {}) },
   });
 
+// Every call is its own deliberate request, so each gets a fresh request id.
 const generate = (body: Record<string, unknown>, sourceId = source.id) =>
-  api(`/api/admin/sources/${sourceId}/generate`, { method: 'POST', body: JSON.stringify(body) });
+  api(`/api/admin/sources/${sourceId}/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ requestId: randomUUID(), ...body }),
+  });
 
 const readingCount = async () => (await adminStore.listMaterials('reading')).length;
 
@@ -181,7 +187,9 @@ const scanningRequest = {
   targetBand: '7.0',
 };
 
+// The real retry policy, with delays short enough not to be waited out.
 before(async () => {
+  setGenerationPolicy({ initialDelayMs: 1, maxDelayMs: 5, attemptTimeoutMs: 5000, totalTimeoutMs: 10000 });
   const app = express();
   app.use(express.json({ limit: '5mb' }));
   app.use('/api/auth', authRouter);
@@ -225,6 +233,7 @@ before(async () => {
 
 after(async () => {
   setGenerationModel(null);
+  setGenerationPolicy(null);
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   process.chdir(originalCwd);
   removeTempRoot(tempRoot);
@@ -436,19 +445,21 @@ describe('failure leaves nothing behind', () => {
     record: JSON.stringify(await sourceStore.get(source.id)),
   });
 
-  it('reports a network failure, creates no draft, and leaves the source untouched', async () => {
+  it('retries a dropped connection within the bound, reports the model unavailable, creates no draft, and leaves the source untouched', async () => {
     const model = new FailingModel();
     setGenerationModel(model);
     const beforeCount = await readingCount();
     const beforeSource = await sourceSnapshot();
 
     const response = await generate(scanningRequest);
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(503);
     const body = await response.json();
-    expect(body.code).toBe('model_failed');
-    expect(body.error).toContain('socket hang up');
+    expect(body.code).toBe('model_unavailable');
+    expect(body.failureClass).toBe('unavailable');
+    expect(body.attempts).toBe(3);
 
-    expect(model.calls).toBe(1);
+    // A dropped connection is transient, so it is retried — and only up to the bound.
+    expect(model.calls).toBe(3);
     expect(await readingCount()).toBe(beforeCount);
     expect(JSON.stringify(await sourceSnapshot())).toBe(JSON.stringify(beforeSource));
   });
@@ -458,7 +469,9 @@ describe('failure leaves nothing behind', () => {
     const beforeCount = await readingCount();
     const response = await generate(scanningRequest);
     expect(response.status).toBe(502);
-    expect((await response.json()).code).toBe('model_output_invalid_json');
+    const body = await response.json();
+    expect(body.code).toBe('invalid_model_response');
+    expect(body.reason).toBe('invalid_json');
     expect(await readingCount()).toBe(beforeCount);
   });
 
@@ -467,7 +480,9 @@ describe('failure leaves nothing behind', () => {
     const beforeCount = await readingCount();
     const response = await generate(scanningRequest);
     expect(response.status).toBe(502);
-    expect((await response.json()).code).toBe('model_output_invalid_shape');
+    const body = await response.json();
+    expect(body.code).toBe('invalid_model_response');
+    expect(body.reason).toBe('invalid_shape');
     expect(await readingCount()).toBe(beforeCount);
   });
 

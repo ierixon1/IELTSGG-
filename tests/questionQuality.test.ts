@@ -91,6 +91,7 @@ function judge(type: GeneratableType, questions: unknown[], picked: SourceChunk[
     chunks: picked,
     sections: passage.sections,
     generationId: 'gen-quality',
+    promptVersion: 'reading-grounded/2.0.0',
     generatedAt: '2026-01-01T00:00:00.000Z',
     model: 'fixture',
     sourceId: 'src-quality',
@@ -615,7 +616,14 @@ describe('a person can promote a flagged question, and only that way', () => {
     setGenerationModel(new FakeModel(promotionResponse));
     const response = await api(`/api/admin/sources/${source.id}/generate`, {
       method: 'POST',
-      body: JSON.stringify({ topic: SCANNING_TOPIC, questionType: 'short_answer', count: 3, module: 'academic', targetBand: '7.0' }),
+      body: JSON.stringify({
+        requestId: 'quality-promotion-0001',
+        topic: SCANNING_TOPIC,
+        questionType: 'short_answer',
+        count: 3,
+        module: 'academic',
+        targetBand: '7.0',
+      }),
     });
     expect(response.status).toBe(201);
     const body = await response.json();

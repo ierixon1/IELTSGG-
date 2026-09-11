@@ -184,7 +184,9 @@ export const QuestionProvenanceSchema = z
     /** Equal to the question's own `id`, so the record entry is findable. */
     generatedQuestionId: NonEmptyString.max(128),
     generatorVersion: NonEmptyString.max(64),
+    promptVersion: NonEmptyString.max(64).optional(),
     model: NonEmptyString.max(120),
+    modelVersion: NonEmptyString.max(120).optional(),
     generatedAt: NonEmptyString.max(40),
     sourceId: NonEmptyString.max(160),
     /** The retrieved chunks this question was written from. */

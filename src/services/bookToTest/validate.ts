@@ -71,6 +71,9 @@ export interface ValidationContext {
   generationId: string;
   generatedAt: string;
   model: string;
+  /** What the provider reported answering with; recorded on every question it wrote. */
+  modelVersion?: string;
+  promptVersion: string;
   sourceId: string;
 }
 
@@ -255,7 +258,9 @@ function assess(
     generationId: context.generationId,
     generatedQuestionId: pending.generatedQuestionId,
     generatorVersion: GENERATOR_VERSION,
+    promptVersion: context.promptVersion,
     model: context.model,
+    ...(context.modelVersion ? { modelVersion: context.modelVersion } : {}),
     generatedAt: context.generatedAt,
     sourceId: context.sourceId,
     chunkIds,

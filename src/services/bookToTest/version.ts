@@ -8,8 +8,11 @@
  *
  * 2.0.0 — evidence split into question / answer / distractor evidence, and
  * verdicts split into source grounding and IELTS quality.
+ * 2.1.0 — the generation boundary: bounded retries with classified failures,
+ * per-attempt and total time limits, idempotent requests and a run log.
+ * Validation rules and verdict semantics are unchanged from 2.0.0.
  */
-export const GENERATOR_VERSION = 'book-to-test/reading/2.0.0';
+export const GENERATOR_VERSION = 'book-to-test/reading/2.1.0';
 export const PROMPT_VERSION = 'reading-grounded/2.0.0';
 
 /**

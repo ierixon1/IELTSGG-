@@ -131,6 +131,8 @@ const GenerationVerdictPanel: React.FC<{
   const id = question.draft.provenance?.generatedQuestionId ?? question.draft.id;
   const entry = record?.questions.find((item) => item.generatedQuestionId === id);
   if (!record || !entry) return null;
+  // The question's own stamp; the generation record carries the same for every question it produced.
+  const provenance = question.draft.provenance;
 
   const citation = (chunkId: string) => {
     const chunk = record.chunks.find((item) => item.chunkId === chunkId);
@@ -187,6 +189,18 @@ const GenerationVerdictPanel: React.FC<{
       <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-600">
         Machine verdict — recorded at generation, not editable
       </div>
+      <p
+        className="font-mono text-[10px] text-ink-500"
+        data-question-versions
+        data-generator-version={provenance?.generatorVersion ?? record.generatorVersion}
+        data-prompt-version={provenance?.promptVersion ?? record.promptVersion}
+        data-model={provenance?.model ?? record.model}
+        data-model-version={provenance?.modelVersion ?? record.modelVersion ?? ''}
+      >
+        produced by {provenance?.generatorVersion ?? record.generatorVersion} · prompt{' '}
+        {provenance?.promptVersion ?? record.promptVersion} · {provenance?.model ?? record.model}
+        {(provenance?.modelVersion ?? record.modelVersion) ? ` (${provenance?.modelVersion ?? record.modelVersion})` : ''}
+      </p>
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusPill status={VERDICT_TONE[entry.status]}>final: {entry.status.replace(/_/g, ' ')}</StatusPill>
         {dimensions.map(([name, verdict]) => (
@@ -462,7 +476,7 @@ const QuestionRow: React.FC<{
                 Correct answer
                 {question.originalAnswerStatus !== 'extracted' && (
                   <span className="ml-1 font-normal normal-case text-warning-700">
-                    — the parser could not read one
+                    {state.generationRecord ? '— validation could not establish one' : '— the parser could not read one'}
                   </span>
                 )}
               </span>
@@ -516,7 +530,7 @@ const QuestionRow: React.FC<{
           {question.diagnostics.length > 0 && (
             <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-2.5">
               <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-500">
-                What the parser reported
+                {state.generationRecord ? 'What validation reported' : 'What the parser reported'}
               </div>
               <ul className="mt-1 space-y-1 text-[11px] text-ink-600">
                 {question.diagnostics.map((diagnostic, index) => (
@@ -606,7 +620,7 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
   const handleSave = async () => {
     const payload = toSavePayload(state);
     if (!payload) {
-      setError('This import is not ready to save yet.');
+      setError(generated ? 'This draft is not ready to save yet.' : 'This import is not ready to save yet.');
       return;
     }
     setSaving(true);
@@ -624,12 +638,22 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
     <div className="space-y-6" id="admin-import-review">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-200 pb-4">
         <div>
+          {/* One review system, two kinds of material: say which this is. */}
+          <span
+            data-review-kind={generated ? 'generated' : 'imported'}
+            className={cx(
+              'mb-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]',
+              generated ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-ink-200 bg-ink-50 text-ink-600',
+            )}
+          >
+            {generated ? 'Generated draft' : 'Imported material'}
+          </span>
           <h3 className="text-lg font-bold text-ink-900">
-            {generated ? 'Review generated material' : 'Review imported material'}
+            {generated ? 'Review generated draft' : 'Review imported material'}
           </h3>
           <p className="text-xs text-ink-500">
             {generated
-              ? 'What validation established from the source, and what it could not. Nothing is published from here.'
+              ? 'Book → Test output: what validation established from the source, and what it could not. Nothing is published from here.'
               : 'What the parser understood, and what it could not. Nothing is saved until you confirm it.'}
           </p>
         </div>
@@ -637,11 +661,48 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
           <StatusPill status={phase === 'ready' ? 'parsed' : phase === 'blocked' ? 'unsupported' : 'needs_review'}>
             {PHASE_LABEL[phase]}
           </StatusPill>
-          <span className="font-mono text-[10px] text-ink-400">
-            {generated ? 'generator' : 'parser'} {state.parserVersion}
-          </span>
+          {!generated && <span className="font-mono text-[10px] text-ink-400">parser {state.parserVersion}</span>}
         </div>
       </div>
+
+      {state.generationRecord && (
+        <dl
+          data-generation-versions
+          data-generator-version={state.generationRecord.generatorVersion}
+          data-prompt-version={state.generationRecord.promptVersion}
+          data-model={state.generationRecord.model}
+          data-model-version={state.generationRecord.modelVersion ?? ''}
+          className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-lg bg-ink-50 p-2.5 font-mono text-[10px] text-ink-600"
+        >
+          <dt>generator</dt>
+          <dd>{state.generationRecord.generatorVersion}</dd>
+          <dt>prompt</dt>
+          <dd>{state.generationRecord.promptVersion}</dd>
+          <dt>model</dt>
+          <dd>{state.generationRecord.model}</dd>
+          <dt>model version</dt>
+          <dd>{state.generationRecord.modelVersion ?? 'not reported by the provider'}</dd>
+          <dt>generation</dt>
+          <dd>
+            {state.generationRecord.generationId} · {state.generationRecord.generatedAt}
+          </dd>
+          {state.generationRecord.requestId && (
+            <>
+              <dt>request</dt>
+              <dd>
+                {state.generationRecord.requestId}
+                {state.generationRecord.attempts
+                  ? ` · ${state.generationRecord.attempts} model call${state.generationRecord.attempts === 1 ? '' : 's'}`
+                  : ''}
+              </dd>
+            </>
+          )}
+          <dt>source</dt>
+          <dd>
+            {state.generationRecord.source.title} ({state.generationRecord.source.sourceId})
+          </dd>
+        </dl>
+      )}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Detected" value={counts.detected} />
@@ -654,7 +715,7 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
         <div className="rounded-xl border border-danger-500/30 bg-danger-50 p-4">
           <div className="flex items-center gap-2 text-sm font-bold text-danger-700">
             <FileWarning className="h-4 w-4" />
-            This import cannot be saved yet
+            {generated ? 'This draft cannot be saved yet' : 'This import cannot be saved yet'}
           </div>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-danger-700">
             {blockers.map((reason, index) => (
@@ -800,7 +861,7 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
       {state.diagnostics.length > 0 && (
         <details className="rounded-2xl border border-ink-200 bg-white p-4">
           <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.1em] text-ink-700">
-            Parser diagnostics ({state.diagnostics.length})
+            {generated ? 'Generation diagnostics' : 'Parser diagnostics'} ({state.diagnostics.length})
           </summary>
           <ul className="mt-2 space-y-1 text-[11px] text-ink-600">
             {state.diagnostics.map((diagnostic, index) => (
@@ -886,7 +947,7 @@ export const AdminImportReview: React.FC<AdminImportReviewProps> = ({
           className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-ink-600 hover:text-ink-900"
         >
           <X className="h-3.5 w-3.5" />
-          Discard import
+          {generated ? 'Close without saving' : 'Discard import'}
         </button>
         <button
           id="btn-save-import-draft"

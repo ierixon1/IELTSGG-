@@ -12,7 +12,9 @@ import {
   generateReadingFromSource,
   GenerationRequestError,
   type GenerationOutcome,
+  type ReplayedGeneration,
 } from '../services/bookToTest/generate';
+import { generationLog } from '../services/bookToTest/generationLog';
 import { reviewInputFor } from '../services/bookToTest/reviewAdapter';
 import { nanoid } from 'nanoid';
 import { questionContentHash } from '../services/bookToTest/questionHash';
@@ -245,6 +247,9 @@ sourceRouter.delete('/:id', async (req, res) => {
 function describeOutcome(outcome: GenerationOutcome) {
   return {
     status: outcome.status,
+    requestId: outcome.requestId,
+    attempts: outcome.attempts,
+    replayed: false,
     materialId: outcome.material?.id,
     materialStatus: outcome.material?.status,
     generation: outcome.generationRecord,
@@ -277,17 +282,73 @@ function describeOutcome(outcome: GenerationOutcome) {
 }
 
 /**
+ * The draft an earlier arrival of the same request made, shaped like a fresh
+ * generation so the screen shows it the same way. Read from the stored material
+ * and its generation record: nothing is generated, and no chunk text is sent.
+ */
+function describeReplay(replay: ReplayedGeneration) {
+  const record = replay.generationRecord;
+  const stored = new Map(replay.material.content.passage.questions.map((question) => [question.id, question]));
+  return {
+    status: 'draft_created' as const,
+    requestId: replay.requestId,
+    attempts: record.attempts,
+    replayed: true,
+    materialId: replay.material.id,
+    materialStatus: replay.material.status,
+    generation: record,
+    retrieved: record.retrieval.hits
+      .flatMap((hit) => {
+        const chunk = record.chunks.find((item) => item.chunkId === hit.chunkId);
+        return chunk
+          ? [
+              {
+                chunkId: hit.chunkId,
+                label: chunk.label,
+                location: { page: chunk.page, path: chunk.path, charStart: chunk.charStart, charEnd: chunk.charEnd },
+                score: hit.score,
+                confidence: hit.confidence,
+                matchedTerms: hit.matchedTerms,
+              },
+            ]
+          : [];
+      })
+      .sort((a, b) => String(a.label).localeCompare(String(b.label))),
+    questions: record.questions.map((entry) => ({
+      generatedQuestionId: entry.generatedQuestionId,
+      status: entry.status,
+      groundingVerdict: entry.groundingVerdict,
+      qualityVerdict: entry.qualityVerdict,
+      reasons: entry.reasons,
+      question: stored.get(entry.generatedQuestionId),
+      candidate: entry.candidate,
+      evidence: entry.evidence,
+      questionEvidence: entry.questionEvidence,
+      answerEvidence: entry.answerEvidence,
+      distractorEvidence: entry.distractorEvidence,
+      chunkIds: entry.chunkIds,
+    })),
+  };
+}
+
+/**
  * Generates one Reading material from a source, grounded in retrieved chunks.
  *
- * 201 with a draft when at least one question survived validation. 422 when the
- * source had nothing relevant (the model is never called) or when the model
- * answered and every question was rejected (nothing is stored). Nothing here
+ * 201 with a draft when at least one question survived validation. 200 with
+ * `replayed: true` when this request id already produced a draft — the same
+ * draft, nothing regenerated. 409 while the same request is still running, or
+ * when its id was used for a different request. 422 when the source had
+ * nothing relevant (the model is never called) or every question was rejected
+ * (nothing is stored). Model failures carry their class: 503
+ * `model_unavailable`, 504 `generation_timeout`, 429 `quota_exceeded`, 502
+ * `invalid_model_response`, 500 `model_configuration_error`. Nothing here
  * publishes.
  */
 sourceRouter.post('/:id/generate', async (req: AdminRequest, res) => {
   try {
     const outcome = await generateReadingFromSource({
       sourceId: req.params.id,
+      requestId: req.body?.requestId ?? req.get('Idempotency-Key'),
       topic: req.body?.topic,
       questionType: req.body?.questionType,
       count: req.body?.count,
@@ -296,6 +357,8 @@ sourceRouter.post('/:id/generate', async (req: AdminRequest, res) => {
       title: req.body?.title,
       author: req.adminUser?.displayName || 'Admin',
     });
+    if (outcome.status === 'replayed') return res.status(200).json(describeReplay(outcome));
+
     const body = describeOutcome(outcome);
     if (outcome.status === 'all_rejected') {
       return res.status(422).json({
@@ -311,6 +374,24 @@ sourceRouter.post('/:id/generate', async (req: AdminRequest, res) => {
     }
     console.error('[BookToTest] generation failed:', error);
     return res.status(500).json({ error: 'Generation failed.', code: 'generation_failed' });
+  }
+});
+
+/**
+ * Recent generation runs for one source, newest first — including the ones that
+ * produced no draft. Codes, attempts, models and chunk ids; no source text and
+ * no prompt.
+ */
+sourceRouter.get('/:id/generation-runs', async (req, res) => {
+  try {
+    const source = await sourceStore.get(req.params.id).catch(() => null);
+    if (!source) return notFound(res);
+    const requested = Number(req.query.limit);
+    const limit = Number.isInteger(requested) && requested >= 1 ? Math.min(requested, 50) : 20;
+    return res.json({ runs: await generationLog.listRuns(source.id, limit) });
+  } catch (error) {
+    console.error('[BookToTest] reading the run log failed:', error);
+    return res.status(500).json({ error: 'Unable to read the generation log.' });
   }
 });
 
