@@ -6,10 +6,15 @@
  * Publishes, through the ordinary material publish gate, exactly what a full
  * CDI bundle needs and nothing more:
  *
- *   Listening Parts 1–4   two questions each, each with a real (generated) WAV recording
- *   Reading Passages 1–3  two questions each
+ *   Listening Parts 1–4   ten questions each (40), each with a real (generated) WAV recording
+ *   Reading Passages 1–3  13, 13 and 14 questions (40)
  *   Writing               Task 1 and Task 2
  *   Speaking              Parts 1, 2 and 3
+ *
+ * The counts are the IELTS ones, which the bundle gate enforces. In each
+ * section the first two questions are written out; the rest are numbered gaps
+ * whose answer is `part<P>q<N>` (Listening) or `passage<P>q<N>` (Reading),
+ * N being the question number within that part.
  *
  * No AI is involved and nothing is random: the same run produces the same
  * content, so the answers a tester types are known in advance. It does not
@@ -87,6 +92,17 @@ const READING = [
   { title: 'Sleep and memory', text: 'During deep sleep the brain replays the experiences of the day. People who sleep after learning a list of words recall more of it than people who stay awake.', q1: ['During which kind of sleep does the brain replay the day? Write ONE WORD.', 'deep'], q2: ['Who recalls more of a word list?', ['A people who sleep', 'B people who stay awake', 'C there is no difference'], 'A people who sleep'] },
 ] as const;
 
+/** Questions 3 onwards of a part: numbered gaps with a rule-based answer. */
+const gaps = (idPrefix: string, answerPrefix: string, from: number, count: number, firstNumber: number) =>
+  Array.from({ length: count - from + 1 }, (_, offset) => {
+    const index = from + offset;
+    return shortAnswer(`${idPrefix}-q${index}`, firstNumber + index - 1, `Fixture gap ${index}. Write ONE WORD.`, `${answerPrefix}q${index}`);
+  });
+
+const LISTENING_PER_PART = 10;
+const READING_PER_PASSAGE: Record<number, number> = { 1: 13, 2: 13, 3: 14 };
+const readingFirstNumber = (part: number) => 1 + [1, 2].filter((earlier) => earlier < part).reduce((sum, earlier) => sum + READING_PER_PASSAGE[earlier], 0);
+
 function listeningPayload(part: number, audioAssetId: string) {
   const spec = LISTENING[part - 1];
   return {
@@ -104,8 +120,9 @@ function listeningPayload(part: number, audioAssetId: string) {
         contextDescription: `Fixture recording for part ${part}.`,
         audioTranscript: `Script of fixture part ${part}.`,
         questions: [
-          shortAnswer(`e2e-lis-p${part}-q1`, (part - 1) * 2 + 1, spec.q1[0], spec.q1[1]),
-          choice(`e2e-lis-p${part}-q2`, (part - 1) * 2 + 2, spec.q2[0], [...spec.q2[1]], spec.q2[2]),
+          shortAnswer(`e2e-lis-p${part}-q1`, (part - 1) * LISTENING_PER_PART + 1, spec.q1[0], spec.q1[1]),
+          choice(`e2e-lis-p${part}-q2`, (part - 1) * LISTENING_PER_PART + 2, spec.q2[0], [...spec.q2[1]], spec.q2[2]),
+          ...gaps(`e2e-lis-p${part}`, `part${part}`, 3, LISTENING_PER_PART, (part - 1) * LISTENING_PER_PART + 1),
         ],
       },
     },
@@ -126,8 +143,9 @@ function readingPayload(part: number) {
         title: spec.title,
         text: spec.text,
         questions: [
-          shortAnswer(`e2e-rea-p${part}-q1`, 1, spec.q1[0], spec.q1[1]),
-          choice(`e2e-rea-p${part}-q2`, 2, spec.q2[0], [...spec.q2[1]], spec.q2[2]),
+          shortAnswer(`e2e-rea-p${part}-q1`, readingFirstNumber(part), spec.q1[0], spec.q1[1]),
+          choice(`e2e-rea-p${part}-q2`, readingFirstNumber(part) + 1, spec.q2[0], [...spec.q2[1]], spec.q2[2]),
+          ...gaps(`e2e-rea-p${part}`, `passage${part}`, 3, READING_PER_PASSAGE[part], readingFirstNumber(part)),
         ],
       },
     },

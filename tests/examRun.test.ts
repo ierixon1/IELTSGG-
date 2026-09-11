@@ -70,9 +70,9 @@ describe('the plan comes from the configured bundle', () => {
     expect(plan.sections.map((section) => section.section)).toEqual(['listening', 'reading', 'writing', 'speaking']);
     expect(plan.sections.map((section) => section.durationSeconds)).toEqual([7 * 60, 11 * 60, 13 * 60, 5 * 60]);
     expect(plan.sections[0].components.map((component) => component.part)).toEqual([1, 2, 3, 4]);
-    expect(plan.sections[0].questions).toHaveLength(8);
+    expect(plan.sections[0].questions).toHaveLength(40);
     expect(plan.sections[1].components.map((component) => component.part)).toEqual([1, 2, 3]);
-    expect(plan.sections[1].questions).toHaveLength(6);
+    expect(plan.sections[1].questions).toHaveLength(40);
     expect(plan.sections[2].tasks).toEqual([1, 2]);
     expect(plan.sections[3].parts).toEqual([1, 2, 3]);
   });
@@ -111,7 +111,7 @@ describe('the clock is the bundle timing', () => {
     expect(state.sections.listening.status).toBe('completed');
     expect(state.sections.listening.endedBy).toBe('time');
     expect(state.sections.listening.objective?.correct).toBe(1);
-    expect(state.sections.listening.objective?.total).toBe(8);
+    expect(state.sections.listening.objective?.total).toBe(40);
     expect(state.currentIndex).toBe(1);
   });
 
@@ -137,9 +137,9 @@ describe('a section is complete only when its configured content is', () => {
     expect(canFinishSection(state, T0 + MINUTE)).toEqual({ allowed: false, reason: 'not_ready' });
     state = run(state, { type: 'submit_answers', now: T0 + MINUTE });
     const listeningQuestions = state.plan.sections[0].questions.map((entry) => entry.question);
-    expect(state.sections.listening.objective).toEqual(objectiveSectionScore('listening', listeningQuestions, state.sections.listening.answers));
+    expect(state.sections.listening.objective).toEqual(objectiveSectionScore('listening', listeningQuestions, state.sections.listening.answers, 'academic'));
     expect(state.sections.listening.objective?.correct).toBe(2);
-    expect(state.sections.listening.objective?.total).toBe(8);
+    expect(state.sections.listening.objective?.total).toBe(40);
     state = run(state, { type: 'finish_section', now: T0 + MINUTE });
 
     // Reading: passage 3 only.
@@ -150,7 +150,7 @@ describe('a section is complete only when its configured content is', () => {
       { type: 'submit_answers', now: T0 + 2 * MINUTE },
     );
     expect(state.sections.reading.objective?.correct).toBe(2);
-    expect(state.sections.reading.objective?.total).toBe(6);
+    expect(state.sections.reading.objective?.total).toBe(40);
   });
 
   it('does not end Writing after Task 1', () => {
@@ -223,6 +223,39 @@ describe('a section is complete only when its configured content is', () => {
     expect(attempt.status).toBe('incomplete');
     expect(attempt.scores.overall).toBe(undefined);
     expect(attempt.scores.writing).toBe(undefined);
+  });
+});
+
+describe('IELTS rules the run applies', () => {
+  const answerReading = (state: ExamRunState, correct: number) => {
+    const questions = state.plan.sections[1].questions.slice(0, correct);
+    return run(state, ...questions.map(({ question }) => ({ type: 'answer' as const, questionId: question.id, value: String(question.correctAnswer) })));
+  };
+  const toReading = (state: ExamRunState) => run(state, { type: 'start', now: T0 }, { type: 'submit_answers', now: T0 }, { type: 'finish_section', now: T0 });
+
+  it('converts Reading with the General Training table in a General Training exam', () => {
+    // ielts.org: 30/40 is band 7 in Academic Reading and band 6 in General Training Reading.
+    const academic = run(answerReading(toReading(fresh()), 30), { type: 'submit_answers', now: T0 + MINUTE });
+    const general = run(answerReading(toReading(fresh(sitting({ module: 'general' }))), 30), { type: 'submit_answers', now: T0 + MINUTE });
+    expect(academic.sections.reading.objective).toEqual({ correct: 30, total: 40, band: 7 });
+    expect(general.sections.reading.objective).toEqual({ correct: 30, total: 40, band: 6 });
+    // Listening is one test for both modules.
+    const generalListening = run(fresh(sitting({ module: 'general' })), { type: 'start', now: T0 }, { type: 'submit_answers', now: T0 });
+    const academicListening = run(fresh(), { type: 'start', now: T0 }, { type: 'submit_answers', now: T0 });
+    expect(generalListening.sections.listening.objective).toEqual(academicListening.sections.listening.objective);
+  });
+
+  it('lets each Listening recording start once only, and only during Listening', () => {
+    let state = run(fresh(), { type: 'start', now: T0 }, { type: 'audio_started', part: 2, now: T0 + 1_000 });
+    state = run(state, { type: 'audio_started', part: 2, now: T0 + 90_000 });
+    expect(state.sections.listening.audioStarted).toEqual({ 2: T0 + 1_000 });
+    // A part the plan does not have is not recorded.
+    state = run(state, { type: 'audio_started', part: 7, now: T0 + 2_000 });
+    expect(state.sections.listening.audioStarted).toEqual({ 2: T0 + 1_000 });
+
+    state = run(state, { type: 'submit_answers', now: T0 + MINUTE }, { type: 'finish_section', now: T0 + MINUTE });
+    const afterListening = run(state, { type: 'audio_started', part: 3, now: T0 + 2 * MINUTE });
+    expect(afterListening.sections.listening.audioStarted).toEqual({ 2: T0 + 1_000 });
   });
 });
 

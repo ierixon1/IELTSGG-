@@ -14,6 +14,7 @@ import {
   objectiveSectionScore,
   speakingSectionBand,
   writingSectionBand,
+  type IeltsModule,
 } from '../utils/ieltsScoring';
 
 /**
@@ -69,6 +70,8 @@ export interface PlanShape<S extends SectionShape = SectionShape> {
   bundleId: string;
   bundleTitle: string;
   bundlePublishedAt: string;
+  /** Academic or General Training: decides which Reading conversion table applies. */
+  module: IeltsModule;
   timing: BundleTiming;
   sections: S[];
 }
@@ -133,6 +136,7 @@ export function buildExamPlan(sitting: ExamSitting): ExamPlan {
     bundleId: sitting.bundle.id,
     bundleTitle: sitting.bundle.title,
     bundlePublishedAt: sitting.bundle.publishedAt,
+    module: sitting.bundle.module,
     timing: sitting.bundle.timing,
     sections,
   };
@@ -153,6 +157,12 @@ export interface SectionRun {
   /** Writing: what the learner has typed so far, per task, so a reload does not lose it. */
   drafts: Partial<Record<1 | 2, string>>;
   speaking: Partial<Record<1 | 2 | 3, { band: number; transcript: string }>>;
+  /**
+   * Listening: when each part's recording was started. IELTS recordings are heard
+   * once only, so a part that has a start time is never played again — not after a
+   * reload, not after switching parts. Absent on sessions stored before it existed.
+   */
+  audioStarted?: Partial<Record<number, number>>;
   band?: number;
 }
 
@@ -179,6 +189,7 @@ export type ExamEvent =
   | { type: 'start'; now: number }
   | { type: 'answer'; questionId: string; value: AnswerValue }
   | { type: 'submit_answers'; now: number }
+  | { type: 'audio_started'; part: number; now: number }
   | { type: 'writing_draft'; task: 1 | 2; text: string }
   | { type: 'writing_graded'; task: 1 | 2; band: number; essay: string }
   | { type: 'speaking_graded'; part: 1 | 2 | 3; band: number; transcript: string }
@@ -283,7 +294,7 @@ function closeCurrent(state: ExamRunState, endedAt: number, by: 'learner' | 'tim
   if (plan.section === 'listening' || plan.section === 'reading') {
     const objective =
       run.objective ??
-      objectiveSectionScore(plan.section, plan.questions.map((entry) => entry.question), run.answers);
+      objectiveSectionScore(plan.section, plan.questions.map((entry) => entry.question), run.answers, state.plan.module);
     closed = { ...closed, objective, submittedAt: run.submittedAt ?? endedAt, band: objective.band, status: 'completed' };
   } else if (plan.section === 'writing') {
     const band = writingSectionBand(run.writing[1]?.band, run.writing[2]?.band);
@@ -319,6 +330,16 @@ export function examReducer(state: ExamRunState, event: ExamEvent): ExamRunState
       );
     }
 
+    case 'audio_started': {
+      const plan = currentSection(state);
+      if (!plan || plan.section !== 'listening') return state;
+      if (!plan.components.some((component) => component.part === event.part)) return state;
+      // The first start is the only one: a recording is heard once.
+      return updateCurrent(state, 'listening', (run) =>
+        run.audioStarted?.[event.part] !== undefined ? run : { ...run, audioStarted: { ...run.audioStarted, [event.part]: event.now } },
+      );
+    }
+
     case 'submit_answers': {
       const plan = currentSection(state);
       if (!plan || (plan.section !== 'listening' && plan.section !== 'reading')) return state;
@@ -329,7 +350,7 @@ export function examReducer(state: ExamRunState, event: ExamEvent): ExamRunState
           : {
               ...run,
               submittedAt: event.now,
-              objective: objectiveSectionScore(section, plan.questions.map((entry) => entry.question), run.answers),
+              objective: objectiveSectionScore(section, plan.questions.map((entry) => entry.question), run.answers, state.plan.module),
             },
       );
     }

@@ -11,7 +11,17 @@ import {
   type BundleSection,
   type FullCdiBundle,
 } from '../types/bundle';
-import { partNumberOf, publishBlockers } from './publishGate';
+import { partNumberOf, publishBlockers, questionsOf } from './publishGate';
+
+/**
+ * The IELTS paper sizes a full exam must match (ielts.org, Listening and Reading
+ * test format): Listening has four parts with 10 questions in each; Reading has
+ * 40 questions across its three passages or sections, not a fixed number per
+ * passage. The published raw-score tables are out of 40, so a band is only an
+ * IELTS band when the section has exactly 40.
+ */
+export const LISTENING_QUESTIONS_PER_PART = 10;
+export const READING_QUESTIONS_TOTAL = 40;
 
 /**
  * Whether a bundle may be published, or sat — as reasons, never as a boolean.
@@ -245,6 +255,14 @@ function componentBlockers(bundle: FullCdiBundle, ref: BundleComponentRef, conte
   }
 
   if (material.section === 'listening') {
+    const count = questionsOf(material).length;
+    if (count !== LISTENING_QUESTIONS_PER_PART) {
+      blockers.push({
+        ...base,
+        code: 'question_count',
+        message: `${named} has ${count} question${count === 1 ? '' : 's'}; an IELTS Listening part has ${LISTENING_QUESTIONS_PER_PART}.`,
+      });
+    }
     const audioId = material.content.audioAssetId;
     if (!audioId) {
       blockers.push({ ...base, code: 'audio_missing', message: `${named} has no audio file.` });
@@ -273,5 +291,30 @@ export function bundleBlockers(bundle: FullCdiBundle, context: BundleGateContext
     ...structureBlockers(bundle),
     ...duplicateBlockers(bundle),
     ...bundle.components.flatMap((ref) => componentBlockers(bundle, ref, context)),
+    ...readingCountBlockers(bundle, context),
+  ];
+}
+
+/**
+ * Reading takes 40 questions across the section. Counted only once every Reading
+ * part resolves to a Reading material: a missing or wrong component is already
+ * reported, and a total over an incomplete section would be a second, misleading
+ * blocker for the same fault.
+ */
+function readingCountBlockers(bundle: FullCdiBundle, context: BundleGateContext): BundleBlocker[] {
+  const refs = bundle.components.filter((ref) => ref.section === 'reading');
+  const materials = refs.map((ref) => context.component(ref).material);
+  const complete =
+    REQUIRED_PARTS.reading.every((part) => refs.some((ref) => ref.part === part)) &&
+    materials.every((material) => material !== null && material.section === 'reading');
+  if (!complete) return [];
+  const total = materials.reduce((sum, material) => sum + (material ? questionsOf(material).length : 0), 0);
+  if (total === READING_QUESTIONS_TOTAL) return [];
+  return [
+    {
+      code: 'question_count',
+      section: 'reading',
+      message: `Reading has ${total} question${total === 1 ? '' : 's'} across its passages; an IELTS Reading test has ${READING_QUESTIONS_TOTAL}.`,
+    },
   ];
 }

@@ -172,7 +172,7 @@ describe('a bundle is assembled from published materials and published through t
     for (const entry of candidates) expect(/^[a-f0-9]{64}$/.test(entry.contentHash)).toBe(true);
     const listening1 = candidates.find((entry: { id: string }) => entry.id === ids['listening-1']);
     expect(listening1.audio).toEqual({ assetId: audio[1], exists: true, kind: 'audio' });
-    expect(listening1.questionCount).toBe(2);
+    expect(listening1.questionCount).toBe(10);
   });
 
   it('saves a draft, and a status in the request does not publish it', async () => {
@@ -297,7 +297,7 @@ describe('a learner opens exactly what was published', () => {
 
     expect(practice.missingSections).toEqual([]);
     expect(practice.test.listening?.parts.map((part) => part.questions.map((question) => question.id))).toEqual(
-      [1, 2, 3, 4].map((part) => [`lis-p${part}-q1`, `lis-p${part}-q2`]),
+      [1, 2, 3, 4].map((part) => Array.from({ length: 10 }, (_, index) => `lis-p${part}-q${index + 1}`)),
     );
     expect(practice.test.reading?.passages).toHaveLength(3);
     expect(practice.test.listening?.parts[0].audioUrl).toBe(`/api/assets/${audio[1]}`);
@@ -315,8 +315,8 @@ describe('a learner opens exactly what was published', () => {
       ['writing', 13 * 60],
       ['speaking', 5 * 60],
     ]);
-    expect(plan.sections[0].questions).toHaveLength(8);
-    expect(plan.sections[1].questions).toHaveLength(6);
+    expect(plan.sections[0].questions).toHaveLength(40);
+    expect(plan.sections[1].questions).toHaveLength(40);
   });
 
   it('answers a bundle that does not exist with a reason', async () => {

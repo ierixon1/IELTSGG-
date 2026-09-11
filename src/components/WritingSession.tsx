@@ -31,6 +31,8 @@ interface TaskProps {
 
 interface PracticeProps extends TaskProps {
   examMode?: false;
+  /** The module of the test the tasks belong to; Task 1 is graded as that module's task. */
+  module: 'academic' | 'general';
   onRecordScore?: (taskNumber: 1 | 2, band: number) => void;
   /** Feeds the vocabulary deck with what the examiner flagged. */
   onGraded?: (result: WritingGradingResult, essay: string) => void;
@@ -160,16 +162,18 @@ export const WritingSession: React.FC<WritingSessionProps> = (props) => {
         await exam.grade(selectedTask, essayText);
         return;
       }
+      if (!practice) return;
       const grading = await requestWritingGrading({
         taskType: selectedTask === 1 ? 'task1' : 'task2',
         prompt: `${activeTaskData.title}\n${activeTaskData.prompt}`,
         essay: essayText,
+        module: practice.module,
       });
 
       setResult(grading);
       setGradedEssay(essayText);
-      practice?.onRecordScore?.(selectedTask, grading.band_overall);
-      practice?.onGraded?.(grading, essayText);
+      practice.onRecordScore?.(selectedTask, grading.band_overall);
+      practice.onGraded?.(grading, essayText);
 
       if (grading.band_overall >= 7.0) {
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });

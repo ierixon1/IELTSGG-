@@ -47,6 +47,8 @@ export interface SittableTest<Q extends QuestionBody = Question> {
   speaking: SpeakingData | null;
   /** Where this came from, so a screen can say what the learner is sitting. */
   origin: 'bundle' | 'material' | 'built_in';
+  /** Academic or General Training: Reading is converted, and Writing Task 1 set and graded, by module. */
+  module: 'academic' | 'general';
 }
 
 /** A sittable test plus everything that went wrong building it. */
@@ -242,6 +244,7 @@ export function sittingToAdaptedTest(sitting: ExamSitting): AdaptedTest {
       writing: { task1, task2 },
       speaking: speakingParts ? { parts: speakingParts } : null,
       origin: 'bundle',
+      module: sitting.bundle.module,
     },
     missingSections,
     issues,
@@ -275,6 +278,7 @@ export function materialToSittable(material: AdminMaterial): AdaptedTest {
     writing: { task1, task2 },
     speaking: speaking ? { parts: speaking } : null,
     origin: 'material',
+    module: material.module === 'general' ? 'general' : 'academic',
   };
 
   const missingSections = sectionAvailable(test, material.section as SkillType) ? [] : [material.section as SkillType];

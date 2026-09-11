@@ -95,8 +95,8 @@ app.get('/api/mocks/:id',async(req:AuthenticatedRequest,res)=>{
 
 app.post('/api/grade/writing',async(req:AuthenticatedRequest,res)=>{
   if(!req.userId)return res.status(401).json({error:'Unauthorized.'});
-  const{taskType,prompt,essay}=req.body||{};
-  const outcome=await gradeWritingSubmission({taskType,prompt,essay});
+  const{taskType,prompt,essay,module}=req.body||{};
+  const outcome=await gradeWritingSubmission({taskType,prompt,essay,module});
   return outcome.ok?res.json(outcome.result):res.status(outcome.status).json(outcome.body);
 });
 

@@ -23,6 +23,7 @@ const clientEvent = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('submit_answers') }).strict(),
+  z.object({ type: z.literal('audio_started'), part: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }).strict(),
   z.object({ type: z.literal('writing_draft'), task: z.union([z.literal(1), z.literal(2)]), text: z.string().max(30000) }).strict(),
   z.object({ type: z.literal('finish_section') }).strict(),
   z.object({ type: z.literal('sync') }).strict(),

@@ -633,6 +633,8 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
             listeningData={paper.listening}
             initialAnswers={sectionRun.answers}
             submitted={sectionRun.submittedAt !== undefined}
+            audioStarted={sectionRun.audioStarted ?? {}}
+            onAudioStart={(part) => void send([{ type: 'audio_started', part }])}
             onAnswersChange={queueAnswers}
             onSubmitAnswers={() => void send([{ type: 'submit_answers' }])}
           />

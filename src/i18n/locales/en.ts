@@ -473,6 +473,9 @@ export const en: Dictionary = {
     resultTitle: 'Listening result',
     noSpeech: 'This browser cannot read the audio aloud. Open the script and read along instead.',
     audioMissing: 'The recording for this part is unavailable.',
+    playOnce: 'Play recording (once only)',
+    playing: 'Recording playing…',
+    played: 'Recording played — heard once only',
     readAloud: 'Read the script aloud (synthetic voice, not exam audio)',
   },
 

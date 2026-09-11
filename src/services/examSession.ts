@@ -216,6 +216,8 @@ export function createExamSessionService(deps: ExamSessionDeps) {
         return Object.entries(event.answers).map(([questionId, value]: [string, AnswerValue]) => ({ type: 'answer', questionId, value }));
       case 'submit_answers':
         return [{ type: 'submit_answers', now }];
+      case 'audio_started':
+        return [{ type: 'audio_started', part: event.part, now }];
       case 'writing_draft':
         return [{ type: 'writing_draft', task: event.task, text: event.text }];
       case 'finish_section':
@@ -303,7 +305,8 @@ export function createExamSessionService(deps: ExamSessionDeps) {
       // The same prompt text the practice screen grades against: the pinned task's title and prompt.
       const pinnedTask = before.value.paper.writing[task === 1 ? 'task1' : 'task2'];
       const prompt = `${pinnedTask.title}\n${pinnedTask.prompt}`;
-      const graded = await deps.gradeWriting({ taskType: task === 1 ? 'task1' : 'task2', prompt, essay });
+      // Graded as the module the bundle is: General Training Task 1 is a letter, Academic Task 1 is not.
+      const graded = await deps.gradeWriting({ taskType: task === 1 ? 'task1' : 'task2', prompt, essay, module: before.value.sitting.bundle.module });
       if (!graded.ok) return { ok: false, status: graded.status, error: graded.body.error, code: graded.body.code ?? 'grading_failed', details: graded.body };
 
       const committed = await commit(userId, sessionId, (loaded) => {

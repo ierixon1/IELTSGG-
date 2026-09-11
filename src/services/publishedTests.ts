@@ -72,6 +72,8 @@ export function builtInSittableTest(): SittableTest {
     writing: { task1: MOCK_TEST_1.writing.task1, task2: MOCK_TEST_1.writing.task2 },
     speaking: MOCK_TEST_1.speaking,
     origin: 'built_in',
+    // The built-in test is an Academic paper ("Academic Practice Test 1").
+    module: 'academic',
   };
 }
 

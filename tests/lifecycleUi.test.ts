@@ -167,6 +167,7 @@ describe('a learner screen given a section the test does not carry', () => {
     writing: { task1: null, task2: null },
     speaking: null,
     origin: 'bundle',
+    module: 'academic',
   };
 
   it('refuses to open it, and names the test that is misconfigured', () => {

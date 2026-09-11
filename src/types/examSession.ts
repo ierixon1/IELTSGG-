@@ -96,6 +96,7 @@ export type ExamClientEvent =
   | { type: 'start' }
   | { type: 'answers'; answers: Record<string, AnswerValue> }
   | { type: 'submit_answers' }
+  | { type: 'audio_started'; part: 1 | 2 | 3 | 4 }
   | { type: 'writing_draft'; task: 1 | 2; text: string }
   | { type: 'finish_section' }
   | { type: 'sync' };

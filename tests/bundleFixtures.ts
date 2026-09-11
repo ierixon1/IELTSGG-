@@ -27,8 +27,16 @@ const question = (id: string, questionNumber: number, prompt: string, correctAns
   correctAnswer,
 });
 
-export const listeningAnswer = (part: number, index: 1 | 2) => `${index === 1 ? 'alpha' : 'beta'}${part}`;
-export const readingAnswer = (part: number, index: 1 | 2) => `${index === 1 ? 'gamma' : 'delta'}${part}`;
+/**
+ * Full IELTS paper sizes (ielts.org test format): 10 questions in each Listening part,
+ * 40 Reading questions across the three passages. The bundle gate refuses anything else.
+ */
+export const LISTENING_PER_PART = 10;
+export const READING_PER_PASSAGE: Record<number, number> = { 1: 13, 2: 13, 3: 14 };
+
+export const listeningAnswer = (part: number, index: number) => (index === 1 ? `alpha${part}` : index === 2 ? `beta${part}` : `lkey${part}x${index}`);
+export const readingAnswer = (part: number, index: number) => (index === 1 ? `gamma${part}` : index === 2 ? `delta${part}` : `rkey${part}x${index}`);
+const range = (count: number) => Array.from({ length: count }, (_, i) => i + 1);
 
 export function listeningPayload(part: number, audioAssetId: string | undefined, module: 'academic' | 'general' = 'academic') {
   return {
@@ -45,10 +53,9 @@ export function listeningPayload(part: number, audioAssetId: string | undefined,
         title: `Part ${part}: an enquiry`,
         contextDescription: 'A telephone call.',
         audioTranscript: `Transcript of part ${part}.`,
-        questions: [
-          question(`lis-p${part}-q1`, 1, `Listening part ${part}, first gap`, listeningAnswer(part, 1)),
-          question(`lis-p${part}-q2`, 2, `Listening part ${part}, second gap`, listeningAnswer(part, 2)),
-        ],
+        questions: range(LISTENING_PER_PART).map((index) =>
+          question(`lis-p${part}-q${index}`, (part - 1) * LISTENING_PER_PART + index, `Listening part ${part}, gap ${index}`, listeningAnswer(part, index)),
+        ),
       },
     },
   };
@@ -66,10 +73,9 @@ export function readingPayload(part: number, module: 'academic' | 'general' = 'a
         passageNumber: part,
         title: `Passage ${part}: dead reckoning`,
         text: `Passage ${part} text about how animals navigate.`,
-        questions: [
-          question(`rea-p${part}-q1`, 1, `Reading passage ${part}, first question`, readingAnswer(part, 1)),
-          question(`rea-p${part}-q2`, 2, `Reading passage ${part}, second question`, readingAnswer(part, 2)),
-        ],
+        questions: range(READING_PER_PASSAGE[part] ?? 13).map((index) =>
+          question(`rea-p${part}-q${index}`, index, `Reading passage ${part}, question ${index}`, readingAnswer(part, index)),
+        ),
       },
     },
   };

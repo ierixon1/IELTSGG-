@@ -118,6 +118,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
       <WritingSession
         task1Data={mockTest.writing.task1 ?? undefined}
         task2Data={mockTest.writing.task2 ?? undefined}
+        module={mockTest.module}
         onRecordScore={(taskNum, band) => onRecordScore('writing', band)}
         onGraded={onWritingGraded}
         onBackToMocks={() => setActiveSection(null)}

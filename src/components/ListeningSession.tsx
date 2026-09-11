@@ -47,6 +47,10 @@ interface ExamProps {
   submitted: boolean;
   onAnswersChange: (answers: Record<string, AnswerValue>) => void;
   onSubmitAnswers: () => void;
+  /** Parts whose recording the session has recorded as started. Each plays once only. */
+  audioStarted: Partial<Record<number, number>>;
+  /** Tells the session a part's recording is starting, before it plays. */
+  onAudioStart: (part: 1 | 2 | 3 | 4) => void;
 }
 
 type ListeningSessionProps = PracticeProps | ExamProps;
@@ -70,6 +74,20 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const currentPart = parts[activePartIndex];
+
+  // Exam recordings: one element per part, kept mounted so moving between parts
+  // does not stop a recording that is playing. There are no player controls — no
+  // pause, no seeking, no replay — because an IELTS recording is heard once.
+  const examAudio = useRef<Record<number, HTMLAudioElement | null>>({});
+  const [playingPart, setPlayingPart] = useState<number | null>(null);
+  const [endedParts, setEndedParts] = useState<Record<number, true>>({});
+  const playOnce = (part: 1 | 2 | 3 | 4) => {
+    const element = examAudio.current[part];
+    if (!exam || !element || exam.audioStarted[part] !== undefined || playingPart !== null) return;
+    exam.onAudioStart(part);
+    setPlayingPart(part);
+    void element.play().catch(() => setPlayingPart(null));
+  };
 
   // Stop speech when changing part
   useEffect(() => {
@@ -251,7 +269,26 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
 
           {/* Controls */}
           <div className="flex items-center space-x-3">
-            {currentPart.audioUrl ? (
+            {exam && currentPart.audioUrl ? (
+              <div className="flex items-center gap-2" data-audio-part={currentPart.partNumber}>
+                <button
+                  id={`btn-play-listening-part-${currentPart.partNumber}`}
+                  type="button"
+                  onClick={() => playOnce(currentPart.partNumber)}
+                  disabled={exam.audioStarted[currentPart.partNumber] !== undefined || playingPart !== null}
+                  className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-success-500 text-ink-950 font-bold text-xs shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>
+                    {playingPart === currentPart.partNumber
+                      ? t('listening.playing')
+                      : exam.audioStarted[currentPart.partNumber] !== undefined || endedParts[currentPart.partNumber]
+                        ? t('listening.played')
+                        : t('listening.playOnce')}
+                  </span>
+                </button>
+              </div>
+            ) : currentPart.audioUrl ? (
               // The recording itself. Nothing synthetic stands in for it.
               <audio
                 key={currentPart.audioUrl}
@@ -302,6 +339,26 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
             )}
           </div>
         </div>
+
+        {exam &&
+          parts.map((part) =>
+            part.audioUrl ? (
+              <audio
+                key={part.partNumber}
+                id={`listening-audio-part-${part.partNumber}`}
+                ref={(element) => {
+                  examAudio.current[part.partNumber] = element;
+                }}
+                preload="auto"
+                src={part.audioUrl}
+                onEnded={() => {
+                  setPlayingPart(null);
+                  setEndedParts((ended) => ({ ...ended, [part.partNumber]: true }));
+                }}
+                className="hidden"
+              />
+            ) : null,
+          )}
 
         {/* Progress of the read-aloud script; a recording has its own controls. */}
         {!currentPart.audioUrl && !examMode && (

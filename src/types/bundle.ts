@@ -103,6 +103,7 @@ export type BundleBlockerCode =
   | 'module_mismatch'
   | 'duplicate_material'
   | 'invalid_question_set'
+  | 'question_count'
   | 'audio_missing'
   | 'asset_missing'
   | 'component_changed'

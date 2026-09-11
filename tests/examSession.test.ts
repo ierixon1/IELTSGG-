@@ -171,11 +171,11 @@ async function createPublished(payload: object): Promise<string> {
   return saved.item.id as string;
 }
 
-async function currentPins() {
+async function currentPins(slots: Record<string, string> = ids) {
   const { candidates } = await (await admin('/api/admin/bundles/candidates')).json();
   const hashes = new Map((candidates as Array<{ id: string; contentHash: string }>).map((entry) => [entry.id, entry.contentHash]));
   return FULL_SLOTS.map(({ section, part }) => {
-    const materialId = ids[`${section}-${part}`];
+    const materialId = slots[`${section}-${part}`];
     return { section, part, materialId, contentHash: hashes.get(materialId) ?? '' };
   });
 }
@@ -279,7 +279,7 @@ describe('an exam paper carries no answer key', () => {
     expect(opened.paper.reading.passages).toHaveLength(3);
     expect(opened.paper.writing.task1.prompt).toBe('Summarise the chart of energy use.');
     expect(opened.paper.speaking.parts.map((part) => part.partNumber)).toEqual([1, 2, 3]);
-    expect(opened.run.plan.sections.map((section) => section.questionIds.length)).toEqual([8, 6, 0, 0]);
+    expect(opened.run.plan.sections.map((section) => section.questionIds.length)).toEqual([40, 40, 0, 0]);
   });
 });
 
@@ -314,6 +314,20 @@ describe('the server runs the exam, in order and on its own clock', () => {
     expect(sessions).toHaveLength(1);
     const listed = await (await as('ana')('/api/learner/exams')).json();
     expect(listed.sessions.map((entry: { sessionId: string }) => entry.sessionId)).toEqual([sessionId]);
+  });
+
+  it('records each Listening recording as started once, on the server clock, so a reload cannot replay it', async () => {
+    const firstStart = clock;
+    const started = await events(sessionId, [{ type: 'audio_started', part: 1 }]);
+    expect(started.status).toBe(200);
+    advance(5_000);
+    await events(sessionId, [{ type: 'audio_started', part: 1 }]);
+    const reopened = await openExam();
+    expect(reopened.body.sessionId).toBe(sessionId);
+    expect(reopened.body.run.sections.listening.audioStarted).toEqual({ 1: firstStart });
+    // The browser names a part; it cannot name a time.
+    const forged = await as('ana')(`/api/learner/exams/${sessionId}/events`, post({ events: [{ type: 'audio_started', part: 2, now: 0 }] }));
+    expect(forged.status).toBe(400);
   });
 
   it('refuses a write carrying a stale revision', async () => {
@@ -374,7 +388,7 @@ describe('the server runs the exam, in order and on its own clock', () => {
     const listening = submitted.body.run.sections.listening;
     expect(listening.status).toBe('completed');
     expect(listening.endedBy).toBe('learner');
-    expect(listening.objective?.total).toBe(8);
+    expect(listening.objective?.total).toBe(40);
     expect(listening.objective?.correct).toBe(2);
     expect(submitted.body.run.sections.reading.status).toBe('in_progress');
 
@@ -396,7 +410,7 @@ describe('the server runs the exam, in order and on its own clock', () => {
       { type: 'finish_section' },
     ]);
     expect(done.body.run.sections.reading.status).toBe('completed');
-    expect(done.body.run.sections.reading.objective).toEqual({ correct: 4, total: 6, band: done.body.run.sections.reading.band ?? -1 });
+    expect(done.body.run.sections.reading.objective).toEqual({ correct: 4, total: 40, band: done.body.run.sections.reading.band ?? -1 });
     expect(done.body.run.sections.writing.status).toBe('in_progress');
     expectNoKey(JSON.stringify(done.body), [
       listeningAnswer(1, 1),
@@ -422,7 +436,7 @@ describe('the server runs the exam, in order and on its own clock', () => {
     // The pinned task exactly as the paper shows it: the same prompt text practice grades against.
     const { paper } = (await getSession(sessionId)).body;
     expect(paper.writing.task1.prompt).toBe('Summarise the chart of energy use.');
-    expect(grader.writingCalls[0]).toEqual({ taskType: 'task1', prompt: `${paper.writing.task1.title}\n${paper.writing.task1.prompt}`, essay: ESSAY_1 });
+    expect(grader.writingCalls[0]).toEqual({ taskType: 'task1', prompt: `${paper.writing.task1.title}\n${paper.writing.task1.prompt}`, essay: ESSAY_1, module: 'academic' });
     expect(task1.body.view.run.sections.writing.writing).toEqual({ 1: { band: WRITING_BANDS.task1, essay: ESSAY_1 } });
 
     const early = await events(sessionId, [{ type: 'finish_section' }]);
@@ -542,7 +556,7 @@ describe('the server runs the exam, in order and on its own clock', () => {
       speaking: attempt.scores.speaking?.band ?? -1,
     };
     const listeningQuestions = (await Promise.all([1, 2, 3, 4].map((part) => adminStore.getMaterial('listening', ids[`listening-${part}`])))).flatMap((material) => (material ? questionsOf(material) : []));
-    expect(bands.listening).toBe(objectiveSectionScore('listening', listeningQuestions, sent).band);
+    expect(bands.listening).toBe(objectiveSectionScore('listening', listeningQuestions, sent, 'academic').band);
     expect(bands.speaking).toBe(speakingSectionBand([SPEAKING_BANDS[1], SPEAKING_BANDS[2], SPEAKING_BANDS[3]]) ?? -1);
     expect(attempt.scores.overall).toBe(calculateOverallBand(bands));
     expect(await verifyExamAttempt(attempt)).toEqual([]);
@@ -678,5 +692,25 @@ describe('a sitting that cannot go on is stopped, never patched', () => {
       expect(response.status).toBe(400);
     }
     expect((await as('ben')(`/api/learner/exams/${opened.body.sessionId}/events`, { method: 'POST', body: JSON.stringify({ events: [{ type: 'start' }] }), headers: { cookie: '' } })).status).toBe(401);
+  });
+});
+
+describe('a General Training sitting', () => {
+  it('has its Writing graded as General Training, where Task 1 is a letter', async () => {
+    const general: Record<string, string> = {};
+    for (const part of [1, 2, 3, 4]) general[`listening-${part}`] = await createPublished({ ...listeningPayload(part, audio[part], 'general'), title: `GT Listening ${part}` });
+    for (const part of [1, 2, 3]) general[`reading-${part}`] = await createPublished({ ...readingPayload(part, 'general'), title: `GT Reading ${part}` });
+    general['writing-1'] = await createPublished({ ...writingPayload('general'), title: 'GT Writing' });
+    general['speaking-1'] = await createPublished({ ...speakingPayload('general'), title: 'GT Speaking' });
+    const body = JSON.stringify({ title: 'General Training CDI', module: 'general', components: await currentPins(general), timing: CUSTOM_TIMING });
+    const created = await (await admin('/api/admin/bundles', { method: 'POST', body })).json();
+    expect((await admin(`/api/admin/bundles/${created.bundle.id}/publish`, { method: 'POST' })).status).toBe(200);
+
+    const opened = (await (await as('ana')('/api/learner/exams', post({ bundleId: created.bundle.id }))).json()) as ExamSessionOpened;
+    await events(opened.sessionId, [{ type: 'start' }, { type: 'submit_answers' }, { type: 'finish_section' }, { type: 'submit_answers' }, { type: 'finish_section' }]);
+    grader.writingCalls.length = 0;
+    expect((await writeTask(opened.sessionId, 1, ESSAY_1)).status).toBe(200);
+    expect(grader.writingCalls.map((call) => [call.taskType, call.module])).toEqual([['task1', 'general']]);
+    await as('ana')(`/api/learner/exams/${opened.sessionId}/abandon`, post({}));
   });
 });

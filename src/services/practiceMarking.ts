@@ -60,7 +60,7 @@ export async function markPractice(
     return { ok: false, status: 409, code: 'section_not_in_test', error: `This test has no ${section} section to mark.` };
   }
 
-  const score = objectiveSectionScore(section, questions, answers);
+  const score = objectiveSectionScore(section, questions, answers, adapted.value.test.module);
   const results: PracticeMarking['results'] = {};
   for (const question of questions) {
     results[question.id] = {

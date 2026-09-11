@@ -176,10 +176,11 @@ describe('practice responses before submission', () => {
     const text = await response.text();
     expectKeyFree(text);
     const practice = JSON.parse(text) as PracticeTest;
-    expect(practice.test.reading?.passages[0].questions.map((question) => [question.id, question.prompt, question.answerCount])).toEqual([
-      ['rea-p1-q1', 'Reading passage 1, first question', 1],
-      ['rea-p1-q2', 'Reading passage 1, second question', 1],
+    expect(practice.test.reading?.passages[0].questions.slice(0, 2).map((question) => [question.id, question.prompt, question.answerCount])).toEqual([
+      ['rea-p1-q1', 'Reading passage 1, question 1', 1],
+      ['rea-p1-q2', 'Reading passage 1, question 2', 1],
     ]);
+    expect(practice.test.reading?.passages[0].questions).toHaveLength(13);
   });
 
   it('sends a published Listening material with its audio and transcript but no key', async () => {
@@ -187,7 +188,7 @@ describe('practice responses before submission', () => {
     const text = await response.text();
     expectKeyFree(text);
     const practice = JSON.parse(text) as PracticeTest;
-    expect(practice.test.listening?.parts[0].questions.map((question) => question.id)).toEqual(['lis-p2-q1', 'lis-p2-q2']);
+    expect(practice.test.listening?.parts[0].questions.map((question) => question.id)).toEqual(Array.from({ length: 10 }, (_, index) => `lis-p2-q${index + 1}`));
     expect(practice.test.listening?.parts[0].audioUrl?.startsWith('/api/assets/ast_')).toBe(true);
   });
 
@@ -256,7 +257,7 @@ describe('practice marking after submission', () => {
     expect(status).toBe(200);
 
     const material = await adminStore.getMaterial('reading', ids['reading-2']);
-    const expected = objectiveSectionScore('reading', material ? questionsOf(material) : [], answers);
+    const expected = objectiveSectionScore('reading', material ? questionsOf(material) : [], answers, 'academic');
     expect([body.correct, body.total, body.band]).toEqual([expected.correct, expected.total, expected.band]);
     expect(body.results['rea-p2-q1']).toEqual({ correct: true, answers: [readingAnswer(2, 1)], explanation: `Because the passage says ${readingAnswer(2, 1)}.` });
     expect(body.results['rea-p2-q2'].correct).toBe(false);
@@ -267,8 +268,21 @@ describe('practice marking after submission', () => {
     const answers = Object.fromEntries([1, 2, 3, 4].map((part) => [`lis-p${part}-q1`, listeningAnswer(part, 1)]));
     const { status, body } = await mark({ source: { kind: 'bundle', bundleId }, section: 'listening', answers });
     expect(status).toBe(200);
-    expect([body.correct, body.total]).toEqual([4, 8]);
-    expect(Object.keys(body.results).sort()).toEqual([1, 2, 3, 4].flatMap((part) => [`lis-p${part}-q1`, `lis-p${part}-q2`]).sort());
+    expect([body.correct, body.total]).toEqual([4, 40]);
+    expect(Object.keys(body.results).sort()).toEqual([1, 2, 3, 4].flatMap((part) => Array.from({ length: 10 }, (_, index) => `lis-p${part}-q${index + 1}`)).sort());
+  });
+
+  it('marks a General Training Reading material with the General Training table', async () => {
+    const generalId = await createPublished({ ...readingPayload(1, 'general'), title: 'General Training Reading Section 1' });
+    // 10 of 13 correct: a single passage, so the raw score is scaled to 31/40 —
+    // band 6 on the General Training table, where Academic would give 7.
+    const answers = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`rea-p1-q${index + 1}`, readingAnswer(1, index + 1)]));
+    const { status, body } = await mark({ source: { kind: 'material', section: 'reading', materialId: generalId }, section: 'reading', answers });
+    expect(status).toBe(200);
+    expect([body.correct, body.total, body.band]).toEqual([10, 13, 6]);
+    const material = await adminStore.getMaterial('reading', generalId);
+    expect(body.band).toBe(objectiveSectionScore('reading', material ? questionsOf(material) : [], answers, 'general').band);
+    expect(objectiveSectionScore('reading', material ? questionsOf(material) : [], answers, 'academic').band).toBe(7);
   });
 
   it('marks the built-in test on the server with the same scoring as before', async () => {
@@ -278,7 +292,7 @@ describe('practice marking after submission', () => {
     const answers = { [first.id]: Array.isArray(first.correctAnswer) ? first.correctAnswer[0] : first.correctAnswer };
     const { status, body } = await mark({ source: { kind: 'builtin' }, section: 'reading', answers });
     expect(status).toBe(200);
-    const expected = objectiveSectionScore('reading', questions, answers);
+    const expected = objectiveSectionScore('reading', questions, answers, 'academic');
     expect([body.correct, body.total, body.band]).toEqual([expected.correct, expected.total, expected.band]);
     expect(body.results[first.id].correct).toBe(true);
   });

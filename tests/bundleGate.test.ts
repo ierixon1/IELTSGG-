@@ -180,6 +180,55 @@ describe('what each reference resolves to', () => {
   });
 });
 
+/**
+ * IELTS paper sizes (ielts.org, Listening and Reading test format): four Listening
+ * parts with 10 questions each; 40 Reading questions across the section, in any
+ * split between passages. The published raw-score tables are out of 40.
+ */
+describe('how many questions a full exam has', () => {
+  const withQuestions = (payload: ReturnType<typeof listeningPayload> | ReturnType<typeof readingPayload>, count: number) => {
+    const copy = structuredClone(payload);
+    const questions = 'section' in copy.content ? copy.content.section.questions : copy.content.passage.questions;
+    questions.splice(count);
+    return copy;
+  };
+
+  it('refuses a Listening part without exactly 10 questions', () => {
+    const materials = replace(fullMaterials(), 'lis-2', asMaterial('lis-2', withQuestions(listeningPayload(2, AUDIO(2)), 9)));
+    const blockers = bundleBlockers(bundleOver(materials), contextFor(materials));
+    expect(blockers.map((blocker) => [blocker.code, blocker.section, blocker.part])).toEqual([['question_count', 'listening', 2]]);
+    expect(blockers[0].message).toContain('9 questions');
+  });
+
+  it('refuses a Reading section without exactly 40 questions, whatever the split', () => {
+    const short = replace(fullMaterials(), 'rea-3', asMaterial('rea-3', withQuestions(readingPayload(3), 13)));
+    const blockers = bundleBlockers(bundleOver(short), contextFor(short));
+    expect(blockers.map((blocker) => [blocker.code, blocker.section])).toEqual([['question_count', 'reading']]);
+    expect(blockers[0].message).toContain('39 questions');
+
+    // 13 + 13 + 14 is not the only valid split: 10 + 16 + 14 is also 40.
+    const resplit = replace(
+      replace(fullMaterials(), 'rea-1', asMaterial('rea-1', withQuestions(readingPayload(1), 10))),
+      'rea-2',
+      asMaterial('rea-2', (() => {
+        const payload = readingPayload(2);
+        for (let index = 14; index <= 16; index++) {
+          payload.content.passage.questions.push({ id: `rea-p2-q${index}`, questionNumber: index, type: 'short_answer', prompt: `Extra ${index}`, correctAnswer: `extra${index}` });
+        }
+        return payload;
+      })()),
+    );
+    expect(bundleBlockers(bundleOver(resplit), contextFor(resplit))).toEqual([]);
+  });
+
+  it('does not add a count blocker on top of a missing Reading passage', () => {
+    const materials = fullMaterials();
+    const bundle = bundleOver(materials);
+    bundle.components = bundle.components.filter((ref) => !(ref.section === 'reading' && ref.part === 2));
+    expect(codesOf(bundle, materials)).toEqual(['part_missing']);
+  });
+});
+
 describe('what each component contains', () => {
   it('refuses an invalid question set', () => {
     const broken = readingPayload(1);
