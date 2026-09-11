@@ -282,14 +282,32 @@ describe('the exam screen holds no rules and no built-in content', () => {
   const read = (file: string) => readFileSync(path.join(process.cwd(), file), 'utf8');
 
   it('takes durations from the bundle, not from constants', () => {
-    for (const file of ['src/components/ExamMode.tsx', 'src/services/examRun.ts']) {
+    for (const file of ['src/components/ExamMode.tsx', 'src/services/examRun.ts', 'src/services/examSession.ts', 'src/routes/examSessionRoutes.ts']) {
       const text = read(file);
-      expect(/\b165\b|60 \* 60|durationMinutes: \d/.test(text)).toBe(false);
+      expect(/\b165\b|60 \* 60|durationMinutes: \d|Minutes: \d/.test(text)).toBe(false);
     }
   });
 
+  it('shows the section clock from the plan and the server deadline, and decides nothing in the browser', () => {
+    const screen = read('src/components/ExamMode.tsx');
+    // The clock on screen: the section's configured duration, counting down to the deadline the server set.
+    expect(screen).toContain('data-section-duration={section.durationSeconds}');
+    expect(screen).toContain('remainingSeconds(run, serverNow)');
+    // No state machine, no marking and no attempt building in the browser: the session does all three.
+    expect(/examReducer|objectiveSectionScore|toExamAttempt|createExamRun|correctAnswer/.test(screen)).toBe(false);
+  });
+
   it('never reaches for the built-in test', () => {
-    for (const file of ['src/components/ExamMode.tsx', 'src/services/examRun.ts', 'src/services/bundleService.ts', 'src/routes/learnerContentRoutes.ts', 'src/routes/bundleRoutes.ts']) {
+    for (const file of [
+      'src/components/ExamMode.tsx',
+      'src/services/examRun.ts',
+      'src/services/examSession.ts',
+      'src/services/sittingAdapters.ts',
+      'src/routes/examSessionRoutes.ts',
+      'src/services/bundleService.ts',
+      'src/routes/learnerContentRoutes.ts',
+      'src/routes/bundleRoutes.ts',
+    ]) {
       const text = read(file);
       expect(/MOCK_TEST_1|mockBank|builtInSittableTest/.test(text)).toBe(false);
     }

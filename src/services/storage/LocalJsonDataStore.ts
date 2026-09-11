@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
+import type { ExamSessionRecord } from '../../types/examSession';
 import { DataStore, DailyQuota } from './DataStore';
 import { GeneratedTestRecord } from './types';
 
@@ -30,4 +31,7 @@ export class LocalJsonDataStore implements DataStore{
  async incrementGenerationCount(userId:string){return this.withLock(`${userId}:quota`,async()=>{const q=await this.getDailyQuota(userId),all=this.read<any>(userId,'quota.json',{});all[q.dateStr]={...q,generationsCount:q.generationsCount+1};this.write(userId,'quota.json',all);return this.getDailyQuota(userId);});}
  async reserveGeneration(userId:string,maxGenerations:number){return this.withLock(`${userId}:quota`,async()=>{const q=await this.getDailyQuota(userId);if(q.generationsCount>=maxGenerations)return null;const all=this.read<any>(userId,'quota.json',{});all[q.dateStr]={...q,generationsCount:q.generationsCount+1};this.write(userId,'quota.json',all);return this.getDailyQuota(userId);});}
  async incrementUploadCount(userId:string){return this.withLock(`${userId}:quota`,async()=>{const q=await this.getDailyQuota(userId),all=this.read<any>(userId,'quota.json',{});all[q.dateStr]={...q,uploadsCount:q.uploadsCount+1};this.write(userId,'quota.json',all);return this.getDailyQuota(userId);});}
+ async listExamSessions(userId:string){return this.read<ExamSessionRecord[]>(userId,'examSessions.json',[]);}
+ async getExamSession(userId:string,id:string){return (await this.listExamSessions(userId)).find(x=>x.id===id)||null;}
+ async saveExamSession(userId:string,record:ExamSessionRecord,expectedRevision:number|null){if(record.userId!==userId)throw new Error('An exam session belongs to one user.');return this.withLock(`${userId}:examSessions`,async()=>{const all=await this.listExamSessions(userId),i=all.findIndex(x=>x.id===record.id),stored=i>=0?all[i].revision:null;if(stored!==expectedRevision)return false;if(i>=0)all[i]=record;else all.push(record);this.write(userId,'examSessions.json',all);return true;});}
 }

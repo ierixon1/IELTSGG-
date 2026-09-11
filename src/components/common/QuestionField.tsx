@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { AnswerValue, MediaRef, Question, QuestionType } from '../../types';
+import { AnswerValue, MediaRef, QuestionBody, QuestionType } from '../../types';
 import { learnerAssetUrl } from '../../utils/assetUrl';
 import { optionValue } from '../../utils/answerMatching';
 import { cx } from '../ui';
@@ -38,7 +38,7 @@ export const QUESTION_CONTROLS: Record<QuestionType, QuestionControl> = {
 };
 
 /** The control this question needs, or `null` when it cannot be rendered. */
-export function controlFor(question: Question): QuestionControl | null {
+export function controlFor(question: QuestionBody): QuestionControl | null {
   const control = QUESTION_CONTROLS[question.type];
   if (!control) return null;
   // A choice with nothing to choose from cannot be rendered as a choice. The
@@ -104,7 +104,7 @@ export const QuestionMedia: React.FC<{ media: MediaRef; label?: string }> = ({ m
 };
 
 interface QuestionFieldProps {
-  question: Question;
+  question: QuestionBody;
   value: AnswerValue;
   disabled: boolean;
   onChange: (value: AnswerValue) => void;
@@ -171,9 +171,10 @@ export const QuestionField: React.FC<QuestionFieldProps> = ({
   if (control === 'radio' || control === 'checkbox') {
     const chosen = asAnswerList(value);
     const isMulti = control === 'checkbox';
-    const expectedCount = Array.isArray(question.correctAnswer)
-      ? question.correctAnswer.length
-      : undefined;
+    // An exam question carries the count and no key; a practice question carries the key.
+    const expectedCount =
+      question.answerCount ??
+      ('correctAnswer' in question && Array.isArray(question.correctAnswer) ? question.correctAnswer.length : undefined);
 
     return (
       <div

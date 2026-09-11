@@ -1,13 +1,24 @@
-import { getApps, initializeApp, applicationDefault, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue, Firestore } from 'firebase-admin/firestore';
+import { FieldValue, Firestore } from 'firebase-admin/firestore';
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
+import type { ExamSessionRecord } from '../../types/examSession';
+import { getFirestoreDb } from '../firebaseAdmin';
 import { DataStore, DailyQuota } from './DataStore';
 import { GeneratedTestRecord } from './types';
 
-function initFirestore(): Firestore { if(!getApps().length){const projectId=process.env.FIREBASE_PROJECT_ID,clientEmail=process.env.FIREBASE_CLIENT_EMAIL,privateKey=process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g,'\n');if(projectId&&clientEmail&&privateKey)initializeApp({credential:cert({projectId,clientEmail,privateKey}),projectId});else if(projectId)initializeApp({projectId,credential:applicationDefault()});else initializeApp({credential:applicationDefault()});}return getFirestore(); }
 function assertUserId(userId:string){if(!/^[A-Za-z0-9_-]{1,128}$/.test(userId))throw new Error('Invalid user identifier.');}
+/** Exam session ids are attempt ids: `attempt-` and a UUID. */
+function assertSessionId(id:string){if(!/^attempt-[A-Za-z0-9-]{8,64}$/.test(id))throw new Error('Invalid exam session identifier.');}
+/**
+ * Progress is stored as one JSON string. It is written after every answer and
+ * read back whole, never queried; a string keeps the document free of the
+ * nested arrays and `undefined` values Firestore refuses in a map.
+ */
+type StoredExamSession=Omit<ExamSessionRecord,'progress'>&{progress:string};
+const toStoredSession=(record:ExamSessionRecord):StoredExamSession=>JSON.parse(JSON.stringify({...record,progress:JSON.stringify(record.progress)}));
+const fromStoredSession=(stored:StoredExamSession):ExamSessionRecord=>({...stored,progress:JSON.parse(stored.progress)});
 export class FirestoreDataStore implements DataStore{
- private readonly db:Firestore; constructor(){this.db=initFirestore();}
+ /** Resolved on use, so the shared app (or a test instance) is the only Firestore this store ever talks to. */
+ private get db():Firestore{return getFirestoreDb();}
  private userRef(userId:string){assertUserId(userId);return this.db.collection('users').doc(userId);} private subRef(userId:string,c:string){return this.userRef(userId).collection(c);} private quotaRef(userId:string,date:string){return this.subRef(userId,'quotas').doc(date);}
  async getUserProfile(userId:string):Promise<UserProfile|null>{const s=await this.userRef(userId).get();return s.exists?(s.data()?.profile as UserProfile)||null:null;}
  async saveUserProfile(userId:string,profile:UserProfile){await this.userRef(userId).set({profile:{...profile,id:userId},updatedAt:FieldValue.serverTimestamp()},{merge:true});}
@@ -26,4 +37,7 @@ export class FirestoreDataStore implements DataStore{
  async incrementGenerationCount(userId:string):Promise<DailyQuota>{const date=new Date().toISOString().slice(0,10);await this.quotaRef(userId,date).set({generationsCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});return this.getDailyQuota(userId);}
  async reserveGeneration(userId:string,maxGenerations:number):Promise<DailyQuota|null>{const date=new Date().toISOString().slice(0,10),ref=this.quotaRef(userId,date);return this.db.runTransaction(async tx=>{const snap=await tx.get(ref),d=snap.data()||{},count=Number(d.generationsCount||0);if(count>=maxGenerations)return null;const next=count+1;tx.set(ref,{generationsCount:next,updatedAt:FieldValue.serverTimestamp()},{merge:true});return{dateStr:date,generationsCount:next,uploadsCount:Number(d.uploadsCount||0)};});}
  async incrementUploadCount(userId:string):Promise<DailyQuota>{const date=new Date().toISOString().slice(0,10);await this.quotaRef(userId,date).set({uploadsCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});return this.getDailyQuota(userId);}
+ async listExamSessions(userId:string):Promise<ExamSessionRecord[]>{const s=await this.subRef(userId,'examSessions').get();return s.docs.map(d=>fromStoredSession(d.data() as StoredExamSession));}
+ async getExamSession(userId:string,id:string):Promise<ExamSessionRecord|null>{assertSessionId(id);const s=await this.subRef(userId,'examSessions').doc(id).get();return s.exists?fromStoredSession(s.data() as StoredExamSession):null;}
+ async saveExamSession(userId:string,record:ExamSessionRecord,expectedRevision:number|null):Promise<boolean>{assertSessionId(record.id);if(record.userId!==userId)throw new Error('An exam session belongs to one user.');const ref=this.subRef(userId,'examSessions').doc(record.id);return this.db.runTransaction(async tx=>{const current=await tx.get(ref);const stored=current.exists?(current.data() as StoredExamSession).revision:null;if(stored!==expectedRevision)return false;tx.set(ref,toStoredSession(record));return true;});}
 }

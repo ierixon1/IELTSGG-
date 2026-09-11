@@ -100,7 +100,8 @@ class AssetStore {
       createdAt: new Date().toISOString(),
       createdBy: input.createdBy,
       sourceType: input.sourceType,
-      derivedFromAssetId: input.derivedFromAssetId,
+      // Absent rather than `undefined`: Firestore refuses a document with an undefined field.
+      ...(input.derivedFromAssetId ? { derivedFromAssetId: input.derivedFromAssetId } : {}),
     };
 
     if (useFirestore()) {

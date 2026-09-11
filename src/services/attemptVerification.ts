@@ -9,8 +9,11 @@ import { questionsOf } from './publishGate';
 /**
  * Checks a full-exam attempt against the bundle it claims to come from.
  *
- * The client builds the attempt, so the server does not take its word for it:
+ * The exam session builds the attempt on the server, and this is the last check
+ * before it is stored — so a defect in the run, not only a forged request, is
+ * refused rather than recorded:
  *
+ *   - an exam attempt records the timing the bundle configured, field for field;
  *   - an exam attempt names its bundle, and every section, answer, essay and
  *     transcript names a component that bundle actually pins — the same
  *     material, the same content version, the same part;
@@ -42,6 +45,11 @@ export async function verifyExamAttempt(attempt: MockAttempt): Promise<string[]>
 
   const bundle = await bundleStore.get(attempt.bundleId);
   if (!bundle) return [...problems, `Bundle ${attempt.bundleId} does not exist.`];
+
+  const timingKeys = ['listeningMinutes', 'readingMinutes', 'writingMinutes', 'speakingMinutes', 'basis', 'allowEarlyFinish'] as const;
+  if (!attempt.timing || timingKeys.some((field) => attempt.timing?.[field] !== bundle.timing[field])) {
+    problems.push('The attempt does not record the timing the bundle configured.');
+  }
 
   const pinned = new Map<string, BundleComponentRef>(bundle.components.map((ref) => [key(ref.section, ref), ref]));
   const sections = attempt.sections ?? {};

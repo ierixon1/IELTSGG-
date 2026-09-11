@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
-import { AnswerValue, Question, QuestionLayout } from '../../types';
+import { AnswerValue, Question, QuestionBody, QuestionLayout } from '../../types';
 import { QuestionField, QuestionInstruction, QuestionMedia } from './QuestionField';
 import { cx } from '../ui';
 
@@ -21,10 +21,10 @@ export interface QuestionGroup {
   /** The group key, or the question id when a question stands alone. */
   key: string;
   layout: QuestionLayout;
-  questions: Question[];
+  questions: QuestionBody[];
 }
 
-const layoutOf = (question: Question): QuestionLayout => question.layout ?? 'standalone';
+const layoutOf = (question: QuestionBody): QuestionLayout => question.layout ?? 'standalone';
 
 /**
  * Splits a list into the blocks it should render as.
@@ -33,7 +33,7 @@ const layoutOf = (question: Question): QuestionLayout => question.layout ?? 'sta
  * further down the paper is a different block, and merging them would reorder
  * the paper. A question with no group is its own block.
  */
-export function groupQuestions(questions: Question[]): QuestionGroup[] {
+export function groupQuestions(questions: QuestionBody[]): QuestionGroup[] {
   const groups: QuestionGroup[] = [];
 
   for (const question of questions) {
@@ -65,7 +65,7 @@ interface QuestionBlockProps {
   /** After submission, whether each question was answered correctly. */
   results?: Record<string, boolean>;
   /** Rendered under a question once the paper has been submitted. */
-  renderFeedback?: (question: Question, isCorrect: boolean) => React.ReactNode;
+  renderFeedback?: (question: QuestionBody, isCorrect: boolean) => React.ReactNode;
 }
 
 const Marker: React.FC<{ number: number; state?: boolean }> = ({ number, state }) => (
@@ -112,7 +112,7 @@ export const QuestionBlock: React.FC<QuestionBlockProps> = ({
   const instruction = questions.find((question) => question.instruction)?.instruction;
   const media = questions.find((question) => question.mediaRef)?.mediaRef;
 
-  const field = (question: Question) => (
+  const field = (question: QuestionBody) => (
     <QuestionField
       question={question}
       value={answers[question.id] ?? ''}
@@ -122,7 +122,7 @@ export const QuestionBlock: React.FC<QuestionBlockProps> = ({
     />
   );
 
-  const feedback = (question: Question) => {
+  const feedback = (question: QuestionBody) => {
     if (!results || !renderFeedback) return null;
     return renderFeedback(question, results[question.id] === true);
   };

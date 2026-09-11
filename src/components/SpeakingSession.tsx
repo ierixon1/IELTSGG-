@@ -25,15 +25,38 @@ import { useT } from '../i18n';
 import { Badge, Button, Card, LexisPanel, Progress, cx } from './ui';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 
-interface SpeakingSessionProps {
+interface PracticeProps {
+  examMode?: false;
   speakingData: SpeakingData;
   onRecordScore?: (band: number) => void;
   /** Feeds the vocabulary deck with the words the answer leaned on. */
   onGraded?: (transcript: string) => void;
   onBackToMocks?: () => void;
-  /** A part was graded, so a full exam can require all three before the section ends. */
-  onPartGraded?: (part: 1 | 2 | 3, band: number, transcript: string) => void;
 }
+
+/** One spoken answer, as the grader receives it. */
+export interface SpokenAnswer {
+  audioBase64?: string;
+  mimeType?: string;
+  transcriptProvided?: string;
+  clientMetrics?: { durationSeconds: number; pausesCount?: number; totalPauseDurationSeconds?: number | null };
+}
+
+/**
+ * Inside a full exam: each part is graded by the exam session against the
+ * pinned part and recorded there, a submitted part is final, and no band is
+ * shown until the exam is over.
+ */
+interface ExamProps {
+  examMode: true;
+  speakingData: SpeakingData;
+  /** Grades and records one part. Rejects with a `GradingError` when no band could be given. */
+  grade: (part: 1 | 2 | 3, answer: SpokenAnswer) => Promise<SpeakingGradingResult>;
+  /** Parts the session has already recorded. */
+  gradedParts: Partial<Record<1 | 2 | 3, { transcript: string }>>;
+}
+
+type SpeakingSessionProps = PracticeProps | ExamProps;
 
 type PartNumber = 1 | 2 | 3;
 
@@ -107,16 +130,14 @@ function formatClock(totalSeconds: number): string {
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
-  speakingData,
-  onRecordScore,
-  onBackToMocks,
-  onGraded,
-  onPartGraded,
-}) => {
+export const SpeakingSession: React.FC<SpeakingSessionProps> = (props) => {
+  const { speakingData } = props;
+  const exam = props.examMode === true ? props : null;
+  const practice = props.examMode === true ? null : props;
   const t = useT();
 
-  const [activePart, setActivePart] = useState<PartNumber>(1);
+  // An exam resumes at the first part the session has not recorded.
+  const [activePart, setActivePart] = useState<PartNumber>(() => PARTS.find((part) => !exam?.gradedParts[part]) ?? 3);
   const [attempts, setAttempts] = useState<Partial<Record<PartNumber, PartAttempt>>>({});
   const [showSummary, setShowSummary] = useState(false);
 
@@ -150,6 +171,8 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
 
   const currentAttempt = attempts[activePart];
   const gradedCount = PARTS.filter((part) => attempts[part]).length;
+  const partLocked = Boolean(exam?.gradedParts[activePart]);
+  const partDone = (part: PartNumber) => Boolean(exam ? exam.gradedParts[part] : attempts[part]);
 
   /* --- Recording lifecycle ------------------------------------------------ */
 
@@ -366,26 +389,36 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
       const mimeType = hasAudio ? recordedBlobRef.current!.type || 'audio/webm' : undefined;
       const measured = hasAudio ? measuredRef.current : null;
 
+      const answer: SpokenAnswer = {
+        ...(audioBase64 ? { audioBase64 } : {}),
+        ...(mimeType ? { mimeType } : {}),
+        ...(typed ? { transcriptProvided: typed } : {}),
+        // Only genuinely measured values are sent; the examiner prompt should
+        // not be reasoning about numbers we invented.
+        ...(measured
+          ? {
+              clientMetrics: {
+                durationSeconds: measured.durationSeconds,
+                ...(measured.pauseCount !== null
+                  ? { pausesCount: measured.pauseCount, totalPauseDurationSeconds: measured.pauseSeconds }
+                  : {}),
+              },
+            }
+          : {}),
+      };
+
+      if (exam) {
+        // Recorded by the session; the band stays with it until the exam is over.
+        await exam.grade(activePart, answer);
+        if (activePart < 3) goToPart((activePart + 1) as PartNumber);
+        return;
+      }
+
       const response = await requestSpeakingGrading({
         partNumber: activePart,
         topic: partData.topic,
         cueCard: partData.cueCard ? JSON.stringify(partData.cueCard) : undefined,
-        audioBase64,
-        mimeType,
-        transcriptProvided: typed || undefined,
-        // Only genuinely measured values are sent; the examiner prompt should
-        // not be reasoning about numbers we invented.
-        clientMetrics: measured
-          ? {
-              durationSeconds: measured.durationSeconds,
-              ...(measured.pauseCount !== null
-                ? {
-                    pausesCount: measured.pauseCount,
-                    totalPauseDurationSeconds: measured.pauseSeconds,
-                  }
-                : {}),
-            }
-          : undefined,
+        ...answer,
       });
 
       const transcript = response.transcript || typed;
@@ -399,9 +432,8 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
         [activePart]: { result: response, metrics: measured, wordsPerMinute },
       }));
 
-      onRecordScore?.(response.band_overall);
-      onPartGraded?.(activePart, response.band_overall, transcript);
-      if (transcript) onGraded?.(transcript);
+      practice?.onRecordScore?.(response.band_overall);
+      if (transcript) practice?.onGraded?.(transcript);
 
       if (response.band_overall >= 7.0) {
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
@@ -428,7 +460,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
   /* --- Render ------------------------------------------------------------- */
 
   const targetSeconds = TARGET_SECONDS[activePart];
-  const canGrade = !isGrading && !isRecording && (Boolean(audioUrl) || transcriptDraft.trim());
+  const canGrade = !isGrading && !isRecording && !partLocked && (Boolean(audioUrl) || transcriptDraft.trim());
 
   return (
     <div className="space-y-6">
@@ -443,8 +475,8 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
           </div>
         </div>
 
-        {onBackToMocks && (
-          <Button variant="ghost" size="sm" onClick={onBackToMocks}>
+        {practice?.onBackToMocks && (
+          <Button variant="ghost" size="sm" onClick={practice.onBackToMocks}>
             {t('speaking.backToHub')}
           </Button>
         )}
@@ -453,7 +485,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
       {/* Interview stepper — the spine of the whole screen. */}
       <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
         {PARTS.map((part) => {
-          const done = Boolean(attempts[part]);
+          const done = partDone(part);
           const active = part === activePart && !showSummary;
           return (
             <button
@@ -483,7 +515,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
                 <span className="block truncate text-sm font-semibold">
                   {t(`speaking.steps.part${part}`)}
                 </span>
-                {done && (
+                {!exam && attempts[part] && (
                   <span className={cx('font-mono text-xs tabular', active ? 'text-white/70' : 'text-ink-400')}>
                     {t('common.band')} {attempts[part]!.result.band_overall.toFixed(1)}
                   </span>
@@ -739,6 +771,15 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
                   </div>
                 )}
 
+                {partLocked && (
+                  <p
+                    id={`speaking-part-submitted-${activePart}`}
+                    className="rounded-[var(--radius-control)] border border-ink-200 bg-ink-50 p-3 text-sm font-semibold text-ink-700"
+                  >
+                    {t('exam.partSubmitted', { part: activePart })}
+                  </p>
+                )}
+
                 <div className="flex flex-wrap justify-end gap-3">
                   <Button
                     id="btn-submit-speaking-grade"
@@ -762,7 +803,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
             </div>
           </div>
 
-          {currentAttempt && (
+          {currentAttempt && !exam && (
             <PartResult
               part={activePart}
               attempt={currentAttempt}

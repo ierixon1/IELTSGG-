@@ -31,9 +31,10 @@ describe('security regressions', () => {
   it('uses operation-specific AI quota guards', async () => {
     const retry = await read('prompts/geminiRetry.ts');
     const server = await read('server.ts');
+    const grading = await read('src/services/grading.ts');
     expect(retry).toContain("quotaOperation: AiOperationType = 'ai_request'");
-    expect(server).toContain("'writing_grade'");
-    expect(server).toContain("'speaking_grade'");
+    expect(grading).toContain("'writing_grade'");
+    expect(grading).toContain("'speaking_grade'");
     expect(server).toContain("'preppy_chat'");
   });
   it('invalidates sessions after password reset and rejects stale role snapshots', async () => {

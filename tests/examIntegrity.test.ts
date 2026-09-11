@@ -157,23 +157,32 @@ describe('attempt persistence', () => {
     expect(response.status).toBe(401);
   });
 
-  it('stores a full-mock attempt recorded before exam attempts named their bundle', async () => {
-    // Exam-mode attempts are verified against their bundle (tests/bundleExam.test.ts);
-    // an older attempt that does not claim exam mode is stored as it was.
-    const attempt = {
-      id: 'attempt-1',
+  it('refuses a full-mock attempt sent straight from the browser', async () => {
+    // A full exam is recorded by its exam session, from state the server holds
+    // (tests/examSession.test.ts). Posted directly, it is a set of bands nobody earned.
+    const forged = {
+      id: 'attempt-forged',
       testId: 'cdi-bundle-7',
       testTitle: 'Pipeline CDI',
       isFullMock: true,
       date: '2026-09-09',
-      scores: {
-        overall: 7.0,
-        listening: { band: 7.5, rawScore: 32 },
-        reading: { band: 7.0, rawScore: 30 },
-        writing: { band: 6.5, task1Band: 6.0, task2Band: 7.0 },
-        speaking: { band: 7.0 },
-      },
-      durationMinutes: 165,
+      scores: { overall: 9.0, listening: { band: 9 }, reading: { band: 9 }, writing: { band: 9 }, speaking: { band: 9 } },
+    };
+    const response = await post('/api/data/attempts', forged);
+    expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('exam_attempt_via_session');
+    expect((await post('/api/data/attempts', { ...forged, isFullMock: false, mode: 'exam' })).status).toBe(403);
+  });
+
+  it('stores a practice attempt under the test it was sat from', async () => {
+    const attempt = {
+      id: 'attempt-1',
+      testId: 'cdi-bundle-7',
+      testTitle: 'Pipeline CDI',
+      mode: 'practice',
+      isFullMock: false,
+      date: '2026-09-09',
+      scores: { overall: 6.5, writing: { band: 6.5, task1Band: 6.0, task2Band: 7.0 } },
     };
 
     expect((await post('/api/data/attempts', attempt)).status).toBe(201);

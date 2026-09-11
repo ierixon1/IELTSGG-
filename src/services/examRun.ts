@@ -44,25 +44,36 @@ export interface PlanComponent {
   contentHash: string;
 }
 
-export interface SectionPlan {
+/** What every reader of a section needs: its clock, its components and what completing it takes. */
+export interface SectionShape {
   section: BundleSection;
   durationSeconds: number;
   components: PlanComponent[];
-  /** Listening and Reading: every question, with the component it belongs to. */
-  questions: Array<{ question: Question; component: PlanComponent }>;
   /** Writing: the tasks the section requires. */
   tasks: Array<1 | 2>;
   /** Speaking: the parts the section requires. */
   parts: Array<1 | 2 | 3>;
 }
 
-export interface ExamPlan {
+export interface SectionPlan extends SectionShape {
+  /** Listening and Reading: every question, with its answer key and the component it belongs to. */
+  questions: Array<{ question: Question; component: PlanComponent }>;
+}
+
+/** A section as the browser holds it during an exam: the question ids, never the questions' keys. */
+export interface SectionView extends SectionShape {
+  questionIds: string[];
+}
+
+export interface PlanShape<S extends SectionShape = SectionShape> {
   bundleId: string;
   bundleTitle: string;
   bundlePublishedAt: string;
   timing: BundleTiming;
-  sections: SectionPlan[];
+  sections: S[];
 }
+
+export type ExamPlan = PlanShape<SectionPlan>;
 
 export class ExamPlanError extends Error {
   constructor(message: string) {
@@ -84,7 +95,7 @@ export function buildExamPlan(sitting: ExamSitting): ExamPlan {
     const entries = sitting.components.filter((entry) => entry.section === section).sort((a, b) => a.part - b.part);
     if (entries.length === 0) throw new ExamPlanError(`The bundle supplies no ${section} component.`);
 
-    const components = entries.map(({ section: s, part, materialId, contentHash }) => ({ section: s, part, materialId, contentHash }));
+    const components: PlanComponent[] = entries.map(({ section: s, part, materialId, contentHash }) => ({ section: s, part, materialId, contentHash }));
     const plan: SectionPlan = { section, durationSeconds: minutes * 60, components, questions: [], tasks: [], parts: [] };
 
     entries.forEach((entry, index) => {
@@ -139,29 +150,42 @@ export interface SectionRun {
   submittedAt?: number;
   objective?: { correct: number; total: number; band: number };
   writing: Partial<Record<1 | 2, { band: number; essay: string }>>;
+  /** Writing: what the learner has typed so far, per task, so a reload does not lose it. */
+  drafts: Partial<Record<1 | 2, string>>;
   speaking: Partial<Record<1 | 2 | 3, { band: number; transcript: string }>>;
   band?: number;
 }
 
-export interface ExamRunState {
+/** The progress of a sitting without its plan: what the exam session stores. */
+export interface RunProgress {
   attemptId: string;
-  plan: ExamPlan;
   sections: Record<BundleSection, SectionRun>;
   currentIndex: number;
   startedAt?: number;
   finishedAt?: number;
 }
 
+export interface RunShape<S extends SectionShape = SectionShape> extends RunProgress {
+  plan: PlanShape<S>;
+}
+
+/** The server's full state: the plan carries the answer keys marking needs. */
+export type ExamRunState = RunShape<SectionPlan>;
+
+/** The browser's state: the same progress, over a plan with no questions in it. */
+export type ExamRunView = RunShape<SectionView>;
+
 export type ExamEvent =
   | { type: 'start'; now: number }
   | { type: 'answer'; questionId: string; value: AnswerValue }
   | { type: 'submit_answers'; now: number }
+  | { type: 'writing_draft'; task: 1 | 2; text: string }
   | { type: 'writing_graded'; task: 1 | 2; band: number; essay: string }
   | { type: 'speaking_graded'; part: 1 | 2 | 3; band: number; transcript: string }
   | { type: 'finish_section'; now: number }
   | { type: 'tick'; now: number };
 
-const emptyRun = (): SectionRun => ({ status: 'pending', answers: {}, writing: {}, speaking: {} });
+const emptyRun = (): SectionRun => ({ status: 'pending', answers: {}, writing: {}, drafts: {}, speaking: {} });
 
 export function createExamRun(plan: ExamPlan, attemptId: string): ExamRunState {
   return {
@@ -172,7 +196,27 @@ export function createExamRun(plan: ExamPlan, attemptId: string): ExamRunState {
   };
 }
 
-export function currentSection(state: ExamRunState): SectionPlan | null {
+/** The stored progress of a run, without the plan it was built from. */
+export function progressOf(state: RunShape): RunProgress {
+  const { plan: _plan, ...progress } = state;
+  return progress;
+}
+
+/** What the browser may hold of a run: every question id, no question. */
+export function toRunView(state: ExamRunState): ExamRunView {
+  return {
+    ...progressOf(state),
+    plan: {
+      ...state.plan,
+      sections: state.plan.sections.map(({ questions, ...section }) => ({
+        ...section,
+        questionIds: questions.map((entry) => entry.question.id),
+      })),
+    },
+  };
+}
+
+export function currentSection<S extends SectionShape>(state: RunShape<S>): S | null {
   if (state.startedAt === undefined || state.finishedAt !== undefined) return null;
   return state.plan.sections[state.currentIndex] ?? null;
 }
@@ -182,7 +226,7 @@ const isBand = (value: number) => Number.isFinite(value) && value >= 0 && value 
 export type MissingItem = { kind: 'answers' } | { kind: 'writing_task'; task: 1 | 2 } | { kind: 'speaking_part'; part: 1 | 2 | 3 };
 
 /** Whether a section's configured content is done, and what is not. */
-export function sectionReadiness(state: ExamRunState, section: BundleSection): { ready: boolean; missing: MissingItem[] } {
+export function sectionReadiness(state: RunShape, section: BundleSection): { ready: boolean; missing: MissingItem[] } {
   const plan = state.plan.sections.find((entry) => entry.section === section);
   const run = state.sections[section];
   if (!plan) return { ready: false, missing: [] };
@@ -199,7 +243,7 @@ export function sectionReadiness(state: ExamRunState, section: BundleSection): {
 
 /** Whether the learner may end the current section now, and if not, why. */
 export function canFinishSection(
-  state: ExamRunState,
+  state: RunShape,
   now: number,
 ): { allowed: true } | { allowed: false; reason: 'not_running' | 'not_ready' | 'early_finish_disabled' } {
   const plan = currentSection(state);
@@ -210,7 +254,7 @@ export function canFinishSection(
   return { allowed: true };
 }
 
-export function remainingSeconds(state: ExamRunState, now: number): number {
+export function remainingSeconds(state: RunShape, now: number): number {
   const plan = currentSection(state);
   if (!plan) return 0;
   const deadline = state.sections[plan.section].deadline ?? now;
@@ -290,6 +334,15 @@ export function examReducer(state: ExamRunState, event: ExamEvent): ExamRunState
       );
     }
 
+    case 'writing_draft': {
+      const plan = currentSection(state);
+      if (!plan || plan.section !== 'writing' || !plan.tasks.includes(event.task)) return state;
+      // A graded task is final: its draft no longer changes what is recorded.
+      return updateCurrent(state, 'writing', (run) =>
+        run.writing[event.task] ? run : { ...run, drafts: { ...run.drafts, [event.task]: event.text } },
+      );
+    }
+
     case 'writing_graded': {
       const plan = currentSection(state);
       if (!plan || plan.section !== 'writing' || !plan.tasks.includes(event.task) || !isBand(event.band)) return state;
@@ -324,7 +377,7 @@ export interface ExamResult {
   incomplete: BundleSection[];
 }
 
-export function examResult(state: ExamRunState): ExamResult {
+export function examResult(state: RunShape): ExamResult {
   const bands: Partial<Record<BundleSection, number>> = {};
   const incomplete: BundleSection[] = [];
   for (const section of BUNDLE_SECTIONS) {
@@ -336,7 +389,9 @@ export function examResult(state: ExamRunState): ExamResult {
   return { complete, bands, incomplete, ...(complete ? { overall: calculateOverallBand(bands) } : {}) };
 }
 
-const iso = (ms: number | undefined) => (ms === undefined ? undefined : new Date(ms).toISOString());
+/** An optional timestamp as an optional field: absent, never `undefined` — Firestore refuses `undefined` values. */
+const isoField = <K extends string>(key: K, ms: number | undefined): Partial<Record<K, string>> =>
+  ms === undefined ? {} : ({ [key]: new Date(ms).toISOString() } as Record<K, string>);
 const refOf = (component: PlanComponent): AttemptComponentRef => ({
   materialId: component.materialId,
   contentHash: component.contentHash,
@@ -357,9 +412,9 @@ export function toExamAttempt(state: ExamRunState): MockAttempt {
     const run = state.sections[plan.section];
     const record: AttemptSectionRecord = {
       status: run.status,
-      startedAt: iso(run.startedAt),
-      endedAt: iso(run.endedAt),
-      endedBy: run.endedBy,
+      ...isoField('startedAt', run.startedAt),
+      ...isoField('endedAt', run.endedAt),
+      ...(run.endedBy ? { endedBy: run.endedBy } : {}),
       components: plan.components.map(refOf),
       ...(typeof run.band === 'number' && run.status === 'completed' ? { band: run.band } : {}),
       ...(run.objective ? { rawScore: run.objective.correct, total: run.objective.total } : {}),
@@ -421,6 +476,7 @@ export function toExamAttempt(state: ExamRunState): MockAttempt {
     testTitle: state.plan.bundleTitle,
     bundleId: state.plan.bundleId,
     bundlePublishedAt: state.plan.bundlePublishedAt,
+    timing: { ...state.plan.timing },
     mode: 'exam',
     isFullMock: true,
     status: result.complete ? 'completed' : 'incomplete',
@@ -438,10 +494,11 @@ export function toExamAttempt(state: ExamRunState): MockAttempt {
         : {}),
       ...(result.bands.writing !== undefined
         ? {
+            // Both tasks carry a band whenever the section has one: `writingSectionBand` requires them.
             writing: {
               band: result.bands.writing,
-              task1Band: state.sections.writing.writing[1]?.band,
-              task2Band: state.sections.writing.writing[2]?.band,
+              ...(state.sections.writing.writing[1] ? { task1Band: state.sections.writing.writing[1].band } : {}),
+              ...(state.sections.writing.writing[2] ? { task2Band: state.sections.writing.writing[2].band } : {}),
             },
           }
         : {}),

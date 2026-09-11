@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AnswerValue, ReadingData, ReadingPassage } from '../types';
+import { AnswerValue, QuestionBody, ReadingData, ReadingPassage, SittingQuestion } from '../types';
 import { checkQuestionAnswer, objectiveSectionScore } from '../utils/ieltsScoring';
 import { 
   BookOpen, 
@@ -16,40 +16,48 @@ import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionBlock';
 
-interface ReadingSessionProps {
+interface PracticeProps {
+  examMode?: false;
   readingData: ReadingData;
   onRecordScore?: (band: number, rawScore: number) => void;
   onBackToMocks?: () => void;
-  /**
-   * Inside a full exam: nothing is read aloud in place of a recording, the
-   * transcript is not offered, and marks are not shown until the exam is over.
-   */
-  examMode?: boolean;
-  /** Every answer change, so the exam engine holds the answers a timer may have to mark. */
-  onAnswersChange?: (answers: Record<string, AnswerValue>) => void;
-  /** The learner submitted this section's answers. */
-  onSubmitAnswers?: () => void;
 }
 
-export const ReadingSession: React.FC<ReadingSessionProps> = ({
-  readingData,
-  onRecordScore,
-  onBackToMocks,
-  examMode = false,
-  onAnswersChange,
-  onSubmitAnswers,
-}) => {
+/**
+ * Inside a full exam: the questions carry no keys and nothing is marked here —
+ * the exam session marks the submitted answers on the server, and marks are not
+ * shown until the exam is over.
+ */
+interface ExamProps {
+  examMode: true;
+  readingData: ReadingData<SittingQuestion>;
+  /** Answers already stored by the session, so a reload does not lose them. */
+  initialAnswers: Record<string, AnswerValue>;
+  /** Whether the session has already recorded this section's submission. */
+  submitted: boolean;
+  onAnswersChange: (answers: Record<string, AnswerValue>) => void;
+  onSubmitAnswers: () => void;
+}
+
+type ReadingSessionProps = PracticeProps | ExamProps;
+
+export const ReadingSession: React.FC<ReadingSessionProps> = (props) => {
+  const exam = props.examMode === true ? props : null;
+  const practice = props.examMode === true ? null : props;
+  const examMode = exam !== null;
+  const passages: ReadingPassage<QuestionBody>[] = props.readingData.passages;
   const t = useT();
   const [activePassageIndex, setActivePassageIndex] = useState<number>(0);
-  const [userAnswers, setUserAnswers] = useState<Record<string, AnswerValue>>({});
-  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [userAnswers, setUserAnswers] = useState<Record<string, AnswerValue>>(() => exam?.initialAnswers ?? {});
+  const [submittedHere, setSubmittedHere] = useState<boolean>(false);
+  const isSubmitted = submittedHere || Boolean(exam?.submitted);
 
   // Practice shows the time spent, not a countdown from an assumed paper length.
   // Inside an exam the section clock belongs to the exam screen, from the bundle.
   const [secondsElapsed, setSecondsElapsed] = useState<number>(0);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(!examMode);
 
-  const currentPassage = readingData.passages[activePassageIndex];
+  const currentPassage = passages[activePassageIndex];
 
   useEffect(() => {
     if (!isTimerRunning || isSubmitted) return;
@@ -66,10 +74,12 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
   const handleAnswerChange = (questionId: string, value: AnswerValue) => {
     const next = { ...userAnswers, [questionId]: value };
     setUserAnswers(next);
-    onAnswersChange?.(next);
+    exam?.onAnswersChange(next);
   };
 
-  const allQuestions = readingData.passages.flatMap((p) => p.questions);
+  // Practice marks here. An exam has no keys to mark with.
+  const practiceQuestions = practice ? practice.readingData.passages.flatMap((p) => p.questions) : [];
+  const practiceById = new Map(practiceQuestions.map((question) => [question.id, question]));
   /**
    * Marked once per question, so the same verdict drives the score, the number
    * marker and the feedback line. Marking is per question type: a multi-select
@@ -77,18 +87,19 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
    * full text.
    */
   const results: Record<string, boolean> = Object.fromEntries(
-    allQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
+    practiceQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
   );
-  const { correct: correctCount, band } = objectiveSectionScore('reading', allQuestions, userAnswers);
+  const { correct: correctCount, band } = objectiveSectionScore('reading', practiceQuestions, userAnswers);
+  const questionTotal = passages.reduce((sum, passage) => sum + passage.questions.length, 0);
 
   const handleSubmit = () => {
-    setIsSubmitted(true);
+    setSubmittedHere(true);
     setIsTimerRunning(false);
-    if (examMode) {
-      onSubmitAnswers?.();
+    if (exam) {
+      exam.onSubmitAnswers();
       return;
     }
-    onRecordScore?.(band, correctCount);
+    practice?.onRecordScore?.(band, correctCount);
 
     if (band >= 7.0) {
       confetti({
@@ -128,7 +139,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
 
           {/* Passages Tab Switcher */}
           <div className="inline-flex p-1 bg-ink-100 rounded-xl">
-            {readingData.passages.map((p, idx) => (
+            {passages.map((p, idx) => (
               <button
                 key={p.passageNumber}
                 id={`btn-read-passage-${p.passageNumber}`}
@@ -144,9 +155,9 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
             ))}
           </div>
 
-          {onBackToMocks && (
+          {practice?.onBackToMocks && (
             <button
-              onClick={onBackToMocks}
+              onClick={practice.onBackToMocks}
               className="px-3 py-1.5 text-xs text-ink-600 hover:text-ink-900 font-medium"
             >
               {t('session.backToHub')}
@@ -208,18 +219,22 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                 onChange={handleAnswerChange}
                 groupName={`reading-${currentPassage.passageNumber}`}
                 results={isSubmitted && !examMode ? results : undefined}
-                renderFeedback={(question, isCorrect) => (
-                  <AnswerVerdict
-                    question={question}
-                    correct={isCorrect}
-                    correctLabel={t('session.correct')}
-                    incorrectLabel={t('session.incorrect', {
-                      answers: Array.isArray(question.correctAnswer)
-                        ? question.correctAnswer.join(' / ')
-                        : question.correctAnswer,
-                    })}
-                  />
-                )}
+                renderFeedback={(rendered, isCorrect) => {
+                  const question = practiceById.get(rendered.id);
+                  if (!question) return null;
+                  return (
+                    <AnswerVerdict
+                      question={question}
+                      correct={isCorrect}
+                      correctLabel={t('session.correct')}
+                      incorrectLabel={t('session.incorrect', {
+                        answers: Array.isArray(question.correctAnswer)
+                          ? question.correctAnswer.join(' / ')
+                          : question.correctAnswer,
+                      })}
+                    />
+                  );
+                }}
               />
             ))}
           </div>
@@ -246,7 +261,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                     {t('reading.resultTitle')}
                   </span>
                   <div className="text-xs text-ink-800 font-semibold mt-0.5 tabular">
-                    {t('session.raw', { correct: correctCount, total: allQuestions.length })}
+                    {t('session.raw', { correct: correctCount, total: questionTotal })}
                   </div>
                 </div>
                 <div className="font-mono text-xl font-bold tabular text-brand-700">{band.toFixed(1)}</div>

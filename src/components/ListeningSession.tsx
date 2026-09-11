@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnswerValue, ListeningData, ListeningPart } from '../types';
+import { AnswerValue, ListeningData, ListeningPart, QuestionBody, SittingQuestion } from '../types';
 import { checkQuestionAnswer, objectiveSectionScore } from '../utils/ieltsScoring';
 import { 
   Headphones, 
@@ -20,33 +20,41 @@ import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionBlock';
 
-interface ListeningSessionProps {
+interface PracticeProps {
+  examMode?: false;
   listeningData: ListeningData;
   onRecordScore?: (band: number, rawScore: number) => void;
   onBackToMocks?: () => void;
-  /**
-   * Inside a full exam: nothing is read aloud in place of a recording, the
-   * transcript is not offered, and marks are not shown until the exam is over.
-   */
-  examMode?: boolean;
-  /** Every answer change, so the exam engine holds the answers a timer may have to mark. */
-  onAnswersChange?: (answers: Record<string, AnswerValue>) => void;
-  /** The learner submitted this section's answers. */
-  onSubmitAnswers?: () => void;
 }
 
-export const ListeningSession: React.FC<ListeningSessionProps> = ({
-  listeningData,
-  onRecordScore,
-  onBackToMocks,
-  examMode = false,
-  onAnswersChange,
-  onSubmitAnswers,
-}) => {
+/**
+ * Inside a full exam: the questions carry no keys, nothing is read aloud in
+ * place of a recording, the transcript is not offered, and nothing is marked
+ * here — the exam session marks the submitted answers on the server.
+ */
+interface ExamProps {
+  examMode: true;
+  listeningData: ListeningData<SittingQuestion>;
+  /** Answers already stored by the session, so a reload does not lose them. */
+  initialAnswers: Record<string, AnswerValue>;
+  /** Whether the session has already recorded this section's submission. */
+  submitted: boolean;
+  onAnswersChange: (answers: Record<string, AnswerValue>) => void;
+  onSubmitAnswers: () => void;
+}
+
+type ListeningSessionProps = PracticeProps | ExamProps;
+
+export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
+  const exam = props.examMode === true ? props : null;
+  const practice = props.examMode === true ? null : props;
+  const examMode = exam !== null;
+  const parts: ListeningPart<QuestionBody>[] = props.listeningData.parts;
   const t = useT();
   const [activePartIndex, setActivePartIndex] = useState<number>(0);
-  const [userAnswers, setUserAnswers] = useState<Record<string, AnswerValue>>({});
-  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [userAnswers, setUserAnswers] = useState<Record<string, AnswerValue>>(() => exam?.initialAnswers ?? {});
+  const [submittedHere, setSubmittedHere] = useState<boolean>(false);
+  const isSubmitted = submittedHere || Boolean(exam?.submitted);
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
 
   // Audio Playback state (Speech Synthesis & Simulated Stream)
@@ -55,7 +63,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
   const synthUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const currentPart = listeningData.parts[activePartIndex];
+  const currentPart = parts[activePartIndex];
 
   // Stop speech when changing part
   useEffect(() => {
@@ -138,28 +146,30 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
   const handleAnswerChange = (questionId: string, value: AnswerValue) => {
     const next = { ...userAnswers, [questionId]: value };
     setUserAnswers(next);
-    onAnswersChange?.(next);
+    exam?.onAnswersChange(next);
   };
 
-  // Calculate results across all parts
-  const allQuestions = listeningData.parts.flatMap((p) => p.questions);
+  // Practice marks here, across all parts. An exam has no keys to mark with.
+  const practiceQuestions = practice ? practice.listeningData.parts.flatMap((p) => p.questions) : [];
+  const practiceById = new Map(practiceQuestions.map((question) => [question.id, question]));
   /**
    * Marked once per question, so the same verdict drives the score, the number
    * marker and the feedback line.
    */
   const results: Record<string, boolean> = Object.fromEntries(
-    allQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
+    practiceQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
   );
-  const { correct: correctCount, band } = objectiveSectionScore('listening', allQuestions, userAnswers);
+  const { correct: correctCount, band } = objectiveSectionScore('listening', practiceQuestions, userAnswers);
+  const questionTotal = parts.reduce((sum, part) => sum + part.questions.length, 0);
 
   const handleSubmit = () => {
-    setIsSubmitted(true);
+    setSubmittedHere(true);
     stopAudio();
-    if (examMode) {
-      onSubmitAnswers?.();
+    if (exam) {
+      exam.onSubmitAnswers();
       return;
     }
-    onRecordScore?.(band, correctCount);
+    practice?.onRecordScore?.(band, correctCount);
 
     if (band >= 7.0) {
       confetti({
@@ -186,7 +196,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
 
         <div className="flex items-center space-x-2">
           <div className="inline-flex p-1 bg-ink-100 rounded-xl">
-            {listeningData.parts.map((p, idx) => (
+            {parts.map((p, idx) => (
               <button
                 key={p.partNumber}
                 id={`btn-listen-part-${p.partNumber}`}
@@ -202,9 +212,9 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
             ))}
           </div>
 
-          {onBackToMocks && (
+          {practice?.onBackToMocks && (
             <button
-              onClick={onBackToMocks}
+              onClick={practice.onBackToMocks}
               className="px-3 py-1.5 text-xs text-ink-600 hover:text-ink-900 font-medium"
             >
               {t('session.backToHub')}
@@ -336,18 +346,22 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
               onChange={handleAnswerChange}
               groupName={`listening-${currentPart.partNumber}`}
               results={isSubmitted && !examMode ? results : undefined}
-              renderFeedback={(question, isCorrect) => (
-                <AnswerVerdict
-                  question={question}
-                  correct={isCorrect}
-                  correctLabel={t('session.correct')}
-                  incorrectLabel={t('session.incorrect', {
-                    answers: Array.isArray(question.correctAnswer)
-                      ? question.correctAnswer.join(' / ')
-                      : question.correctAnswer,
-                  })}
-                />
-              )}
+              renderFeedback={(rendered, isCorrect) => {
+                const question = practiceById.get(rendered.id);
+                if (!question) return null;
+                return (
+                  <AnswerVerdict
+                    question={question}
+                    correct={isCorrect}
+                    correctLabel={t('session.correct')}
+                    incorrectLabel={t('session.incorrect', {
+                      answers: Array.isArray(question.correctAnswer)
+                        ? question.correctAnswer.join(' / ')
+                        : question.correctAnswer,
+                    })}
+                  />
+                );
+              }}
             />
           ))}
         </div>
@@ -374,7 +388,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
                   {t('listening.resultTitle')}
                 </span>
                 <div className="text-sm text-ink-800 font-semibold mt-0.5 tabular">
-                  {t('session.raw', { correct: correctCount, total: allQuestions.length })}
+                  {t('session.raw', { correct: correctCount, total: questionTotal })}
                 </div>
               </div>
               <div className="flex items-center space-x-3">

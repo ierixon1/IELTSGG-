@@ -19,7 +19,7 @@ import { Badge, Button, Card, LexisPanel, cx } from './ui';
 import { analyseLexis } from '../utils/textMetrics';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 
-interface WritingSessionProps {
+interface TaskProps {
   /**
    * Either task may be absent: a published Writing material is allowed to carry
    * only Task 2. What is not allowed is standing in another test’s prompt for
@@ -27,15 +27,33 @@ interface WritingSessionProps {
    */
   task1Data?: WritingTaskData;
   task2Data?: WritingTaskData;
+}
+
+interface PracticeProps extends TaskProps {
+  examMode?: false;
   onRecordScore?: (taskNumber: 1 | 2, band: number) => void;
   /** Feeds the vocabulary deck with what the examiner flagged. */
   onGraded?: (result: WritingGradingResult, essay: string) => void;
   onBackToMocks?: () => void;
-  /** Inside a full exam: the section clock belongs to the exam screen, so the per-task timer is not shown. */
-  examMode?: boolean;
-  /** A task was graded, with the essay that was graded, so the exam can record both tasks. */
-  onTaskGraded?: (taskNumber: 1 | 2, band: number, essay: string) => void;
 }
+
+/**
+ * Inside a full exam: the section clock belongs to the exam screen, each task is
+ * graded by the exam session against the pinned prompt and recorded there, a
+ * submitted task is final, and no band is shown until the exam is over.
+ */
+interface ExamProps extends TaskProps {
+  examMode: true;
+  /** Grades and records one task. Rejects with a `GradingError` when no band could be given. */
+  grade: (task: 1 | 2, essay: string) => Promise<WritingGradingResult>;
+  /** What the session stored of each draft, so a reload does not lose it. */
+  initialDrafts: Partial<Record<1 | 2, string>>;
+  /** Tasks the session has already recorded, with the essay it recorded. */
+  gradedTasks: Partial<Record<1 | 2, { essay: string }>>;
+  onDraftChange: (task: 1 | 2, text: string) => void;
+}
+
+type WritingSessionProps = PracticeProps | ExamProps;
 
 /**
  * Turns a refused grading request into something a learner can act on. The
@@ -65,30 +83,32 @@ function formatClock(totalSeconds: number): string {
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-export const WritingSession: React.FC<WritingSessionProps> = ({
-  task1Data,
-  task2Data,
-  onRecordScore,
-  onBackToMocks,
-  onGraded,
-  examMode = false,
-  onTaskGraded,
-}) => {
+export const WritingSession: React.FC<WritingSessionProps> = (props) => {
+  const { task1Data, task2Data } = props;
+  const exam = props.examMode === true ? props : null;
+  const practice = props.examMode === true ? null : props;
+  const examMode = exam !== null;
   const t = useT();
   const availableTasks = ([1, 2] as const).filter((task) =>
     task === 1 ? Boolean(task1Data) : Boolean(task2Data),
   );
+  // An exam starts on Task 1; practice opens the last task the material carries.
   const [selectedTask, setSelectedTask] = useState<1 | 2>(
-    () => availableTasks[availableTasks.length - 1] ?? 2,
+    () => (exam ? availableTasks[0] : availableTasks[availableTasks.length - 1]) ?? 2,
   );
   // One draft per task: moving to Task 2 must not carry Task 1's essay into it.
-  const [essays, setEssays] = useState<Record<1 | 2, string>>({ 1: '', 2: '' });
+  const [essays, setEssays] = useState<Record<1 | 2, string>>(() => ({
+    1: exam?.gradedTasks[1]?.essay ?? exam?.initialDrafts[1] ?? '',
+    2: exam?.gradedTasks[2]?.essay ?? exam?.initialDrafts[2] ?? '',
+  }));
   const essayText = essays[selectedTask];
+  const taskLocked = Boolean(exam?.gradedTasks[selectedTask]);
   const setEssayText = (value: string | ((current: string) => string)) =>
-    setEssays((previous) => ({
-      ...previous,
-      [selectedTask]: typeof value === 'function' ? value(previous[selectedTask]) : value,
-    }));
+    setEssays((previous) => {
+      const text = typeof value === 'function' ? value(previous[selectedTask]) : value;
+      exam?.onDraftChange(selectedTask, text);
+      return { ...previous, [selectedTask]: text };
+    });
   const [isGrading, setIsGrading] = useState(false);
   const [result, setResult] = useState<WritingGradingResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -135,6 +155,11 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
     setRewrite(null);
 
     try {
+      if (exam) {
+        // Recorded by the session; the band stays with it until the exam is over.
+        await exam.grade(selectedTask, essayText);
+        return;
+      }
       const grading = await requestWritingGrading({
         taskType: selectedTask === 1 ? 'task1' : 'task2',
         prompt: `${activeTaskData.title}\n${activeTaskData.prompt}`,
@@ -143,9 +168,8 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
 
       setResult(grading);
       setGradedEssay(essayText);
-      onRecordScore?.(selectedTask, grading.band_overall);
-      onTaskGraded?.(selectedTask, grading.band_overall, essayText);
-      onGraded?.(grading, essayText);
+      practice?.onRecordScore?.(selectedTask, grading.band_overall);
+      practice?.onGraded?.(grading, essayText);
 
       if (grading.band_overall >= 7.0) {
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
@@ -274,8 +298,8 @@ ${activeTaskData.prompt}`,
             ))}
           </div>
 
-          {onBackToMocks && (
-            <Button variant="ghost" size="sm" onClick={onBackToMocks}>
+          {practice?.onBackToMocks && (
+            <Button variant="ghost" size="sm" onClick={practice.onBackToMocks}>
               {t('writing.backToHub')}
             </Button>
           )}
@@ -397,7 +421,7 @@ ${activeTaskData.prompt}`,
                     type="file"
                     accept="image/*"
                     className="sr-only"
-                    disabled={isReadingImage}
+                    disabled={isReadingImage || taskLocked}
                     onChange={(event) => {
                       const file = event.target.files?.[0];
                       if (file) handleEssayPhoto(file);
@@ -412,6 +436,8 @@ ${activeTaskData.prompt}`,
               id="textarea-essay-input"
               rows={16}
               value={essayText}
+              readOnly={taskLocked}
+              data-task={selectedTask}
               onChange={(event) => setEssayText(event.target.value)}
               placeholder={t('writing.placeholder')}
               className="w-full resize-y rounded-[var(--radius-control)] border border-ink-200 p-4 text-sm leading-relaxed text-ink-900 outline-none focus:border-brand-400"
@@ -424,11 +450,21 @@ ${activeTaskData.prompt}`,
               </div>
             )}
 
+            {taskLocked && (
+              <p
+                id={`writing-task-submitted-${selectedTask}`}
+                className="rounded-[var(--radius-control)] border border-ink-200 bg-ink-50 p-3 text-sm font-semibold text-ink-700"
+              >
+                {t('exam.taskSubmitted', { task: selectedTask })}
+              </p>
+            )}
+
             <div className="flex items-center justify-between pt-1">
               <Button
                 id="btn-clear-essay"
                 variant="ghost"
                 size="sm"
+                disabled={taskLocked}
                 onClick={() => {
                   if (window.confirm(t('writing.clearConfirm'))) setEssayText('');
                 }}
@@ -439,7 +475,7 @@ ${activeTaskData.prompt}`,
               <Button
                 id="btn-submit-writing-grade"
                 onClick={handleGrade}
-                disabled={isGrading || wordCount === 0}
+                disabled={isGrading || wordCount === 0 || taskLocked}
               >
                 {isGrading ? (
                   <>

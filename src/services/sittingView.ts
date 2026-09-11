@@ -5,8 +5,10 @@ import { learnerAssetUrl } from '../utils/assetUrl';
 /**
  * What of a material reaches a signed-in learner.
  *
- * Marking happens in the browser, so the answer key has to travel — that is the
- * one thing a sitting needs that an anonymous catalog must never see. Everything
+ * Practice marks in the browser, so this view carries the answer key — the one
+ * thing practice needs that an anonymous catalog must never see. A full exam's
+ * paper is built from this view with every key removed (`toExamPaper`), and the
+ * exam session marks on the server. Everything
  * else that is not needed to sit the test stays on the server: how the material
  * was imported or generated, the reviewer decisions, the untouched original of
  * an imported document, grading guidance, and the admin-only `needsReview` list.

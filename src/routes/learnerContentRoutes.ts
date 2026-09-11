@@ -39,9 +39,12 @@ learnerContentRouter.get('/learner/bundles', async (_req: AuthenticatedRequest, 
 });
 
 /**
- * One published bundle, resolved to exactly the materials it pinned.
+ * One published bundle, resolved to exactly the materials it pinned, for
+ * section practice — which marks in the browser, so the keys travel here. A full
+ * exam is never sat from this response: it goes through an exam session
+ * (`examSessionRoutes`), whose paper carries no key.
  *
- * Refused — with a code the exam screen turns into an explanation — when the
+ * Refused — with a code the screen turns into an explanation — when the
  * bundle does not exist, has been withdrawn or retired, or no longer passes the
  * bundle gate. Nothing is substituted for a component that fails.
  */

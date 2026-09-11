@@ -6,14 +6,12 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 import { expect } from './harness';
 import { removeTempRoot } from './tempDir';
-import type { MockAttempt } from '../src/types';
 import type { ExamSitting } from '../src/types/bundle';
 import {
   CUSTOM_TIMING,
   FULL_SLOTS,
   listeningAnswer,
   listeningPayload,
-  readingAnswer,
   readingPayload,
   speakingPayload,
   writingPayload,
@@ -23,7 +21,9 @@ import {
  * Full CDI bundles end to end, over the real routes and stores:
  *
  *   published materials → pinned bundle draft → gate → publish → learner list
- *   → exact resolution → exam plan → attempt stored against the exact sources
+ *   → exact resolution → exam plan
+ *
+ * (Sitting the exam and storing its attempt: tests/examSession.test.ts.)
  *
  * and the ways a published bundle goes bad afterwards — a component edited,
  * withdrawn, its audio lost, its material gone — each of which must reach the
@@ -47,7 +47,7 @@ const { authRouter } = await import('../src/routes/authRoutes');
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { assetStore } = await import('../src/services/assetStore');
 const { bundleStore } = await import('../src/services/bundleStore');
-const { buildExamPlan, createExamRun, examReducer, toExamAttempt } = await import('../src/services/examRun');
+const { buildExamPlan } = await import('../src/services/examRun');
 
 let server: Server;
 let origin = '';
@@ -283,7 +283,8 @@ describe('a learner opens exactly what was published', () => {
     for (const withheld of ['provenance', 'importRecord', 'generationRecord', 'sourceAssetId', 'audioTranscript', '"transcript"', 'needsReview', 'customGradingCriteria']) {
       expect(text.includes(withheld)).toBe(false);
     }
-    // What marking needs is there.
+    // This is the practice sitting, marked in the browser, so the key travels. A full
+    // exam is sat through an exam session whose paper never carries one (tests/examSession.test.ts).
     expect(text.includes(listeningAnswer(1, 1))).toBe(true);
   });
 
@@ -369,97 +370,6 @@ describe('a published bundle that goes bad is refused, never patched', () => {
     expect(opened.status).toBe(409);
     expect((await opened.json()).code).toBe('component_missing');
     await bundleStore.setStatus(stored.id, 'archived');
-  });
-});
-
-/* -------------------------------------------------------------------------- */
-
-describe('an exam attempt is stored against the exact exam it was sat from', () => {
-  let attempt: MockAttempt;
-  const T0 = Date.parse('2026-09-11T10:00:00.000Z');
-
-  before(async () => {
-    const fresh = (await (await learner(`/api/learner/bundles/${bundleId}`)).json()) as ExamSitting;
-    const plan = buildExamPlan(fresh);
-    const events = [
-      { type: 'start', now: T0 },
-      { type: 'answer', questionId: 'lis-p1-q1', value: listeningAnswer(1, 1) },
-      { type: 'answer', questionId: 'lis-p4-q2', value: listeningAnswer(4, 2) },
-      { type: 'submit_answers', now: T0 + 60_000 },
-      { type: 'finish_section', now: T0 + 60_000 },
-      { type: 'answer', questionId: 'rea-p3-q1', value: readingAnswer(3, 1) },
-      { type: 'submit_answers', now: T0 + 120_000 },
-      { type: 'finish_section', now: T0 + 120_000 },
-      { type: 'writing_graded', task: 1, band: 6.5, essay: 'The chart shows energy use rising.' },
-      { type: 'writing_graded', task: 2, band: 7, essay: 'Cities should restrict cars in their centres.' },
-      { type: 'finish_section', now: T0 + 180_000 },
-      { type: 'speaking_graded', part: 1, band: 7, transcript: 'I live near the river.' },
-      { type: 'speaking_graded', part: 2, band: 6.5, transcript: 'I visited Bukhara last spring.' },
-      { type: 'speaking_graded', part: 3, band: 7, transcript: 'People travel to understand others.' },
-      { type: 'finish_section', now: T0 + 240_000 },
-    ] as const;
-    const state = events.reduce(examReducer, createExamRun(plan, 'attempt-bundle-exam-1'));
-    attempt = toExamAttempt(state);
-  });
-
-  const post = (body: unknown) => learner('/api/data/attempts', { method: 'POST', body: JSON.stringify(body) });
-
-  it('stores every answer, essay and transcript against bundle, material version, section and question', async () => {
-    const response = await post(attempt);
-    expect(response.status).toBe(201);
-
-    const { attempts } = await (await learner('/api/data')).json();
-    const stored = attempts.find((entry: MockAttempt) => entry.id === 'attempt-bundle-exam-1') as MockAttempt;
-    expect(stored.bundleId).toBe(bundleId);
-    expect(stored.status).toBe('completed');
-    expect(stored.responses).toHaveLength(3);
-    for (const response of stored.responses ?? []) {
-      expect(response.materialId).toBe(ids[slotKey(response.section, response.part)]);
-      expect(/^[a-f0-9]{64}$/.test(response.contentHash)).toBe(true);
-    }
-    expect(stored.writingTasks?.map((task) => task.task)).toEqual([1, 2]);
-    expect(stored.speakingParts?.map((part) => part.part)).toEqual([1, 2, 3]);
-    expect(stored.sections?.listening?.components).toHaveLength(4);
-  });
-
-  it('refuses an attempt naming a component the bundle does not pin', async () => {
-    const forged = structuredClone(attempt);
-    forged.id = 'attempt-forged-component';
-    forged.responses![0].materialId = draftReadingId;
-    const response = await post(forged);
-    expect(response.status).toBe(400);
-    expect(String((await response.json()).issues)).toContain('does not pin');
-  });
-
-  it('refuses an attempt that drops a component or an identifier', async () => {
-    const dropped = structuredClone(attempt);
-    dropped.id = 'attempt-dropped-component';
-    dropped.sections!.reading!.components.pop();
-    expect((await post(dropped)).status).toBe(400);
-
-    const anonymousAnswer = structuredClone(attempt) as unknown as { id: string; responses: Array<Record<string, unknown>> };
-    anonymousAnswer.id = 'attempt-dropped-hash';
-    delete anonymousAnswer.responses[0].contentHash;
-    expect((await post(anonymousAnswer)).status).toBe(400);
-
-    const noBundle = structuredClone(attempt) as unknown as Record<string, unknown>;
-    noBundle.id = 'attempt-no-bundle';
-    delete noBundle.bundleId;
-    expect((await post(noBundle)).status).toBe(400);
-  });
-
-  it('refuses an overall band that leaves a section out', async () => {
-    const partial = structuredClone(attempt);
-    partial.id = 'attempt-partial-overall';
-    partial.sections!.writing = { ...partial.sections!.writing!, status: 'expired', band: undefined };
-    delete partial.scores.writing;
-    expect((await post(partial)).status).toBe(400);
-
-    partial.status = 'incomplete';
-    expect((await post(partial)).status).toBe(400);
-
-    delete partial.scores.overall;
-    expect((await post(partial)).status).toBe(201);
   });
 });
 

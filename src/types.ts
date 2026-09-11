@@ -296,14 +296,27 @@ export interface Question {
   provenance?: QuestionProvenance;
 }
 
-export interface ListeningPart {
+/**
+ * What a question looks like to the screen that renders it: everything but the
+ * answer key and its explanation. A practice question is a full `Question`; an
+ * exam question is a `SittingQuestion`, which never carried a key at all.
+ */
+export type QuestionBody = Omit<Question, 'correctAnswer' | 'acceptableAnswers' | 'explanation' | 'provenance'> & {
+  /** How many answers a multi-select takes, so "Choose TWO" can be printed without the key. */
+  answerCount?: number;
+};
+
+/** A question as an exam sitting delivers it: no key, no explanation, no provenance. */
+export type SittingQuestion = QuestionBody & { answerCount: number };
+
+export interface ListeningPart<Q extends QuestionBody = Question> {
   partNumber: 1 | 2 | 3 | 4;
   title: string;
   accent: 'British' | 'Australian' | 'North American' | 'Scottish/Irish';
   audioDescription: string;
   transcript: string;
   htmlContent?: string;
-  questions: Question[];
+  questions: Q[];
   /**
    * The recorded audio for this part, served through the learner asset route.
    * Absent means there is no recording; nothing reads the transcript aloud in its place during an exam.
@@ -311,13 +324,13 @@ export interface ListeningPart {
   audioUrl?: string;
 }
 
-export interface ReadingPassage {
+export interface ReadingPassage<Q extends QuestionBody = Question> {
   passageNumber: 1 | 2 | 3;
   title: string;
   subheading?: string;
   content: string; // paragraphs with [A], [B], [C] markers if matching headings
   htmlContent?: string;
-  questions: Question[];
+  questions: Q[];
 }
 
 export interface WritingTaskData {
@@ -346,8 +359,8 @@ export interface SpeakingPartData {
   };
 }
 
-export type ListeningData = { parts: ListeningPart[] };
-export type ReadingData = { passages: ReadingPassage[] };
+export type ListeningData<Q extends QuestionBody = Question> = { parts: ListeningPart<Q>[] };
+export type ReadingData<Q extends QuestionBody = Question> = { passages: ReadingPassage<Q>[] };
 export type SpeakingData = { parts: SpeakingPartData[] };
 
 export interface MockTest {
@@ -384,6 +397,15 @@ export interface MockAttempt {
   /** A full exam sat from a bundle: which bundle, and which publication of it. */
   bundleId?: string;
   bundlePublishedAt?: string;
+  /** The section minutes this exam was sat under, exactly as the bundle configured them. */
+  timing?: {
+    listeningMinutes: number;
+    readingMinutes: number;
+    writingMinutes: number;
+    speakingMinutes: number;
+    basis: 'custom' | 'ielts_reference';
+    allowEarlyFinish: boolean;
+  };
   /** `incomplete` when any section ran out of time before its content was done. */
   status?: 'completed' | 'incomplete';
   startedAt?: string;

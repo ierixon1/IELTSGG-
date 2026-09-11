@@ -1,4 +1,5 @@
 import { UserProfile, MockAttempt, PlanTask, ChecklistWeek, VocabCard } from '../../types';
+import type { ExamSessionRecord } from '../../types/examSession';
 import { GeneratedTestRecord } from './types';
 export interface DailyQuota { dateStr:string; generationsCount:number; uploadsCount:number; }
 export interface DataStore {
@@ -9,4 +10,12 @@ export interface DataStore {
  getUserVocab(userId:string):Promise<VocabCard[]>; saveUserVocab(userId:string,cards:VocabCard[]):Promise<void>;
  recordGeneratedTest(userId:string,test:GeneratedTestRecord):Promise<void>; getRecentGenerations(userId:string,limit?:number):Promise<GeneratedTestRecord[]>; getGeneratedTestById(userId:string,testId:string):Promise<GeneratedTestRecord|null>;
  getDailyQuota(userId:string):Promise<DailyQuota>; incrementGenerationCount(userId:string):Promise<DailyQuota>; reserveGeneration(userId:string,maxGenerations:number):Promise<DailyQuota|null>; incrementUploadCount(userId:string):Promise<DailyQuota>;
+ listExamSessions(userId:string):Promise<ExamSessionRecord[]>;
+ getExamSession(userId:string,id:string):Promise<ExamSessionRecord|null>;
+ /**
+  * Stores a session only if the stored revision is still `expectedRevision`
+  * (`null`: only if no session with that id exists yet). Answers false, and
+  * writes nothing, when another request got there first.
+  */
+ saveExamSession(userId:string,record:ExamSessionRecord,expectedRevision:number|null):Promise<boolean>;
 }

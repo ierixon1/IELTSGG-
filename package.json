@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "test:security": "tsx --test tests/security.test.ts",
     "smoke:book-to-test": "tsx scripts/smokeBookToTest.ts",
-    "test": "tsx --test \"tests/**/*.test.ts\""
+    "test": "tsx --test \"tests/**/*.test.ts\"",
+    "seed:exam-fixture": "tsx scripts/seedExamFixture.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
