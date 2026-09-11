@@ -2,6 +2,8 @@ import express, { Response } from 'express';
 import { adminStore } from '../services/adminStore';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { toPublicMaterialSummary } from '../services/publicMaterialView';
+import { listLearnerBundles, openSitting } from '../services/bundleService';
+import { toLearnerMaterial } from '../services/sittingView';
 import { assetStore } from '../services/assetStore';
 import { sendAsset } from './adminRoutes';
 
@@ -26,10 +28,10 @@ function unavailable(res: Response) {
   return res.status(404).json({ error: 'Published test not found.' });
 }
 
-/** Published bundles, as summaries. */
+/** Published bundles, as summaries, each saying whether it can be opened right now. */
 learnerContentRouter.get('/learner/bundles', async (_req: AuthenticatedRequest, res) => {
   try {
-    return res.json({ bundles: await adminStore.listBundles('published') });
+    return res.json({ bundles: await listLearnerBundles() });
   } catch (error) {
     console.error('[LearnerContent] bundle list error:', error);
     return res.status(500).json({ error: 'Unable to load published tests.' });
@@ -37,19 +39,20 @@ learnerContentRouter.get('/learner/bundles', async (_req: AuthenticatedRequest, 
 });
 
 /**
- * One published bundle with its materials resolved, answer keys included.
+ * One published bundle, resolved to exactly the materials it pinned.
  *
- * `getResolvedBundle` already nulls out a draft material inside a published
- * bundle, so a draft cannot leak through this route either.
+ * Refused — with a code the exam screen turns into an explanation — when the
+ * bundle does not exist, has been withdrawn or retired, or no longer passes the
+ * bundle gate. Nothing is substituted for a component that fails.
  */
 learnerContentRouter.get('/learner/bundles/:id', async (req: AuthenticatedRequest, res) => {
   try {
-    const resolved = await adminStore.getResolvedBundle(req.params.id);
-    if (!resolved || resolved.bundle.status !== 'published') return unavailable(res);
-    return res.json(resolved);
+    const outcome = await openSitting(req.params.id);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error, code: outcome.code });
+    return res.json(outcome.sitting);
   } catch (error) {
     console.error('[LearnerContent] bundle read error:', error);
-    return unavailable(res);
+    return res.status(500).json({ error: 'The exam could not be loaded.', code: 'invalid_bundle' });
   }
 });
 
@@ -71,7 +74,7 @@ learnerContentRouter.get('/learner/materials/:section/:id', async (req: Authenti
   try {
     const item = await adminStore.getMaterial(req.params.section, req.params.id);
     if (!item || item.status !== 'published') return unavailable(res);
-    return res.json({ item });
+    return res.json({ item: toLearnerMaterial(item, { keepTranscript: true }) });
   } catch (error) {
     console.error('[LearnerContent] material read error:', error);
     return unavailable(res);
@@ -102,13 +105,16 @@ learnerContentRouter.get('/assets/:id', async (req: AuthenticatedRequest, res) =
   }
 });
 
-/** Asset ids reachable from a *published* material, in any section. */
+/**
+ * Asset ids reachable from a *published* material, in any section — read from
+ * the learner view, so an imported document's untouched original is never among them.
+ */
 async function collectPublishedAssetIds(): Promise<Set<string>> {
   const { extractAssetIds } = await import('../services/assetStore');
   const { adminStore } = await import('../services/adminStore');
   const sections = ['speaking', 'reading', 'listening', 'writing'] as const;
   const lists = await Promise.all(sections.map((s) => adminStore.listMaterials(s, 'published')));
   const ids = new Set<string>();
-  for (const item of lists.flat()) for (const id of extractAssetIds(item)) ids.add(id);
+  for (const item of lists.flat()) for (const id of extractAssetIds(toLearnerMaterial(item, { keepTranscript: true }))) ids.add(id);
   return ids;
 }

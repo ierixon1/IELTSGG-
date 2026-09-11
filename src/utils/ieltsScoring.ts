@@ -160,3 +160,45 @@ export function checkQuestionAnswer(question: Question, value: AnswerValue | und
 
   return checkAnswer(given, question.correctAnswer);
 }
+
+/**
+ * Marks a Listening or Reading section: every question the section carries,
+ * scaled to the 40-question paper and converted with that section's table.
+ *
+ * The session screens and the exam engine both call this, so the band a
+ * learner is shown and the band an attempt records cannot drift apart.
+ */
+export function objectiveSectionScore(
+  section: 'listening' | 'reading',
+  questions: Question[],
+  answers: Record<string, AnswerValue | undefined>,
+): { correct: number; total: number; band: number } {
+  const total = questions.length;
+  const correct = questions.filter((question) => checkQuestionAnswer(question, answers[question.id])).length;
+  const scaled = total > 0 ? Math.round((correct / total) * 40) : 0;
+  return { correct, total, band: section === 'listening' ? listeningRawToBand(scaled) : readingRawToBand(scaled) };
+}
+
+/** An average reported the way a speaking or part score is: to the nearest half band. */
+export function halfBandAverage(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 2) / 2;
+}
+
+/**
+ * The Writing band for a full sitting: Task 2 counts twice as much as Task 1,
+ * as on the IELTS paper, rounded with the band rounding above.
+ *
+ * Null until both tasks carry a band. A Writing section is not complete after
+ * one task, and a band computed from one task must not stand in for both.
+ */
+export function writingSectionBand(task1: number | undefined, task2: number | undefined): number | null {
+  if (typeof task1 !== 'number' || typeof task2 !== 'number') return null;
+  return roundIeltsBand((task1 + 2 * task2) / 3);
+}
+
+/** The Speaking band for a full sitting: all three parts, averaged to a half band. Null while any part is ungraded. */
+export function speakingSectionBand(parts: Array<number | undefined>): number | null {
+  if (parts.length !== 3 || parts.some((band) => typeof band !== 'number')) return null;
+  return halfBandAverage(parts as number[]);
+}

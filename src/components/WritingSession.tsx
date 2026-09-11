@@ -31,6 +31,10 @@ interface WritingSessionProps {
   /** Feeds the vocabulary deck with what the examiner flagged. */
   onGraded?: (result: WritingGradingResult, essay: string) => void;
   onBackToMocks?: () => void;
+  /** Inside a full exam: the section clock belongs to the exam screen, so the per-task timer is not shown. */
+  examMode?: boolean;
+  /** A task was graded, with the essay that was graded, so the exam can record both tasks. */
+  onTaskGraded?: (taskNumber: 1 | 2, band: number, essay: string) => void;
 }
 
 /**
@@ -67,6 +71,8 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
   onRecordScore,
   onBackToMocks,
   onGraded,
+  examMode = false,
+  onTaskGraded,
 }) => {
   const t = useT();
   const availableTasks = ([1, 2] as const).filter((task) =>
@@ -75,7 +81,14 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
   const [selectedTask, setSelectedTask] = useState<1 | 2>(
     () => availableTasks[availableTasks.length - 1] ?? 2,
   );
-  const [essayText, setEssayText] = useState('');
+  // One draft per task: moving to Task 2 must not carry Task 1's essay into it.
+  const [essays, setEssays] = useState<Record<1 | 2, string>>({ 1: '', 2: '' });
+  const essayText = essays[selectedTask];
+  const setEssayText = (value: string | ((current: string) => string)) =>
+    setEssays((previous) => ({
+      ...previous,
+      [selectedTask]: typeof value === 'function' ? value(previous[selectedTask]) : value,
+    }));
   const [isGrading, setIsGrading] = useState(false);
   const [result, setResult] = useState<WritingGradingResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -131,6 +144,7 @@ export const WritingSession: React.FC<WritingSessionProps> = ({
       setResult(grading);
       setGradedEssay(essayText);
       onRecordScore?.(selectedTask, grading.band_overall);
+      onTaskGraded?.(selectedTask, grading.band_overall, essayText);
       onGraded?.(grading, essayText);
 
       if (grading.band_overall >= 7.0) {
@@ -356,18 +370,22 @@ ${activeTaskData.prompt}`,
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-1 font-mono text-xs font-bold tabular text-ink-700">
-                  <Clock className="h-3.5 w-3.5 text-ink-500" />
-                  {formatClock(secondsRemaining)}
-                </span>
-                <Button
-                  id="btn-toggle-writing-timer"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setIsTimerRunning((running) => !running)}
-                >
-                  {isTimerRunning ? t('writing.pauseTimer') : t('writing.startTimer')}
-                </Button>
+                {!examMode && (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-1 font-mono text-xs font-bold tabular text-ink-700">
+                      <Clock className="h-3.5 w-3.5 text-ink-500" />
+                      {formatClock(secondsRemaining)}
+                    </span>
+                    <Button
+                      id="btn-toggle-writing-timer"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsTimerRunning((running) => !running)}
+                    >
+                      {isTimerRunning ? t('writing.pauseTimer') : t('writing.startTimer')}
+                    </Button>
+                  </>
+                )}
 
                 <label
                   id="label-import-essay-photo"

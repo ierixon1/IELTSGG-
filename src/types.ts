@@ -304,6 +304,11 @@ export interface ListeningPart {
   transcript: string;
   htmlContent?: string;
   questions: Question[];
+  /**
+   * The recorded audio for this part, served through the learner asset route.
+   * Absent means there is no recording; nothing reads the transcript aloud in its place during an exam.
+   */
+  audioUrl?: string;
 }
 
 export interface ReadingPassage {
@@ -376,6 +381,58 @@ export interface MockAttempt {
   };
   durationMinutes?: number;
   notes?: string;
+  /** A full exam sat from a bundle: which bundle, and which publication of it. */
+  bundleId?: string;
+  bundlePublishedAt?: string;
+  /** `incomplete` when any section ran out of time before its content was done. */
+  status?: 'completed' | 'incomplete';
+  startedAt?: string;
+  completedAt?: string;
+  sections?: Partial<Record<'listening' | 'reading' | 'writing' | 'speaking', AttemptSectionRecord>>;
+  /** Every Listening and Reading answer, against the exact material version it answered. */
+  responses?: AttemptResponse[];
+  writingTasks?: AttemptWritingTask[];
+  speakingParts?: AttemptSpeakingPart[];
+}
+
+export interface AttemptComponentRef {
+  materialId: string;
+  contentHash: string;
+  part: number;
+}
+
+export interface AttemptSectionRecord {
+  status: 'pending' | 'in_progress' | 'completed' | 'expired';
+  startedAt?: string;
+  endedAt?: string;
+  endedBy?: 'learner' | 'time';
+  band?: number;
+  rawScore?: number;
+  total?: number;
+  components: AttemptComponentRef[];
+}
+
+export interface AttemptResponse extends AttemptComponentRef {
+  section: 'listening' | 'reading';
+  questionId: string;
+  answer: AnswerValue;
+}
+
+export interface AttemptWritingTask {
+  materialId: string;
+  contentHash: string;
+  task: 1 | 2;
+  band?: number;
+  essay: string;
+  wordCount: number;
+}
+
+export interface AttemptSpeakingPart {
+  materialId: string;
+  contentHash: string;
+  part: 1 | 2 | 3;
+  band?: number;
+  transcript: string;
 }
 
 export interface ChecklistWeek {

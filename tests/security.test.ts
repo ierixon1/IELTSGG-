@@ -93,9 +93,11 @@ describe('security regressions', () => {
     expect(auth).not.toContain("process.env.NODE_ENV!=='production'&&isEmailDeliveryConfigured()");
   });
   it('does not allow draft materials to escape through a published bundle', async () => {
-    const store = await read('src/services/adminStore.ts');
-    expect(store).toContain("if(bundle.status==='published')");
-    expect(store).toContain("material.status!=='published'");
+    const gate = await read('src/services/bundleGate.ts');
+    const service = await read('src/services/bundleService.ts');
+    expect(gate).toContain("code: 'component_unpublished'");
+    expect(gate).toContain("code: 'component_archived'");
+    expect(service).toContain('return refuse(learnerProblem(blockers));');
   });
   it('fails closed for explicit dev impersonation in production', async () => {
     const middleware = await read('src/middleware/authMiddleware.ts');
@@ -117,7 +119,8 @@ describe('security regressions', () => {
     // merged record, not by a hand-rolled check of four scalar fields.
     expect(store).toContain('parseMaterialForWrite(section,candidate)');
     expect(store).toContain('MaterialValidationError');
-    expect(store).toContain('validateBundle(bundleData)');
+    const bundles = await read('src/routes/bundleRoutes.ts');
+    expect(bundles).toContain('BundleDraftInputSchema.safeParse(req.body)');
     expect(store).toContain('maxBytes=2_000_000');
   });
   it('uses Firestore for production admin CMS state and Cloud Storage for production files', async () => {

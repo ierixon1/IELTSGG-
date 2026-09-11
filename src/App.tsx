@@ -9,13 +9,14 @@ import {
 import { MOCK_TEST_1 } from './data/mockBank';
 import { MockTest } from './types';
 import {
-  PublishedTestSummary,
   SittableTest,
   builtInSittableTest,
-  fetchAdaptedTest,
+  fetchExamSitting,
+  fetchLearnerBundles,
   fetchLearnerMaterial,
-  fetchPublishedTests,
+  sittingToAdaptedTest,
 } from './services/publishedTests';
+import type { LearnerBundleSummary } from './types/bundle';
 import { VocabCard, WritingGradingResult } from './types';
 import { fetchInitialData, syncDataToServer, fetchVocabCards, saveVocabCards } from './services/api';
 import { generateInitialPlan, recalculatePlan, RecalculationResult } from './utils/planEngine';
@@ -79,7 +80,7 @@ export default function App() {
    * The built-in test plus anything published from the CMS. Selecting one
    * swaps the material every session screen works from.
    */
-  const [publishedTests, setPublishedTests] = useState<PublishedTestSummary[]>([]);
+  const [publishedTests, setPublishedTests] = useState<LearnerBundleSummary[]>([]);
   const [activeTest, setActiveTest] = useState<SittableTest>(() => builtInSittableTest());
   const [activeTestId, setActiveTestId] = useState<string>(MOCK_TEST_1.id);
   /**
@@ -174,7 +175,9 @@ export default function App() {
       }
       if (!data.profile.isOnboarded) setIsOnboardingOpen(true);
       setVocabCards(await fetchVocabCards());
-      setPublishedTests(await fetchPublishedTests());
+      const bundles = await fetchLearnerBundles();
+      if (bundles.ok) setPublishedTests(bundles.bundles);
+      else setActiveTestError(bundles.message);
     }
     init();
   }, [authUser]);
@@ -223,15 +226,14 @@ export default function App() {
       return;
     }
 
-    const adapted = await fetchAdaptedTest(id);
-    if (!adapted) {
+    const load = await fetchExamSitting(id);
+    if (!load.ok) {
       // Not a fallback: the previously loaded test stays visible under its own
-      // name, and the learner is told this one did not open.
-      setActiveTestError(
-        `That test could not be opened (${id}). It may have been unpublished or removed.`,
-      );
+      // name, and the learner is told why this one did not open.
+      setActiveTestError(`That test could not be opened (${id}, ${load.code}): ${load.message}`);
       return;
     }
+    const adapted = sittingToAdaptedTest(load.sitting);
     setActiveTest(adapted.test);
     setActiveTestId(id);
     setActiveTestGaps(adapted.missingSections);
@@ -345,7 +347,6 @@ export default function App() {
       date: new Date().toISOString().split('T')[0],
       isFullMock: false,
       scores: { overall: band, [skill]: { band, rawScore: raw } },
-      durationMinutes: skill === 'reading' || skill === 'writing' ? 60 : 30,
     };
     const nextAttempts = [...attempts, newAttempt];
     setAttempts(nextAttempts);
@@ -406,7 +407,7 @@ export default function App() {
       >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
         {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} missingSections={activeTestGaps} onOpenMaterial={handleOpenMaterial} loadError={activeTestError} />}
-        {activeTab === 'exam' && <ExamMode mockTest={activeTest} onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
+        {activeTab === 'exam' && <ExamMode onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}
         {activeTab === 'vocab' && <VocabTrainer cards={vocabCards} onUpdateCards={persistVocab} />}
         {activeTab === 'stats' && <StatisticsView profile={profile} attempts={attempts} tasks={tasks} checklist={checklist} onOpenExamMode={() => setActiveTab('exam')} />}

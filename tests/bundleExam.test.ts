@@ -1,0 +1,490 @@
+import './env';
+import { after, before, describe, it } from 'node:test';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { Server } from 'node:http';
+import { expect } from './harness';
+import { removeTempRoot } from './tempDir';
+import type { MockAttempt } from '../src/types';
+import type { ExamSitting } from '../src/types/bundle';
+import {
+  CUSTOM_TIMING,
+  FULL_SLOTS,
+  listeningAnswer,
+  listeningPayload,
+  readingAnswer,
+  readingPayload,
+  speakingPayload,
+  writingPayload,
+} from './bundleFixtures';
+
+/**
+ * Full CDI bundles end to end, over the real routes and stores:
+ *
+ *   published materials → pinned bundle draft → gate → publish → learner list
+ *   → exact resolution → exam plan → attempt stored against the exact sources
+ *
+ * and the ways a published bundle goes bad afterwards — a component edited,
+ * withdrawn, its audio lost, its material gone — each of which must reach the
+ * learner as a configuration error, never as substituted content.
+ */
+const originalCwd = process.cwd();
+const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'everstudy-bundle-exam-'));
+process.chdir(tempRoot);
+
+const ADMIN_USER = 'bundle_admin';
+const ADMIN_PASSWORD = 'Str0ng-Passw0rd-For-Bundles';
+process.env.SEED_DEFAULT_ACCOUNTS = 'true';
+process.env.ADMIN_USER = ADMIN_USER;
+process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
+
+const express = (await import('express')).default;
+const { adminRouter } = await import('../src/routes/adminRoutes');
+const { learnerContentRouter } = await import('../src/routes/learnerContentRoutes');
+const { userDataRouter } = await import('../src/routes/userDataRoutes');
+const { authRouter } = await import('../src/routes/authRoutes');
+const { authenticateRequest } = await import('../src/middleware/authMiddleware');
+const { assetStore } = await import('../src/services/assetStore');
+const { bundleStore } = await import('../src/services/bundleStore');
+const { buildExamPlan, createExamRun, examReducer, toExamAttempt } = await import('../src/services/examRun');
+
+let server: Server;
+let origin = '';
+let adminCookie = '';
+let learnerCookie = '';
+
+const call = (cookie: string) => (url: string, init: RequestInit = {}) =>
+  fetch(`${origin}${url}`, { ...init, headers: { 'Content-Type': 'application/json', cookie, ...(init.headers || {}) } });
+const admin = (url: string, init: RequestInit = {}) => call(adminCookie)(url, init);
+const learner = (url: string, init: RequestInit = {}) => call(learnerCookie)(url, init);
+const anonymous = (url: string) => fetch(`${origin}${url}`);
+
+const ids: Record<string, string> = {};
+const audio: Record<number, string> = {};
+let sourceDocumentId = '';
+let draftReadingId = '';
+let bundleId = '';
+
+const slotKey = (section: string, part: number) => `${section}-${part}`;
+
+async function createPublished(payload: object): Promise<string> {
+  const saved = await admin('/api/admin/materials', { method: 'POST', body: JSON.stringify(payload) });
+  const body = await saved.json();
+  if (saved.status !== 200) throw new Error(`fixture did not save: ${JSON.stringify(body)}`);
+  const published = await admin(`/api/admin/materials/${body.item.section}/${body.item.id}/publish`, { method: 'POST' });
+  if (published.status !== 200) throw new Error(`fixture did not publish: ${JSON.stringify(await published.json())}`);
+  return body.item.id as string;
+}
+
+async function currentPins(overrides: Record<string, string> = {}) {
+  const { candidates } = await (await admin('/api/admin/bundles/candidates')).json();
+  const hashes = new Map((candidates as Array<{ id: string; contentHash: string }>).map((entry) => [entry.id, entry.contentHash]));
+  return FULL_SLOTS.map(({ section, part }) => {
+    const materialId = overrides[slotKey(section, part)] ?? ids[slotKey(section, part)];
+    return { section, part, materialId, contentHash: hashes.get(materialId) ?? 'f'.repeat(64) };
+  });
+}
+
+const draftBody = (components: unknown[], over: Record<string, unknown> = {}) =>
+  JSON.stringify({ title: 'Integrity CDI', module: 'academic', description: 'A full test.', components, timing: CUSTOM_TIMING, ...over });
+
+before(async () => {
+  const app = express();
+  app.use(express.json({ limit: '5mb' }));
+  app.use('/api/auth', authRouter);
+  app.use('/api/admin', adminRouter);
+  app.use('/api', authenticateRequest);
+  app.use('/api', userDataRouter);
+  app.use('/api', learnerContentRouter);
+  await new Promise<void>((resolve) => {
+    server = app.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = server.address();
+  origin = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+
+  const login = await fetch(`${origin}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: ADMIN_USER, password: ADMIN_PASSWORD }),
+  });
+  adminCookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
+  const registered = await fetch(`${origin}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'bundle_learner', email: 'bundle-learner@example.com', password: 'Str0ng-Passw0rd-For-Learner', name: 'Bundle Learner' }),
+  });
+  learnerCookie = (registered.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
+
+  for (const part of [1, 2, 3, 4]) {
+    const asset = await assetStore.create({
+      originalName: `part-${part}.mp3`,
+      content: Buffer.from(`ID3 recording of part ${part}`),
+      mimeType: 'audio/mpeg',
+      kind: 'audio',
+      createdBy: 'test',
+      sourceType: 'upload',
+    });
+    audio[part] = asset.id;
+    ids[slotKey('listening', part)] = await createPublished(listeningPayload(part, asset.id));
+  }
+  for (const part of [1, 2, 3]) ids[slotKey('reading', part)] = await createPublished(readingPayload(part));
+  ids[slotKey('writing', 1)] = await createPublished(writingPayload());
+  ids[slotKey('speaking', 1)] = await createPublished(speakingPayload());
+
+  // An imported material whose untouched original is stored as an asset.
+  const original = await assetStore.create({
+    originalName: 'original.html',
+    content: Buffer.from('<html><body>The original imported document.</body></html>'),
+    mimeType: 'text/html',
+    kind: 'html',
+    createdBy: 'test',
+    sourceType: 'upload',
+  });
+  sourceDocumentId = original.id;
+  const imported = readingPayload(1);
+  await createPublished({ ...imported, title: 'Imported Reading', content: { ...imported.content, sourceAssetId: original.id } });
+
+  const draft = await admin('/api/admin/materials', { method: 'POST', body: JSON.stringify({ ...readingPayload(2), title: 'Draft Reading' }) });
+  draftReadingId = (await draft.json()).item.id;
+});
+
+after(async () => {
+  await new Promise<void>((resolve) => server?.close(() => resolve()));
+  process.chdir(originalCwd);
+  removeTempRoot(tempRoot);
+});
+
+const codes = (blockers: Array<{ code: string }>) => blockers.map((blocker) => blocker.code);
+
+/* -------------------------------------------------------------------------- */
+
+describe('a bundle is assembled from published materials and published through the gate', () => {
+  it('offers only published materials for pinning, each with the fingerprint a pin takes', async () => {
+    const response = await admin('/api/admin/bundles/candidates');
+    expect(response.status).toBe(200);
+    const { candidates } = await response.json();
+    const offered = candidates.map((entry: { id: string }) => entry.id);
+    for (const id of Object.values(ids)) expect(offered).toContain(id);
+    expect(offered.includes(draftReadingId)).toBe(false);
+    for (const entry of candidates) expect(/^[a-f0-9]{64}$/.test(entry.contentHash)).toBe(true);
+    const listening1 = candidates.find((entry: { id: string }) => entry.id === ids['listening-1']);
+    expect(listening1.audio).toEqual({ assetId: audio[1], exists: true, kind: 'audio' });
+    expect(listening1.questionCount).toBe(2);
+  });
+
+  it('saves a draft, and a status in the request does not publish it', async () => {
+    const response = await admin('/api/admin/bundles', { method: 'POST', body: draftBody(await currentPins(), { status: 'published' }) });
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    bundleId = body.bundle.id;
+    expect(body.bundle.status).toBe('draft');
+    expect(body.bundle.publishedAt).toBe(undefined);
+    expect(body.components.every((entry: { pinnedIsCurrent: boolean }) => entry.pinnedIsCurrent)).toBe(true);
+  });
+
+  it('keeps a draft away from learners', async () => {
+    const list = await (await learner('/api/learner/bundles')).json();
+    expect(list.bundles.some((bundle: { id: string }) => bundle.id === bundleId)).toBe(false);
+    const opened = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(opened.status).toBe(409);
+    expect((await opened.json()).code).toBe('bundle_unpublished');
+  });
+
+  it('refuses to publish an incomplete bundle, and says why', async () => {
+    const pins = (await currentPins()).filter((pin) => pin.section === 'reading');
+    const created = await (await admin('/api/admin/bundles', { method: 'POST', body: draftBody(pins, { title: 'Reading Only' }) })).json();
+    const published = await admin(`/api/admin/bundles/${created.bundle.id}/publish`, { method: 'POST' });
+    expect(published.status).toBe(409);
+    const blockerCodes = codes((await published.json()).blockers);
+    expect(blockerCodes).toContain('listening_missing');
+    expect(blockerCodes).toContain('writing_missing');
+    expect(blockerCodes).toContain('speaking_missing');
+    expect((await (await admin(`/api/admin/bundles/${created.bundle.id}`)).json()).bundle.status).toBe('draft');
+
+    // Never published, so it can be deleted outright.
+    expect((await admin(`/api/admin/bundles/${created.bundle.id}`, { method: 'DELETE' })).status).toBe(200);
+    expect((await admin(`/api/admin/bundles/${created.bundle.id}`)).status).toBe(404);
+  });
+
+  it('publishes a complete bundle once its check passes', async () => {
+    const check = await (await admin(`/api/admin/bundles/${bundleId}/check`)).json();
+    expect(check.blockers).toEqual([]);
+    expect(check.publishable).toBe(true);
+
+    const published = await admin(`/api/admin/bundles/${bundleId}/publish`, { method: 'POST' });
+    expect(published.status).toBe(200);
+    const body = await published.json();
+    expect(body.bundle.status).toBe('published');
+    expect(typeof body.bundle.publishedAt).toBe('string');
+  });
+
+  it('does not let a published bundle be edited or deleted', async () => {
+    const edited = await admin(`/api/admin/bundles/${bundleId}`, { method: 'PUT', body: draftBody(await currentPins(), { title: 'Renamed' }) });
+    expect(edited.status).toBe(409);
+    expect((await edited.json()).code).toBe('bundle_not_draft');
+    const deleted = await admin(`/api/admin/bundles/${bundleId}`, { method: 'DELETE' });
+    expect(deleted.status).toBe(409);
+    expect((await deleted.json()).code).toBe('bundle_published');
+  });
+
+  it('withdraws, retires and restores it, and never deletes it once published', async () => {
+    expect((await (await admin(`/api/admin/bundles/${bundleId}/unpublish`, { method: 'POST' })).json()).bundle.status).toBe('draft');
+    expect((await (await learner(`/api/learner/bundles/${bundleId}`)).json()).code).toBe('bundle_unpublished');
+
+    expect((await (await admin(`/api/admin/bundles/${bundleId}/archive`, { method: 'POST' })).json()).bundle.status).toBe('archived');
+    const retired = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(retired.status).toBe(410);
+    expect((await retired.json()).code).toBe('bundle_archived');
+
+    const deleted = await admin(`/api/admin/bundles/${bundleId}`, { method: 'DELETE' });
+    expect(deleted.status).toBe(409);
+    expect((await deleted.json()).code).toBe('bundle_was_published');
+
+    expect((await admin(`/api/admin/bundles/${bundleId}/publish`, { method: 'POST' })).status).toBe(409);
+    expect((await (await admin(`/api/admin/bundles/${bundleId}/restore`, { method: 'POST' })).json()).bundle.status).toBe('draft');
+    expect((await admin(`/api/admin/bundles/${bundleId}/publish`, { method: 'POST' })).status).toBe(200);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+let sitting: ExamSitting;
+
+describe('a learner opens exactly what was published', () => {
+  it('lists only published bundles, each saying whether it can be opened', async () => {
+    const { bundles } = await (await learner('/api/learner/bundles')).json();
+    expect(bundles.map((bundle: { id: string }) => bundle.id)).toEqual([bundleId]);
+    expect(bundles[0].available).toBe(true);
+    expect(bundles[0].parts).toEqual({ listening: 4, reading: 3, writing: 1, speaking: 1 });
+    expect(bundles[0].totalMinutes).toBe(7 + 11 + 13 + 5);
+  });
+
+  it('resolves the bundle to the exact components it pinned, in exam order', async () => {
+    const response = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    sitting = JSON.parse(text);
+
+    expect(sitting.components.map((entry) => [entry.section, entry.part, entry.materialId])).toEqual(
+      FULL_SLOTS.map(({ section, part }) => [section, part, ids[slotKey(section, part)]]),
+    );
+    const pinned = (await (await admin(`/api/admin/bundles/${bundleId}`)).json()).bundle.components;
+    for (const entry of sitting.components) {
+      const pin = pinned.find((ref: { materialId: string }) => ref.materialId === entry.materialId);
+      expect(entry.contentHash).toBe(pin.contentHash);
+      expect(entry.material.id).toBe(entry.materialId);
+    }
+    expect(sitting.bundle.timing).toEqual(CUSTOM_TIMING);
+
+    const listening1 = sitting.components[0].material;
+    expect(listening1.section === 'listening' && listening1.content.audioUrl).toBe(`/api/assets/${audio[1]}`);
+    // What a sitting must not carry.
+    for (const withheld of ['provenance', 'importRecord', 'generationRecord', 'sourceAssetId', 'audioTranscript', '"transcript"', 'needsReview', 'customGradingCriteria']) {
+      expect(text.includes(withheld)).toBe(false);
+    }
+    // What marking needs is there.
+    expect(text.includes(listeningAnswer(1, 1))).toBe(true);
+  });
+
+  it('plans a full exam from it, with the configured minutes', () => {
+    const plan = buildExamPlan(sitting);
+    expect(plan.sections.map((section) => [section.section, section.durationSeconds])).toEqual([
+      ['listening', 7 * 60],
+      ['reading', 11 * 60],
+      ['writing', 13 * 60],
+      ['speaking', 5 * 60],
+    ]);
+    expect(plan.sections[0].questions).toHaveLength(8);
+    expect(plan.sections[1].questions).toHaveLength(6);
+  });
+
+  it('answers a bundle that does not exist with a reason', async () => {
+    const response = await learner('/api/learner/bundles/cdi-bundle-missing');
+    expect(response.status).toBe(404);
+    expect((await response.json()).code).toBe('bundle_not_found');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe('a published bundle that goes bad is refused, never patched', () => {
+  it('refuses it once a component changes, until the new version is pinned on purpose', async () => {
+    const edited = readingPayload(2);
+    edited.content.passage.questions[0].prompt = 'An edited first question';
+    expect((await admin(`/api/admin/materials/reading/${ids['reading-2']}`, { method: 'PUT', body: JSON.stringify(edited) })).status).toBe(200);
+
+    const opened = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(opened.status).toBe(409);
+    const body = await opened.json();
+    expect(body.code).toBe('component_changed');
+    expect(body.components).toBe(undefined);
+    const listed = (await (await learner('/api/learner/bundles')).json()).bundles[0];
+    expect(listed.available).toBe(false);
+    expect(listed.problem).toBe('component_changed');
+    expect(codes((await (await admin(`/api/admin/bundles/${bundleId}/check`)).json()).blockers)).toContain('component_changed');
+
+    await admin(`/api/admin/bundles/${bundleId}/unpublish`, { method: 'POST' });
+    expect((await admin(`/api/admin/bundles/${bundleId}`, { method: 'PUT', body: draftBody(await currentPins()) })).status).toBe(200);
+    expect((await admin(`/api/admin/bundles/${bundleId}/publish`, { method: 'POST' })).status).toBe(200);
+
+    const reopened = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(reopened.status).toBe(200);
+    const passage2 = ((await reopened.json()) as ExamSitting).components.find((entry) => entry.section === 'reading' && entry.part === 2)!.material;
+    expect(passage2.section === 'reading' && passage2.content.passage.questions[0].prompt).toBe('An edited first question');
+  });
+
+  it('refuses it while a component is withdrawn', async () => {
+    await admin(`/api/admin/materials/writing/${ids['writing-1']}/unpublish`, { method: 'POST' });
+    const opened = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(opened.status).toBe(409);
+    expect((await opened.json()).code).toBe('component_unpublished');
+
+    await admin(`/api/admin/materials/writing/${ids['writing-1']}/publish`, { method: 'POST' });
+    expect((await learner(`/api/learner/bundles/${bundleId}`)).status).toBe(200);
+  });
+
+  it('refuses it when its Listening audio is gone, instead of reading the script aloud', async () => {
+    const file = path.join(tempRoot, 'data', 'admin_content', 'assets.json');
+    const before = readFileSync(file, 'utf8');
+    writeFileSync(file, JSON.stringify((JSON.parse(before) as Array<{ id: string }>).filter((asset) => asset.id !== audio[3]), null, 2));
+    try {
+      const opened = await learner(`/api/learner/bundles/${bundleId}`);
+      expect(opened.status).toBe(409);
+      expect((await opened.json()).code).toBe('asset_unavailable');
+    } finally {
+      writeFileSync(file, before);
+    }
+    expect((await learner(`/api/learner/bundles/${bundleId}`)).status).toBe(200);
+  });
+
+  it('refuses a published bundle that names a material which does not exist', async () => {
+    const pins = await currentPins();
+    const broken = pins.map((pin) => (pin.section === 'speaking' ? { ...pin, materialId: 'adm-spe-gone' } : pin));
+    const stored = await bundleStore.create({ title: 'Broken CDI', module: 'academic', components: broken, timing: CUSTOM_TIMING });
+    // Published at the store, past the gate: a bundle can go bad after publication.
+    await bundleStore.setStatus(stored.id, 'published');
+
+    const opened = await learner(`/api/learner/bundles/${stored.id}`);
+    expect(opened.status).toBe(409);
+    expect((await opened.json()).code).toBe('component_missing');
+    await bundleStore.setStatus(stored.id, 'archived');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe('an exam attempt is stored against the exact exam it was sat from', () => {
+  let attempt: MockAttempt;
+  const T0 = Date.parse('2026-09-11T10:00:00.000Z');
+
+  before(async () => {
+    const fresh = (await (await learner(`/api/learner/bundles/${bundleId}`)).json()) as ExamSitting;
+    const plan = buildExamPlan(fresh);
+    const events = [
+      { type: 'start', now: T0 },
+      { type: 'answer', questionId: 'lis-p1-q1', value: listeningAnswer(1, 1) },
+      { type: 'answer', questionId: 'lis-p4-q2', value: listeningAnswer(4, 2) },
+      { type: 'submit_answers', now: T0 + 60_000 },
+      { type: 'finish_section', now: T0 + 60_000 },
+      { type: 'answer', questionId: 'rea-p3-q1', value: readingAnswer(3, 1) },
+      { type: 'submit_answers', now: T0 + 120_000 },
+      { type: 'finish_section', now: T0 + 120_000 },
+      { type: 'writing_graded', task: 1, band: 6.5, essay: 'The chart shows energy use rising.' },
+      { type: 'writing_graded', task: 2, band: 7, essay: 'Cities should restrict cars in their centres.' },
+      { type: 'finish_section', now: T0 + 180_000 },
+      { type: 'speaking_graded', part: 1, band: 7, transcript: 'I live near the river.' },
+      { type: 'speaking_graded', part: 2, band: 6.5, transcript: 'I visited Bukhara last spring.' },
+      { type: 'speaking_graded', part: 3, band: 7, transcript: 'People travel to understand others.' },
+      { type: 'finish_section', now: T0 + 240_000 },
+    ] as const;
+    const state = events.reduce(examReducer, createExamRun(plan, 'attempt-bundle-exam-1'));
+    attempt = toExamAttempt(state);
+  });
+
+  const post = (body: unknown) => learner('/api/data/attempts', { method: 'POST', body: JSON.stringify(body) });
+
+  it('stores every answer, essay and transcript against bundle, material version, section and question', async () => {
+    const response = await post(attempt);
+    expect(response.status).toBe(201);
+
+    const { attempts } = await (await learner('/api/data')).json();
+    const stored = attempts.find((entry: MockAttempt) => entry.id === 'attempt-bundle-exam-1') as MockAttempt;
+    expect(stored.bundleId).toBe(bundleId);
+    expect(stored.status).toBe('completed');
+    expect(stored.responses).toHaveLength(3);
+    for (const response of stored.responses ?? []) {
+      expect(response.materialId).toBe(ids[slotKey(response.section, response.part)]);
+      expect(/^[a-f0-9]{64}$/.test(response.contentHash)).toBe(true);
+    }
+    expect(stored.writingTasks?.map((task) => task.task)).toEqual([1, 2]);
+    expect(stored.speakingParts?.map((part) => part.part)).toEqual([1, 2, 3]);
+    expect(stored.sections?.listening?.components).toHaveLength(4);
+  });
+
+  it('refuses an attempt naming a component the bundle does not pin', async () => {
+    const forged = structuredClone(attempt);
+    forged.id = 'attempt-forged-component';
+    forged.responses![0].materialId = draftReadingId;
+    const response = await post(forged);
+    expect(response.status).toBe(400);
+    expect(String((await response.json()).issues)).toContain('does not pin');
+  });
+
+  it('refuses an attempt that drops a component or an identifier', async () => {
+    const dropped = structuredClone(attempt);
+    dropped.id = 'attempt-dropped-component';
+    dropped.sections!.reading!.components.pop();
+    expect((await post(dropped)).status).toBe(400);
+
+    const anonymousAnswer = structuredClone(attempt) as unknown as { id: string; responses: Array<Record<string, unknown>> };
+    anonymousAnswer.id = 'attempt-dropped-hash';
+    delete anonymousAnswer.responses[0].contentHash;
+    expect((await post(anonymousAnswer)).status).toBe(400);
+
+    const noBundle = structuredClone(attempt) as unknown as Record<string, unknown>;
+    noBundle.id = 'attempt-no-bundle';
+    delete noBundle.bundleId;
+    expect((await post(noBundle)).status).toBe(400);
+  });
+
+  it('refuses an overall band that leaves a section out', async () => {
+    const partial = structuredClone(attempt);
+    partial.id = 'attempt-partial-overall';
+    partial.sections!.writing = { ...partial.sections!.writing!, status: 'expired', band: undefined };
+    delete partial.scores.writing;
+    expect((await post(partial)).status).toBe(400);
+
+    partial.status = 'incomplete';
+    expect((await post(partial)).status).toBe(400);
+
+    delete partial.scores.overall;
+    expect((await post(partial)).status).toBe(201);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe('what anonymous callers and learners can reach', () => {
+  it('gives anonymous callers bundle summaries only', async () => {
+    for (const url of ['/api/admin/public/bundles', `/api/admin/public/bundles/${bundleId}`]) {
+      const response = await anonymous(url);
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      for (const withheld of ['correctAnswer', 'explanation', 'provenance', 'sourceAssetId', 'transcript', 'materialId', 'contentHash', audio[1]]) {
+        expect(text.includes(withheld)).toBe(false);
+      }
+    }
+  });
+
+  it('refuses anonymous access to sittings and files', async () => {
+    expect((await anonymous('/api/learner/bundles')).status).toBe(401);
+    expect((await anonymous(`/api/learner/bundles/${bundleId}`)).status).toBe(401);
+    expect((await anonymous(`/api/assets/${audio[1]}`)).status).toBe(401);
+  });
+
+  it('lets a learner play exam audio but never download an original source document', async () => {
+    expect((await learner(`/api/assets/${audio[1]}`)).status).toBe(200);
+    expect((await learner(`/api/assets/${sourceDocumentId}`)).status).toBe(404);
+  });
+});

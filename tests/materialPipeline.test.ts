@@ -13,7 +13,7 @@ import { removeTempRoot } from './tempDir';
  *
  *   editor payload -> POST /api/admin/materials -> saveMaterial
  *   -> GET /api/admin/materials (the list the repository renders)
- *   -> saveBundle -> getResolvedBundle -> bundleToAdaptedTest
+ *   -> pinned into a bundle draft -> learner view -> sittingToAdaptedTest
  *   -> the question a learner sees
  *
  * Asserting on source text could not have caught any of it: the list read the
@@ -38,7 +38,26 @@ process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
 const express = (await import('express')).default;
 const { adminStore } = await import('../src/services/adminStore');
 const { adminRouter } = await import('../src/routes/adminRoutes');
-const { bundleToAdaptedTest } = await import('../src/services/publishedTests');
+const { sittingToAdaptedTest } = await import('../src/services/publishedTests');
+const { toLearnerMaterial } = await import('../src/services/sittingView');
+const { materialContentHash } = await import('../src/services/materialVersion');
+
+const TIMING = { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 14, basis: 'custom' as const, allowEarlyFinish: true };
+
+/** One pinned component, adapted exactly as a learner sitting resolves it. */
+const sittingOf = (title: string, material: import('../src/types/admin').AdminMaterial, part: number) =>
+  sittingToAdaptedTest({
+    bundle: { id: 'cdi-pipeline', title, module: 'academic', publishedAt: '2026-01-01T00:00:00.000Z', timing: TIMING },
+    components: [
+      {
+        section: material.section,
+        part,
+        materialId: material.id,
+        contentHash: materialContentHash(material),
+        material: toLearnerMaterial(material, { keepTranscript: false }),
+      },
+    ],
+  });
 const { publishMaterial } = await import('./publishMaterial');
 
 /** Exactly what AdminReadingEditor.handleSave now emits. */
@@ -175,35 +194,42 @@ describe('material round trip', () => {
     expect((await (await api('/api/admin/materials?status=draft')).json()).items).toHaveLength(0);
   });
 
-  it('can be selected into a Full CDI bundle', async () => {
+  it('can be pinned into a Full CDI bundle draft', async () => {
+    const candidates = (await (await api('/api/admin/bundles/candidates')).json()).candidates as Array<{ id: string; contentHash: string }>;
+    const candidate = candidates.find((entry) => entry.id === materialId);
+    expect(Boolean(candidate)).toBe(true);
+
     const response = await api('/api/admin/bundles', {
       method: 'POST',
       body: JSON.stringify({
         title: 'Pipeline CDI',
         module: 'academic',
         status: 'published',
-        materials: { readingId: materialId },
+        components: [{ section: 'reading', part: 1, materialId, contentHash: candidate?.contentHash }],
+        timing: TIMING,
       }),
     });
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(201);
 
     const body = await response.json();
     bundleId = body.bundle.id;
-    expect(body.bundle.materials.readingId).toBe(materialId);
+    expect(body.bundle.status).toBe('draft');
+    expect(body.bundle.components[0].materialId).toBe(materialId);
+    expect(body.components[0].pinnedIsCurrent).toBe(true);
   });
 
-  it('resolves that bundle into a sittable test with every question intact', async () => {
+  it('adapts the pinned component, as a learner sitting resolves it, with every question intact', async () => {
     const response = await api(`/api/admin/bundles/${bundleId}`);
     expect(response.status).toBe(200);
+    expect((await response.json()).components[0].material.id).toBe(materialId);
 
-    const resolved = await response.json();
-    expect(resolved.resolvedMaterials.reading.id).toBe(materialId);
-
-    const adapted = bundleToAdaptedTest(resolved);
+    const material = (await (await api(`/api/admin/materials/reading/${materialId}`)).json()).item;
+    const adapted = sittingOf('Pipeline CDI', material, 1);
     const passage = (adapted.test.reading?.passages ?? [])[0];
 
     expect(adapted.test.title).toBe('Pipeline CDI');
-    expect(adapted.missingSections).toHaveLength(0);
+    // Only Reading is pinned, so this is not yet a full exam — and the adapter says so.
+    expect(adapted.missingSections).toEqual(['listening', 'writing', 'speaking']);
     expect(adapted.issues.reading).toBeUndefined();
     expect(passage.title).toBe('Algae as fuel');
     expect(passage.questions).toHaveLength(3);
@@ -239,19 +265,17 @@ describe('material round trip', () => {
     expect((await response.json()).item.status).toBe('published');
   });
 
-  it('keeps a draft material out of a published bundle', async () => {
+  it('refuses a bundle whose component has been withdrawn', async () => {
     const unpublished = await api(`/api/admin/materials/reading/${materialId}/unpublish`, {
       method: 'POST',
     });
     expect(unpublished.status).toBe(200);
     expect((await unpublished.json()).item.status).toBe('draft');
 
-    const resolved = await (await api(`/api/admin/bundles/${bundleId}`)).json();
-    expect(resolved.resolvedMaterials.reading).toBe(null);
-
-    const adapted = bundleToAdaptedTest(resolved);
-    // The gap is reported rather than passed off as the bundle's own content.
-    expect(adapted.missingSections).toEqual(['reading']);
+    const check = await (await api(`/api/admin/bundles/${bundleId}/check`)).json();
+    // A withdrawn component is a reason the bundle can be neither published nor sat.
+    expect(check.publishable).toBe(false);
+    expect(check.blockers.map((blocker: { code: string }) => blocker.code)).toContain('component_unpublished');
 
     await api(`/api/admin/materials/reading/${materialId}`, {
       method: 'PUT',
@@ -270,8 +294,12 @@ describe('material round trip', () => {
     });
     expect(response.status).toBe(200);
 
-    const resolved = await (await api(`/api/admin/bundles/${bundleId}`)).json();
-    const adapted = bundleToAdaptedTest(resolved);
+    // The bundle pinned the earlier version, so the edit makes it stale instead of silently changing it.
+    const check = await (await api(`/api/admin/bundles/${bundleId}/check`)).json();
+    expect(check.blockers.map((blocker: { code: string }) => blocker.code)).toContain('component_changed');
+
+    const material = (await (await api(`/api/admin/materials/reading/${materialId}`)).json()).item;
+    const adapted = sittingOf('Pipeline CDI', material, 1);
     expect((adapted.test.reading?.passages ?? [])[0].questions[0].prompt).toBe('Edited claim about farmland.');
     expect((adapted.test.reading?.passages ?? [])[0].questions).toHaveLength(3);
   });
@@ -318,14 +346,9 @@ describe('stored material authored by an older build', () => {
 
     await publishMaterial(adminStore, 'listening', legacy);
 
-    const bundle = await adminStore.saveBundle({
-      title: 'Legacy CDI',
-      status: 'published',
-      materials: { listeningId: legacy.id },
-    });
-
-    const resolved = await adminStore.getResolvedBundle(bundle.id);
-    const adapted = bundleToAdaptedTest(resolved as never);
+    const published = await adminStore.getMaterial('listening', legacy.id);
+    if (!published) throw new Error('the legacy material was not stored');
+    const adapted = sittingOf('Legacy CDI', published, 2);
     const part = (adapted.test.listening?.parts ?? [])[0];
 
     expect(part.title).toBe('Campus security');

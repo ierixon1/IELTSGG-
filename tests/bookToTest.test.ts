@@ -668,7 +668,7 @@ describe('the generated draft goes through the existing review and lifecycle', (
     ]);
   });
 
-  it('publishes once the unverifiable question is excluded, and provenance reaches the learner', async () => {
+  it('publishes once the unverifiable question is excluded, keeping provenance with the stored material', async () => {
     const state = await openReview();
     const unverified = state.questions.find((question) => question.originalStatus === 'needs_review')!;
     const payload = toSavePayload(setDecision(state, unverified.key, 'exclude'));
@@ -688,7 +688,12 @@ describe('the generated draft goes through the existing review and lifecycle', (
     expect(learner.status).toBe(200);
     const item = (await learner.json()).item;
     expect(item.content.passage.questions).toHaveLength(1);
-    expect(item.content.passage.questions[0].provenance.sourceId).toBe(source.id);
-    expect(item.content.passage.questions[0].provenance.validation).toBe('valid');
+    // Provenance quotes the sentence the answer rests on. A learner sitting does
+    // not need it, so it stays on the stored material and never reaches the learner.
+    expect(item.content.passage.questions[0].provenance).toBe(undefined);
+    const stored = await adminStore.getMaterial('reading', materialId);
+    const storedQuestion = stored?.section === 'reading' ? stored.content.passage.questions[0] : undefined;
+    expect(storedQuestion?.provenance?.sourceId).toBe(source.id);
+    expect(storedQuestion?.provenance?.validation).toBe('valid');
   });
 });

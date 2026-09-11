@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AnswerValue, ReadingData, ReadingPassage } from '../types';
-import { checkQuestionAnswer, readingRawToBand } from '../utils/ieltsScoring';
+import { checkQuestionAnswer, objectiveSectionScore } from '../utils/ieltsScoring';
 import { 
   BookOpen, 
   Clock, 
@@ -20,35 +20,42 @@ interface ReadingSessionProps {
   readingData: ReadingData;
   onRecordScore?: (band: number, rawScore: number) => void;
   onBackToMocks?: () => void;
+  /**
+   * Inside a full exam: nothing is read aloud in place of a recording, the
+   * transcript is not offered, and marks are not shown until the exam is over.
+   */
+  examMode?: boolean;
+  /** Every answer change, so the exam engine holds the answers a timer may have to mark. */
+  onAnswersChange?: (answers: Record<string, AnswerValue>) => void;
+  /** The learner submitted this section's answers. */
+  onSubmitAnswers?: () => void;
 }
 
 export const ReadingSession: React.FC<ReadingSessionProps> = ({
   readingData,
   onRecordScore,
   onBackToMocks,
+  examMode = false,
+  onAnswersChange,
+  onSubmitAnswers,
 }) => {
   const t = useT();
   const [activePassageIndex, setActivePassageIndex] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, AnswerValue>>({});
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
 
-  // 60-minute standard reading timer
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(60 * 60);
-  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(true);
+  // Practice shows the time spent, not a countdown from an assumed paper length.
+  // Inside an exam the section clock belongs to the exam screen, from the bundle.
+  const [secondsElapsed, setSecondsElapsed] = useState<number>(0);
+  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(!examMode);
 
   const currentPassage = readingData.passages[activePassageIndex];
 
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | null = null;
-    if (isTimerRunning && secondsRemaining > 0 && !isSubmitted) {
-      timer = setInterval(() => {
-        setSecondsRemaining((prev) => Math.max(0, prev - 1));
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isTimerRunning, secondsRemaining, isSubmitted]);
+    if (!isTimerRunning || isSubmitted) return;
+    const timer = setInterval(() => setSecondsElapsed((prev) => prev + 1), 1000);
+    return () => clearInterval(timer);
+  }, [isTimerRunning, isSubmitted]);
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -57,10 +64,9 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
   };
 
   const handleAnswerChange = (questionId: string, value: AnswerValue) => {
-    setUserAnswers((prev) => ({
-      ...prev,
-      [questionId]: value,
-    }));
+    const next = { ...userAnswers, [questionId]: value };
+    setUserAnswers(next);
+    onAnswersChange?.(next);
   };
 
   const allQuestions = readingData.passages.flatMap((p) => p.questions);
@@ -73,14 +79,15 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
   const results: Record<string, boolean> = Object.fromEntries(
     allQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
   );
-  const correctCount = allQuestions.filter((q) => results[q.id]).length;
-  // Scaled to 40 questions Academic standard
-  const scaledScore = Math.round((correctCount / allQuestions.length) * 40);
-  const band = readingRawToBand(scaledScore);
+  const { correct: correctCount, band } = objectiveSectionScore('reading', allQuestions, userAnswers);
 
   const handleSubmit = () => {
     setIsSubmitted(true);
     setIsTimerRunning(false);
+    if (examMode) {
+      onSubmitAnswers?.();
+      return;
+    }
     onRecordScore?.(band, correctCount);
 
     if (band >= 7.0) {
@@ -107,11 +114,17 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* Timer */}
-          <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-ink-100 font-mono text-xs font-bold text-ink-700">
-            <Clock className="w-3.5 h-3.5 text-ink-500" />
-            <span>{formatTimer(secondsRemaining)}</span>
-          </div>
+          {/* Time spent, in practice only */}
+          {!examMode && (
+            <div
+              id="reading-time-spent"
+              title={t('reading.timeSpent')}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-ink-100 font-mono text-xs font-bold text-ink-700"
+            >
+              <Clock className="w-3.5 h-3.5 text-ink-500" />
+              <span>{formatTimer(secondsElapsed)}</span>
+            </div>
+          )}
 
           {/* Passages Tab Switcher */}
           <div className="inline-flex p-1 bg-ink-100 rounded-xl">
@@ -194,7 +207,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                 disabled={isSubmitted}
                 onChange={handleAnswerChange}
                 groupName={`reading-${currentPassage.passageNumber}`}
-                results={isSubmitted ? results : undefined}
+                results={isSubmitted && !examMode ? results : undefined}
                 renderFeedback={(question, isCorrect) => (
                   <AnswerVerdict
                     question={question}
@@ -222,6 +235,10 @@ export const ReadingSession: React.FC<ReadingSessionProps> = ({
                 <span>{t('session.submit')}</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
+            ) : examMode ? (
+              <p id="reading-answers-submitted" className="w-full rounded-xl border border-ink-200 bg-ink-50 p-3.5 text-xs font-semibold text-ink-700">
+                {t('exam.answersSubmitted')}
+              </p>
             ) : (
               <div className="w-full flex items-center justify-between bg-brand-50 border border-brand-200 p-3.5 rounded-xl">
                 <div>

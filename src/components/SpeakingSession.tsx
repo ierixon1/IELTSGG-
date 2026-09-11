@@ -3,6 +3,7 @@ import { SpeakingData, SpeakingGradingResult, CriterionFeedback } from '../types
 import { GradingError, requestSpeakingGrading } from '../services/api';
 import { AudioVolumeDetector, blobToBase64 } from '../utils/audioAnalyzer';
 import { analyseLexis } from '../utils/textMetrics';
+import { halfBandAverage } from '../utils/ieltsScoring';
 import {
   Activity,
   AlertCircle,
@@ -30,6 +31,8 @@ interface SpeakingSessionProps {
   /** Feeds the vocabulary deck with the words the answer leaned on. */
   onGraded?: (transcript: string) => void;
   onBackToMocks?: () => void;
+  /** A part was graded, so a full exam can require all three before the section ends. */
+  onPartGraded?: (part: 1 | 2 | 3, band: number, transcript: string) => void;
 }
 
 type PartNumber = 1 | 2 | 3;
@@ -98,11 +101,6 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-/** IELTS reports in half bands, so an average is only meaningful once rounded. */
-function toHalfBand(value: number): number {
-  return Math.round(value * 2) / 2;
-}
-
 function formatClock(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -114,6 +112,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
   onRecordScore,
   onBackToMocks,
   onGraded,
+  onPartGraded,
 }) => {
   const t = useT();
 
@@ -401,6 +400,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
       }));
 
       onRecordScore?.(response.band_overall);
+      onPartGraded?.(activePart, response.band_overall, transcript);
       if (transcript) onGraded?.(transcript);
 
       if (response.band_overall >= 7.0) {
@@ -422,8 +422,7 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = ({
   const overallBand = useMemo(() => {
     const graded = PARTS.map((part) => attempts[part]).filter(Boolean) as PartAttempt[];
     if (graded.length === 0) return null;
-    const sum = graded.reduce((total, attempt) => total + attempt.result.band_overall, 0);
-    return toHalfBand(sum / graded.length);
+    return halfBandAverage(graded.map((attempt) => attempt.result.band_overall));
   }, [attempts]);
 
   /* --- Render ------------------------------------------------------------- */

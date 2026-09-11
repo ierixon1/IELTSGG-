@@ -4,68 +4,36 @@ import {
   ReadingData,
   SpeakingData,
   MockTest,
-  Question,
   ReadingPassage,
   SkillType,
   SpeakingPartData,
   WritingTaskData,
 } from '../types';
-import { AdminMaterial, FullCdiBundle } from '../types/admin';
+import { AdminMaterial } from '../types/admin';
+import type { ExamSitting, LearnerBundleErrorCode, LearnerBundleSummary } from '../types/bundle';
 import { MOCK_TEST_1 } from '../data/mockBank';
 import type { PublicMaterialSummary } from './publicMaterialView';
 import { QuestionIssue, normalizeAuthoredQuestions } from '../schemas/question';
 
 /**
- * Bridges the admin CMS to the learner.
+ * Bridges published content to the session screens.
  *
- * The CMS could already author, sanitise and publish full CDI material, but
- * nothing in the app ever read it — the mocks screen was hard-wired to the
- * built-in test, so a published exam reached nobody. This module fetches what
- * has been published and adapts it into the shape the session screens expect.
+ * Two ways in: a whole bundle, resolved by the server into exactly the
+ * materials it pinned, or one published material opened by id. Either way every
+ * question passes through `normalizeAuthoredQuestions`, and anything it cannot
+ * convert is reported rather than dropped.
  *
- * Every question passes through `normalizeAuthoredQuestions`, which is the one
- * place that knows how to read an authored question regardless of which editor
- * or generator wrote it. Anything it cannot convert is reported in
- * `AdaptedTest.issues` rather than quietly dropped or coerced.
+ * Nothing here fills a gap. A bundle that cannot supply a section is refused by
+ * the server before it gets this far, and a material that does not carry its
+ * section produces a null section the screen refuses to open.
  */
 
-export interface PublishedTestSummary {
-  id: string;
-  title: string;
-  module: 'academic' | 'general';
-  description?: string;
-  updatedAt: string;
-  /** Which skills this bundle actually carries. */
-  sections: Array<'listening' | 'reading' | 'writing' | 'speaking'>;
-}
-
-export interface ResolvedBundleMaterials {
-  listening: AdminMaterial | null;
-  reading: AdminMaterial | null;
-  writing: AdminMaterial | null;
-  speaking: AdminMaterial | null;
-}
-
 /**
- * What the server sends for one bundle. The field is named
- * `resolvedMaterials`; `materials` is accepted only because an older client
- * read that name and the mismatch is exactly the kind of bug this module now
- * guards against.
- */
-export interface ResolvedBundleResponse {
-  bundle: FullCdiBundle;
-  resolvedMaterials?: ResolvedBundleMaterials;
-  materials?: ResolvedBundleMaterials;
-}
-
-/**
- * A sittable test, and everything the bundle failed to supply.
+ * A sittable test, and everything it failed to supply.
  *
  * `MockTest` requires all four skills, which is why a missing component used to
- * be backfilled from the built-in test: the type left no way to say "this bundle
- * has no Listening". `SittableTest` says it. A null section is a configuration
- * error the learner is shown — never a section quietly filled with material the
- * title does not describe.
+ * be backfilled from the built-in test. `SittableTest` can say a section is not
+ * there, and a null section is a configuration error the learner is shown.
  */
 export interface SittableTest {
   id: string;
@@ -82,7 +50,7 @@ export interface SittableTest {
 /** A sittable test plus everything that went wrong building it. */
 export interface AdaptedTest {
   test: SittableTest;
-  /** Skills the bundle named but could not supply. */
+  /** Skills that were asked for but could not be supplied. */
   missingSections: SkillType[];
   /** Questions that could not be adapted, by skill. */
   issues: Partial<Record<SkillType, QuestionIssue[]>>;
@@ -104,68 +72,55 @@ export function sectionAvailable(test: SittableTest, skill: SkillType): boolean 
   }
 }
 
-function readMaterials(response: ResolvedBundleResponse): ResolvedBundleMaterials {
-  return (
-    response.resolvedMaterials ||
-    response.materials || { listening: null, reading: null, writing: null, speaking: null }
-  );
-}
-
-interface AdaptedQuestions {
-  questions: Question[];
+interface Adapted<T> {
+  value: T;
   issues: QuestionIssue[];
 }
 
-function adaptQuestions(raw: unknown, idPrefix: string): AdaptedQuestions {
-  return normalizeAuthoredQuestions(raw, idPrefix);
+function toPartNumber<T extends number>(raw: unknown, max: T): T | null {
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 1 && value <= max ? (value as T) : null;
 }
 
-function adaptListening(
-  material: AdminMaterial | null,
-): { parts: ListeningPart[]; issues: QuestionIssue[] } | null {
+function adaptListeningPart(material: AdminMaterial | null, part?: number): Adapted<ListeningPart> | null {
   if (!material || material.section !== 'listening') return null;
   const section = material.content.section;
   if (!section) return null;
+  const partNumber = toPartNumber<1 | 2 | 3 | 4>(part ?? section.sectionNumber, 4);
+  if (!partNumber) return null;
 
-  const partNumber = Math.min(4, Math.max(1, Number(section.sectionNumber) || 1)) as 1 | 2 | 3 | 4;
-  const adapted = adaptQuestions(section.questions, `cms-l-${material.id}`);
-
+  const adapted = normalizeAuthoredQuestions(section.questions, `cms-l-${material.id}`);
   return {
-    parts: [
-      {
-        partNumber,
-        title: section.title || material.title,
-        accent: 'British',
-        audioDescription: section.contextDescription || material.title,
-        transcript: section.audioTranscript || material.content.transcript || '',
-        htmlContent: section.htmlContent || material.content.htmlContent,
-        questions: adapted.questions,
-      },
-    ],
+    value: {
+      partNumber,
+      title: section.title || material.title,
+      accent: 'British',
+      audioDescription: section.contextDescription || material.title,
+      transcript: section.audioTranscript || material.content.transcript || '',
+      htmlContent: section.htmlContent || material.content.htmlContent,
+      questions: adapted.questions,
+      ...(material.content.audioUrl ? { audioUrl: material.content.audioUrl } : {}),
+    },
     issues: adapted.issues,
   };
 }
 
-function adaptReading(
-  material: AdminMaterial | null,
-): { passages: ReadingPassage[]; issues: QuestionIssue[] } | null {
+function adaptReadingPassage(material: AdminMaterial | null, part?: number): Adapted<ReadingPassage> | null {
   if (!material || material.section !== 'reading') return null;
   const passage = material.content.passage;
   if (!passage) return null;
+  const passageNumber = toPartNumber<1 | 2 | 3>(part ?? passage.passageNumber, 3);
+  if (!passageNumber) return null;
 
-  const passageNumber = Math.min(3, Math.max(1, Number(passage.passageNumber) || 1)) as 1 | 2 | 3;
-  const adapted = adaptQuestions(passage.questions, `cms-r-${material.id}`);
-
+  const adapted = normalizeAuthoredQuestions(passage.questions, `cms-r-${material.id}`);
   return {
-    passages: [
-      {
-        passageNumber,
-        title: passage.title || material.title,
-        content: passage.text || '',
-        htmlContent: passage.htmlContent || material.content.htmlContent,
-        questions: adapted.questions,
-      },
-    ],
+    value: {
+      passageNumber,
+      title: passage.title || material.title,
+      content: passage.text || '',
+      htmlContent: passage.htmlContent || material.content.htmlContent,
+      questions: adapted.questions,
+    },
     issues: adapted.issues,
   };
 }
@@ -179,10 +134,7 @@ function adaptReading(
  * task and return that, which is how a bundle with no Writing material still
  * sat a learner down in front of the built-in prompt.
  */
-function adaptWritingTask(
-  material: AdminMaterial | null,
-  taskKey: 'task1' | 'task2',
-): WritingTaskData | null {
+function adaptWritingTask(material: AdminMaterial | null, taskKey: 'task1' | 'task2'): WritingTaskData | null {
   if (!material || material.section !== 'writing') return null;
   const authored = material.content.task as Record<string, unknown> | undefined;
   if (!authored) return null;
@@ -203,11 +155,9 @@ function adaptWritingTask(
     taskNumber: taskKey === 'task1' ? 1 : 2,
     title: typeof task.title === 'string' ? task.title : material.title,
     prompt,
-    htmlContent:
-      (typeof task.htmlContent === 'string' ? task.htmlContent : undefined) ||
-      material.content.htmlContent,
-    // The IELTS minimums and timings, not content borrowed from another test:
-    // they are the same for every Task 1 and every Task 2 ever set.
+    htmlContent: (typeof task.htmlContent === 'string' ? task.htmlContent : undefined) || material.content.htmlContent,
+    // The IELTS minimum word counts and the paper's suggested split of the
+    // hour: guidance printed with every task, not a section clock.
     minWordCount: authoredMinimum ?? (taskKey === 'task1' ? 150 : 250),
     recommendedMinutes: taskKey === 'task1' ? 20 : 40,
   };
@@ -247,104 +197,104 @@ function adaptSpeaking(material: AdminMaterial | null): SpeakingPartData[] | nul
 }
 
 /**
- * Builds a sittable test from a resolved bundle, and reports what the bundle
- * failed to supply.
- *
- * Nothing is substituted. A skill the bundle names but cannot deliver comes
- * back null and is listed in `missingSections`; the screen refuses to open it
- * and says why. Backfilling from the built-in test so the screen still opened
- * meant a learner could sit forty questions of material that had nothing to do
- * with the test they chose, and the only trace was a banner above it.
+ * A resolved sitting as the session screens read it: all four Listening parts,
+ * all three Reading passages, both Writing tasks and the three Speaking parts,
+ * each from the exact material the bundle pinned.
  */
-export function bundleToAdaptedTest(response: ResolvedBundleResponse): AdaptedTest {
-  const bundle = response.bundle;
-  const materials = readMaterials(response);
+export function sittingToAdaptedTest(sitting: ExamSitting): AdaptedTest {
+  const ordered = [...sitting.components].sort((a, b) => a.part - b.part);
+  const listening = ordered
+    .filter((entry) => entry.section === 'listening')
+    .map((entry) => adaptListeningPart(entry.material, entry.part));
+  const reading = ordered
+    .filter((entry) => entry.section === 'reading')
+    .map((entry) => adaptReadingPassage(entry.material, entry.part));
+  const writing = ordered.find((entry) => entry.section === 'writing')?.material ?? null;
+  const speaking = ordered.find((entry) => entry.section === 'speaking')?.material ?? null;
 
-  const listening = adaptListening(materials.listening);
-  const reading = adaptReading(materials.reading);
-  const speaking = adaptSpeaking(materials.speaking);
-  const task1 = adaptWritingTask(materials.writing, 'task1');
-  const task2 = adaptWritingTask(materials.writing, 'task2');
+  const listeningParts = listening.filter((part): part is Adapted<ListeningPart> => Boolean(part));
+  const readingPassages = reading.filter((passage): passage is Adapted<ReadingPassage> => Boolean(passage));
+  const speakingParts = adaptSpeaking(speaking);
+  const task1 = adaptWritingTask(writing, 'task1');
+  const task2 = adaptWritingTask(writing, 'task2');
 
-  const requested = bundle.materials || {};
   const missingSections: SkillType[] = [];
-  if (requested.listeningId && !listening) missingSections.push('listening');
-  if (requested.readingId && !reading) missingSections.push('reading');
-  if (requested.writingId && !task1 && !task2) missingSections.push('writing');
-  if (requested.speakingId && !speaking) missingSections.push('speaking');
+  if (listening.length === 0 || listeningParts.length !== listening.length) missingSections.push('listening');
+  if (reading.length === 0 || readingPassages.length !== reading.length) missingSections.push('reading');
+  if (!task1 || !task2) missingSections.push('writing');
+  if (!speakingParts) missingSections.push('speaking');
 
   const issues: Partial<Record<SkillType, QuestionIssue[]>> = {};
-  if (listening?.issues.length) issues.listening = listening.issues;
-  if (reading?.issues.length) issues.reading = reading.issues;
+  const listeningIssues = listeningParts.flatMap((part) => part.issues);
+  const readingIssues = readingPassages.flatMap((passage) => passage.issues);
+  if (listeningIssues.length) issues.listening = listeningIssues;
+  if (readingIssues.length) issues.reading = readingIssues;
 
-  const test: SittableTest = {
-    id: bundle.id,
-    title: bundle.title,
-    difficulty: 'Standard Academic',
-    listening: listening ? { parts: listening.parts } : null,
-    reading: reading ? { passages: reading.passages } : null,
-    writing: { task1, task2 },
-    speaking: speaking ? { parts: speaking } : null,
-    origin: 'bundle',
+  return {
+    test: {
+      id: sitting.bundle.id,
+      title: sitting.bundle.title,
+      difficulty: 'Standard Academic',
+      listening: listeningParts.length ? { parts: listeningParts.map((part) => part.value) } : null,
+      reading: readingPassages.length ? { passages: readingPassages.map((passage) => passage.value) } : null,
+      writing: { task1, task2 },
+      speaking: speakingParts ? { parts: speakingParts } : null,
+      origin: 'bundle',
+    },
+    missingSections,
+    issues,
   };
-
-  return { test, missingSections, issues };
 }
 
-export async function fetchPublishedTests(): Promise<PublishedTestSummary[]> {
+export type LearnerBundlesLoad = { ok: true; bundles: LearnerBundleSummary[] } | { ok: false; message: string };
+
+/** Published bundles for the signed-in learner. A failed load is reported, not shown as "no exams". */
+export async function fetchLearnerBundles(): Promise<LearnerBundlesLoad> {
   try {
-    const response = await fetch('/api/admin/public/bundles', { credentials: 'same-origin' });
-    if (!response.ok) return [];
-
-    const data = await response.json();
-    const bundles: FullCdiBundle[] = Array.isArray(data) ? data : data?.bundles || [];
-
-    return bundles.map((bundle) => ({
-      id: bundle.id,
-      title: bundle.title,
-      module: bundle.module,
-      description: bundle.description,
-      updatedAt: bundle.updatedAt,
-      sections: (['listening', 'reading', 'writing', 'speaking'] as const).filter(
-        (section) => Boolean(bundle.materials?.[`${section}Id` as keyof typeof bundle.materials]),
-      ),
-    }));
-  } catch (error) {
-    console.warn('Could not load published tests:', error);
-    return [];
+    const response = await fetch('/api/learner/bundles', { credentials: 'same-origin' });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) return { ok: false, message: body?.error || `The exam list could not be loaded (${response.status}).` };
+    return { ok: true, bundles: Array.isArray(body?.bundles) ? (body.bundles as LearnerBundleSummary[]) : [] };
+  } catch {
+    return { ok: false, message: 'The exam list could not be loaded: the server did not answer.' };
   }
 }
 
+export type SittingLoad =
+  | { ok: true; sitting: ExamSitting }
+  | { ok: false; code: LearnerBundleErrorCode | 'unauthorized' | 'network'; message: string };
+
 /**
- * Loads one published test for the signed-in learner.
+ * One published bundle, resolved server-side into the exact materials it pinned.
  *
- * This reads the authenticated endpoint, not the public one: the public route
- * deliberately withholds answer keys, and marking needs them. A learner has to
- * be signed in to sit a test, so requiring a session here costs nothing and
- * stops an anonymous request from collecting the key.
+ * Reads the authenticated endpoint: marking needs the answer key, and the key
+ * never goes to an anonymous request.
  */
-export async function fetchAdaptedTest(id: string): Promise<AdaptedTest | null> {
+export async function fetchExamSitting(id: string): Promise<SittingLoad> {
   try {
-    const response = await fetch(`/api/learner/bundles/${encodeURIComponent(id)}`, {
-      credentials: 'same-origin',
-    });
-    if (!response.ok) return null;
-
-    return bundleToAdaptedTest((await response.json()) as ResolvedBundleResponse);
-  } catch (error) {
-    console.warn('Could not load published test:', error);
-    return null;
+    const response = await fetch(`/api/learner/bundles/${encodeURIComponent(id)}`, { credentials: 'same-origin' });
+    const body = await response.json().catch(() => null);
+    if (response.status === 401) return { ok: false, code: 'unauthorized', message: 'Sign in to sit this exam.' };
+    if (!response.ok) {
+      return {
+        ok: false,
+        code: (body?.code as LearnerBundleErrorCode | undefined) ?? 'invalid_bundle',
+        message: body?.error || `This exam could not be opened (${response.status}).`,
+      };
+    }
+    return { ok: true, sitting: body as ExamSitting };
+  } catch {
+    return { ok: false, code: 'network', message: 'This exam could not be opened: the server did not answer.' };
   }
 }
 
-
-
 /**
- * The built-in demo test, as something a learner may choose on purpose.
+ * The built-in demo test, as something a learner may choose on purpose for
+ * section practice.
  *
- * This is the only remaining use of `MOCK_TEST_1`, and it is reached solely by
- * picking it from the list by name. It is never used to fill a gap in a real
- * test: a bundle missing its Reading now says so instead of borrowing this.
+ * It is reached solely by picking it from the practice list by name. It is never
+ * used to fill a gap in a real test, and the full exam never offers it: exam
+ * mode sits published bundles only.
  */
 export function builtInSittableTest(): SittableTest {
   return {
@@ -367,8 +317,8 @@ export function builtInSittableTest(): SittableTest {
  * from it by accident.
  */
 export function materialToSittable(material: AdminMaterial): AdaptedTest {
-  const listening = adaptListening(material);
-  const reading = adaptReading(material);
+  const listening = adaptListeningPart(material);
+  const reading = adaptReadingPassage(material);
   const speaking = adaptSpeaking(material);
   const task1 = adaptWritingTask(material, 'task1');
   const task2 = adaptWritingTask(material, 'task2');
@@ -381,17 +331,14 @@ export function materialToSittable(material: AdminMaterial): AdaptedTest {
     id: material.id,
     title: material.title,
     difficulty: 'Standard Academic',
-    listening: listening ? { parts: listening.parts } : null,
-    reading: reading ? { passages: reading.passages } : null,
+    listening: listening ? { parts: [listening.value] } : null,
+    reading: reading ? { passages: [reading.value] } : null,
     writing: { task1, task2 },
     speaking: speaking ? { parts: speaking } : null,
     origin: 'material',
   };
 
-  const missingSections = sectionAvailable(test, material.section as SkillType)
-    ? []
-    : [material.section as SkillType];
-
+  const missingSections = sectionAvailable(test, material.section as SkillType) ? [] : [material.section as SkillType];
   return { test, missingSections, issues };
 }
 
@@ -424,10 +371,9 @@ export async function fetchLearnerMaterial(
   id: string,
 ): Promise<AdaptedTest | null> {
   try {
-    const response = await fetch(
-      `/api/learner/materials/${section}/${encodeURIComponent(id)}`,
-      { credentials: 'same-origin' },
-    );
+    const response = await fetch(`/api/learner/materials/${section}/${encodeURIComponent(id)}`, {
+      credentials: 'same-origin',
+    });
     if (!response.ok) return null;
     const data = await response.json();
     if (!data?.item) return null;
@@ -437,3 +383,4 @@ export async function fetchLearnerMaterial(
     return null;
   }
 }
+

@@ -36,7 +36,6 @@ const { learnerContentRouter } = await import('../src/routes/learnerContentRoute
 const { authRouter } = await import('../src/routes/authRoutes');
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { adminStore } = await import('../src/services/adminStore');
-const { bundleToAdaptedTest, sectionAvailable } = await import('../src/services/publishedTests');
 
 let server: Server;
 let origin = '';
@@ -382,28 +381,43 @@ describe('a bundle component that is not there', () => {
       },
     });
 
-    const bundle = await (
-      await api('/api/admin/bundles', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: 'Half a Test',
-          module: 'academic',
-          status: 'published',
-          materials: { readingId: reading.id, listeningId: listening.id },
-        }),
-      })
-    ).json();
+    const candidates = (await (await api('/api/admin/bundles/candidates')).json()).candidates as Array<{ id: string; contentHash: string }>;
+    const readingPin = candidates.find((candidate) => candidate.id === reading.id);
+    expect(Boolean(readingPin)).toBe(true);
+    // A draft material is not offered for pinning at all.
+    expect(candidates.some((candidate) => candidate.id === listening.id)).toBe(false);
 
-    const resolved = await (await learner(`/api/learner/bundles/${bundle.bundle.id}`)).json();
-    expect(resolved.resolvedMaterials.listening).toBe(null);
+    const created = await api('/api/admin/bundles', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Half a Test',
+        module: 'academic',
+        status: 'published',
+        components: [
+          { section: 'reading', part: 1, materialId: reading.id, contentHash: readingPin?.contentHash },
+          { section: 'listening', part: 1, materialId: listening.id, contentHash: 'a'.repeat(64) },
+        ],
+        timing: { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 14, basis: 'custom', allowEarlyFinish: true },
+      }),
+    });
+    expect(created.status).toBe(201);
+    const bundle = (await created.json()).bundle;
+    // A status in the body is ignored: saving never publishes.
+    expect(bundle.status).toBe('draft');
 
-    const adapted = bundleToAdaptedTest(resolved);
-    expect(adapted.missingSections).toEqual(['listening']);
-    // The whole point: nothing was borrowed to fill the hole.
-    expect(adapted.test.listening).toBe(null);
-    expect(sectionAvailable(adapted.test, 'listening')).toBe(false);
-    expect(sectionAvailable(adapted.test, 'reading')).toBe(true);
-    expect(adapted.test.title).toBe('Half a Test');
+    const published = await api(`/api/admin/bundles/${bundle.id}/publish`, { method: 'POST' });
+    expect(published.status).toBe(409);
+    const codes = (await published.json()).blockers.map((blocker: { code: string }) => blocker.code);
+    expect(codes).toContain('component_unpublished');
+    expect(codes).toContain('writing_missing');
+    expect(codes).toContain('part_missing');
+
+    // The learner is given a reason, never half a test.
+    const opened = await learner(`/api/learner/bundles/${bundle.id}`);
+    expect(opened.status).toBe(409);
+    const body = await opened.json();
+    expect(body.code).toBe('bundle_unpublished');
+    expect(body.components).toBe(undefined);
   });
 });
 
@@ -426,8 +440,8 @@ describe('deletion tells the truth about what references a material', () => {
         body: JSON.stringify({
           title: 'Referencing Bundle',
           module: 'academic',
-          status: 'draft',
-          materials: { readingId: draft.id },
+          components: [{ section: 'reading', part: 1, materialId: draft.id, contentHash: 'a'.repeat(64) }],
+          timing: { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 14, basis: 'custom', allowEarlyFinish: true },
         }),
       })
     ).json();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnswerValue, ListeningData, ListeningPart } from '../types';
-import { checkQuestionAnswer, listeningRawToBand } from '../utils/ieltsScoring';
+import { checkQuestionAnswer, objectiveSectionScore } from '../utils/ieltsScoring';
 import { 
   Headphones, 
   Play, 
@@ -24,12 +24,24 @@ interface ListeningSessionProps {
   listeningData: ListeningData;
   onRecordScore?: (band: number, rawScore: number) => void;
   onBackToMocks?: () => void;
+  /**
+   * Inside a full exam: nothing is read aloud in place of a recording, the
+   * transcript is not offered, and marks are not shown until the exam is over.
+   */
+  examMode?: boolean;
+  /** Every answer change, so the exam engine holds the answers a timer may have to mark. */
+  onAnswersChange?: (answers: Record<string, AnswerValue>) => void;
+  /** The learner submitted this section's answers. */
+  onSubmitAnswers?: () => void;
 }
 
 export const ListeningSession: React.FC<ListeningSessionProps> = ({
   listeningData,
   onRecordScore,
   onBackToMocks,
+  examMode = false,
+  onAnswersChange,
+  onSubmitAnswers,
 }) => {
   const t = useT();
   const [activePartIndex, setActivePartIndex] = useState<number>(0);
@@ -124,10 +136,9 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
   };
 
   const handleAnswerChange = (questionId: string, value: AnswerValue) => {
-    setUserAnswers((prev) => ({
-      ...prev,
-      [questionId]: value,
-    }));
+    const next = { ...userAnswers, [questionId]: value };
+    setUserAnswers(next);
+    onAnswersChange?.(next);
   };
 
   // Calculate results across all parts
@@ -139,14 +150,15 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
   const results: Record<string, boolean> = Object.fromEntries(
     allQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
   );
-  const correctCount = allQuestions.filter((q) => results[q.id]).length;
-  // Extrapolate to 40 questions scale if needed
-  const scaledScore = Math.round((correctCount / allQuestions.length) * 40);
-  const band = listeningRawToBand(scaledScore);
+  const { correct: correctCount, band } = objectiveSectionScore('listening', allQuestions, userAnswers);
 
   const handleSubmit = () => {
     setIsSubmitted(true);
     stopAudio();
+    if (examMode) {
+      onSubmitAnswers?.();
+      return;
+    }
     onRecordScore?.(band, correctCount);
 
     if (band >= 7.0) {
@@ -216,36 +228,60 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
 
           {/* Controls */}
           <div className="flex items-center space-x-3">
-            <button
-              id="btn-toggle-listening-audio"
-              onClick={toggleAudio}
-              className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-success-500 hover:bg-success-500 text-ink-950 font-bold text-xs transition-all shadow-md cursor-pointer"
-            >
-              {isPlayingAudio ? (
-                <>
-                  <Pause className="w-3.5 h-3.5 fill-current" />
-                  <span>{t('listening.pause')}</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>{t('listening.play')}</span>
-                </>
-              )}
-            </button>
+            {currentPart.audioUrl ? (
+              // The recording itself. Nothing synthetic stands in for it.
+              <audio
+                key={currentPart.audioUrl}
+                id={`listening-audio-part-${currentPart.partNumber}`}
+                controls
+                preload="metadata"
+                src={currentPart.audioUrl}
+                className="h-9 max-w-xs"
+              />
+            ) : examMode ? (
+              <span
+                id={`listening-audio-missing-${currentPart.partNumber}`}
+                className="rounded-xl bg-danger-500/20 px-3 py-2 text-xs font-bold text-danger-50"
+              >
+                {t('listening.audioMissing')}
+              </span>
+            ) : (
+              // Practice material without a recording: reading the script aloud is
+              // offered as exactly that, never labelled as the audio.
+              <button
+                id="btn-toggle-listening-audio"
+                onClick={toggleAudio}
+                className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-success-500 hover:bg-success-500 text-ink-950 font-bold text-xs transition-all shadow-md cursor-pointer"
+              >
+                {isPlayingAudio ? (
+                  <>
+                    <Pause className="w-3.5 h-3.5 fill-current" />
+                    <span>{t('listening.pause')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{t('listening.readAloud')}</span>
+                  </>
+                )}
+              </button>
+            )}
 
-            <button
-              id="btn-toggle-transcript"
-              onClick={() => setShowTranscript(!showTranscript)}
-              className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-ink-300 transition-all cursor-pointer"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>{showTranscript ? t('listening.hideScript') : t('listening.viewScript')}</span>
-            </button>
+            {!examMode && (
+              <button
+                id="btn-toggle-transcript"
+                onClick={() => setShowTranscript(!showTranscript)}
+                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-ink-300 transition-all cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>{showTranscript ? t('listening.hideScript') : t('listening.viewScript')}</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Progress Bar */}
+        {/* Progress of the read-aloud script; a recording has its own controls. */}
+        {!currentPart.audioUrl && !examMode && (
         <div className="space-y-1">
           <div className="flex justify-between text-[10px] text-ink-400 font-mono">
             <span>{t('listening.track', { name: currentPart.audioDescription })}</span>
@@ -258,9 +294,10 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
             />
           </div>
         </div>
+        )}
 
         {/* Transcript dropdown */}
-        {showTranscript && (
+        {showTranscript && !examMode && (
           <div className="mt-3 p-4 rounded-xl bg-ink-800/80 border border-ink-700 text-xs text-ink-300 font-serif leading-relaxed whitespace-pre-line max-h-60 overflow-y-auto">
             <div className="font-bold text-success-500 mb-1 font-sans">{t('listening.transcript')}</div>
             {currentPart.transcript}
@@ -298,7 +335,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
               disabled={isSubmitted}
               onChange={handleAnswerChange}
               groupName={`listening-${currentPart.partNumber}`}
-              results={isSubmitted ? results : undefined}
+              results={isSubmitted && !examMode ? results : undefined}
               renderFeedback={(question, isCorrect) => (
                 <AnswerVerdict
                   question={question}
@@ -326,6 +363,10 @@ export const ListeningSession: React.FC<ListeningSessionProps> = ({
               <span>{t('session.submit')}</span>
               <ChevronRight className="w-4 h-4" />
             </button>
+          ) : examMode ? (
+            <p id="listening-answers-submitted" className="w-full rounded-xl border border-ink-200 bg-ink-50 p-4 text-sm font-semibold text-ink-700">
+              {t('exam.answersSubmitted')}
+            </p>
           ) : (
             <div className="w-full flex items-center justify-between bg-success-50 border border-success-50 p-4 rounded-xl">
               <div>

@@ -461,7 +461,9 @@ process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
 const express = (await import('express')).default;
 const { adminRouter } = await import('../src/routes/adminRoutes');
 const { adminStore } = await import('../src/services/adminStore');
-const { bundleToAdaptedTest } = await import('../src/services/publishedTests');
+const { sittingToAdaptedTest } = await import('../src/services/publishedTests');
+const { toLearnerMaterial } = await import('../src/services/sittingView');
+const { materialContentHash } = await import('../src/services/materialVersion');
 const { assetStore } = await import('../src/services/assetStore');
 
 let server: Server;
@@ -591,19 +593,21 @@ describe('the write boundary refuses what it cannot store', () => {
     });
     expect(published.status).toBe(200);
 
-    const bundle = await (
-      await admin('/api/admin/bundles', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: 'Schema CDI',
-          status: 'published',
-          materials: { readingId: material.id },
-        }),
-      })
-    ).json();
-
-    const resolved = await (await admin(`/api/admin/bundles/${bundle.bundle.id}`)).json();
-    const adapted = bundleToAdaptedTest(resolved);
+    const stored = await adminStore.getMaterial('reading', material.id);
+    if (!stored) throw new Error('the material was not stored');
+    // Adapted exactly as a learner sitting resolves a pinned component.
+    const adapted = sittingToAdaptedTest({
+      bundle: { id: 'cdi-schema', title: 'Schema CDI', module: 'academic', publishedAt: stored.updatedAt, timing: { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 14, basis: 'custom', allowEarlyFinish: true } },
+      components: [
+        {
+          section: 'reading',
+          part: 1,
+          materialId: stored.id,
+          contentHash: materialContentHash(stored),
+          material: toLearnerMaterial(stored, { keepTranscript: false }),
+        },
+      ],
+    });
     const questions = (adapted.test.reading?.passages ?? [])[0].questions;
 
     expect(adapted.issues.reading).toBeUndefined();

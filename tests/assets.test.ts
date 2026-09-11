@@ -373,12 +373,16 @@ describe('asset lifecycle', () => {
 
     await admin('/api/admin/bundles', {
       method: 'POST',
-      body: JSON.stringify({ title: 'Holding Bundle', status: 'published', materials: { readingId: material.item.id } }),
+      body: JSON.stringify({
+        title: 'Holding Bundle',
+        module: 'academic',
+        components: [{ section: 'reading', part: 1, materialId: material.item.id, contentHash: 'b'.repeat(64) }],
+        timing: { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 14, basis: 'custom', allowEarlyFinish: true },
+      }),
     });
 
     const response = await admin(`/api/admin/materials/reading/${material.item.id}`, { method: 'DELETE' });
-    // Deleting it would leave the bundle resolving that slot to null, and the
-    // learner sitting built-in content under the bundle's own title.
+    // Deleting it would leave the bundle pinning a material that no longer exists.
     expect(response.status).toBe(409);
     expect(String((await response.json()).error)).toContain('Holding Bundle');
   });

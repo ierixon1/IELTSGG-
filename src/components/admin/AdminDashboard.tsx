@@ -19,12 +19,14 @@ import {
   Clock,
   AlertCircle
 } from 'lucide-react';
-import { AdminUser, AdminMaterial, FullCdiBundle, AdminStats } from '../../types/admin';
+import { AdminUser, AdminMaterial, AdminStats } from '../../types/admin';
+import type { BundleSummary } from '../../types/bundle';
 import { AdminSpeakingEditor } from './AdminSpeakingEditor';
 import { AdminReadingEditor } from './AdminReadingEditor';
 import { AdminListeningEditor } from './AdminListeningEditor';
 import { AdminWritingEditor } from './AdminWritingEditor';
-import { AdminCdiBundleBuilder } from './AdminCdiBundleBuilder';
+import { AdminBundleBuilder } from './AdminBundleBuilder';
+import { AdminBundleCatalog } from './AdminBundleCatalog';
 import { AdminImportReview } from './AdminImportReview';
 import { AdminImportStart } from './AdminImportStart';
 import { buildReviewState } from '../../services/cdiImport/review';
@@ -49,7 +51,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   const [materials, setMaterials] = useState<AdminMaterial[]>([]);
-  const [bundles, setBundles] = useState<FullCdiBundle[]>([]);
+  const [bundles, setBundles] = useState<BundleSummary[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
@@ -65,10 +67,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
    */
   const [importReview, setImportReview] = useState<ReviewState | null>(null);
   const [editingItem, setEditingItem] = useState<any | null>(null);
+  /** The bundle open in the builder; null assembles a new one. */
+  const [editingBundleId, setEditingBundleId] = useState<string | null>(null);
 
   // Preview state
   const [previewMaterial, setPreviewMaterial] = useState<AdminMaterial | null>(null);
-  const [previewBundle, setPreviewBundle] = useState<any | null>(null);
 
   // Fetch initial data
   const fetchData = async () => {
@@ -209,68 +212,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // CRUD for Bundle
-  const handleSaveBundle = async (item: Partial<FullCdiBundle>) => {
-    try {
-      const method = item.id ? 'PUT' : 'POST';
-      const url = item.id ? `/api/admin/bundles/${item.id}` : '/api/admin/bundles';
-
-      const res = await fetch(url, {
-        credentials: 'same-origin', method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(item),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save CDI bundle.');
-
-      showToast(`Successfully saved CDI Exam Bundle "${item.title}"`);
-      setEditorMode('none');
-      setEditingItem(null);
-      fetchData();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
-  const handleDeleteBundle = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this CDI exam bundle?')) return;
-    try {
-      const res = await fetch(`/api/admin/bundles/${id}`, {
-        credentials: 'same-origin', method: 'DELETE',
-        headers: { },
-      });
-      if (!res.ok) throw new Error('Deletion failed.');
-      showToast('CDI bundle deleted successfully.');
-      fetchData();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
-  const handlePreviewBundle = async (id: string) => {
-    try {
-      const res = await fetch(`/api/admin/bundles/${id}`, {
-        credentials: 'same-origin', headers: { },
-      });
-      if (res.ok) {
-        const d = await res.json();
-        setPreviewBundle(d);
-      }
-    } catch (err) {
-      console.error('Failed to load bundle preview:', err);
-    }
-  };
-
-  const categorizedMaterials = {
-    listening: materials.filter((m) => m.section === 'listening'),
-    reading: materials.filter((m) => m.section === 'reading'),
-    writing: materials.filter((m) => m.section === 'writing'),
-    speaking: materials.filter((m) => m.section === 'speaking'),
-  };
-
   return (
     <div className="space-y-6">
       {/* Top Admin Header Bar */}
@@ -350,8 +291,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>Import HTML</span>
             </button>
             <button
+              id="btn-new-full-cdi"
               onClick={() => {
                 setEditingItem(null);
+                setEditingBundleId(null);
                 setEditorMode('bundle');
               }}
               className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white bg-brand-600 hover:bg-brand-500 transition-colors shadow-xs"
@@ -452,14 +395,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
 
           {editorMode === 'bundle' && (
-            <AdminCdiBundleBuilder
-              initialData={editingItem}
-              materials={categorizedMaterials}
-              onSave={handleSaveBundle}
-              onCancel={() => {
+            <AdminBundleBuilder
+              bundleId={editingBundleId}
+              onClose={() => {
                 setEditorMode('none');
-                setEditingItem(null);
+                setEditingBundleId(null);
               }}
+              onChanged={fetchData}
+              onToast={showToast}
             />
           )}
         </div>
@@ -479,6 +422,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             Material Repository ({materials.length})
           </button>
           <button
+            id="tab-bundles"
             onClick={() => setActiveTab('bundles')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'bundles'
@@ -554,76 +498,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Bundles Tab */}
       {activeTab === 'bundles' && (
-        <div className="space-y-4">
-          <div className="bg-white border border-ink-200 rounded-2xl overflow-hidden shadow-2xs divide-y divide-ink-100">
-            {bundles.length === 0 ? (
-              <div className="p-8 text-center text-ink-500 text-xs">
-                No CDI Exam Bundles assembled yet. Click <strong>+ Full CDI</strong> to assemble a 4-skill mock test.
-              </div>
-            ) : (
-              bundles.map((bundle) => (
-                <div
-                  key={bundle.id}
-                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-ink-50/70 transition-colors"
-                >
-                  <div className="flex items-start space-x-3">
-                    <div className="w-8 h-8 rounded-lg bg-brand-50 text-brand-700 flex items-center justify-center font-bold text-xs mt-1">
-                      CDI
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs font-bold text-ink-900">{bundle.title}</span>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            bundle.status === 'published'
-                              ? 'bg-success-50 text-success-700'
-                              : 'bg-ink-100 text-ink-600'
-                          }`}
-                        >
-                          {bundle.status}
-                        </span>
-                      </div>
-                      <p className="text-xs text-ink-500 line-clamp-1 mt-0.5">{bundle.description}</p>
-                      <div className="flex items-center space-x-2 mt-1 text-[11px] text-ink-400 font-medium">
-                        <span>Total: ~{bundle.timings.listeningMinutes + bundle.timings.readingMinutes + bundle.timings.writingMinutes + bundle.timings.speakingMinutes} mins</span>
-                        <span>•</span>
-                        <span>{bundle.module.toUpperCase()}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-1 self-end sm:self-center">
-                    <button
-                      onClick={() => handlePreviewBundle(bundle.id)}
-                      className="p-1.5 text-ink-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg text-xs flex items-center space-x-1"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Preview</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setEditingItem(bundle);
-                        setEditorMode('bundle');
-                      }}
-                      className="p-1.5 text-ink-500 hover:text-ink-900 hover:bg-ink-100 rounded-lg text-xs flex items-center space-x-1"
-                    >
-                      <Edit className="w-3.5 h-3.5" />
-                      <span>Edit</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteBundle(bundle.id)}
-                      className="p-1.5 text-ink-400 hover:text-danger-500 hover:bg-danger-50 rounded-lg"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <AdminBundleCatalog
+          onEdit={(id) => {
+            setEditingItem(null);
+            setEditingBundleId(id);
+            setEditorMode('bundle');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onChanged={fetchData}
+          onToast={showToast}
+        />
       )}
 
       {/* Source Library Tab */}
@@ -651,7 +535,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="p-4 bg-white border border-ink-200 rounded-xl">
             <span className="text-xs text-ink-500 font-semibold block mb-1">Full CDI Simulations</span>
             <div className="text-2xl font-extrabold text-brand-600">{stats.totalBundles}</div>
-            <div className="text-[11px] text-ink-400 mt-1 font-medium">Ready for real-time exam mode</div>
+            <div className="text-[11px] text-ink-400 mt-1 font-medium">Assembled bundles, in any status</div>
           </div>
 
           <div className="p-4 bg-white border border-ink-200 rounded-xl">
@@ -687,16 +571,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* Preview Modal */}
-      {(previewMaterial || previewBundle) && (
-        <AdminPreviewModal
-          material={previewMaterial}
-          bundle={previewBundle}
-          onClose={() => {
-            setPreviewMaterial(null);
-            setPreviewBundle(null);
-          }}
-        />
-      )}
+      {previewMaterial && <AdminPreviewModal material={previewMaterial} onClose={() => setPreviewMaterial(null)} />}
     </div>
   );
 };

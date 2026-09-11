@@ -6,9 +6,9 @@ import {
   isCanonicalQuestionType,
   normalizeAuthoredQuestions,
 } from '../src/schemas/question';
-import { bundleToAdaptedTest, sectionAvailable } from '../src/services/publishedTests';
+import { sittingToAdaptedTest, sectionAvailable } from '../src/services/publishedTests';
 import { MOCK_TEST_1 } from '../src/data/mockBank';
-import type { FullCdiBundle } from '../src/types/admin';
+import type { ExamSitting, SittingComponent } from '../src/types/bundle';
 
 /**
  * The adapter layer, exercised directly.
@@ -19,15 +19,36 @@ import type { FullCdiBundle } from '../src/types/admin';
  * the wrong field name so selecting a published test did nothing at all.
  */
 
-const bundle = (materials: FullCdiBundle['materials']): FullCdiBundle => ({
-  id: 'cdi-test',
-  title: 'Adapter Bundle',
+/** A sitting as the learner route resolves it: exactly the pinned components, nothing else. */
+const sitting = (components: Array<Omit<SittingComponent, 'contentHash'>>): ExamSitting => ({
+  bundle: {
+    id: 'cdi-test',
+    title: 'Adapter Bundle',
+    module: 'academic',
+    publishedAt: '2026-01-01T00:00:00.000Z',
+    timing: { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 14, basis: 'custom', allowEarlyFinish: true },
+  },
+  components: components.map((component) => ({ ...component, contentHash: 'a'.repeat(64) })),
+});
+
+const listeningMaterial = (id: string, part: number, title: string): any => ({
+  id,
+  title,
+  section: 'listening',
   module: 'academic',
   status: 'published',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
-  timings: { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 15 },
-  materials,
+  content: {
+    audioAssetId: `ast_${id.replace(/[^A-Za-z0-9]/g, '')}0000000`,
+    audioUrl: `/api/assets/ast_${id}`,
+    section: {
+      sectionNumber: part,
+      title,
+      contextDescription: 'A call.',
+      questions: [{ type: 'short_answer', prompt: `Question for ${title}`, correctAnswer: 'seven' }],
+    },
+  },
 });
 
 const readingMaterial = (questions: unknown[]): any => ({
@@ -185,21 +206,18 @@ describe('normalizeAuthoredQuestions', () => {
   });
 });
 
-describe('bundleToAdaptedTest', () => {
-  it('reads the resolvedMaterials field the server actually sends', () => {
-    // The client used to destructure `materials`, throw, and turn the failure
-    // into a silent null — so choosing a published test did nothing.
-    const adapted = bundleToAdaptedTest({
-      bundle: bundle({ readingId: 'adm-rea-1' }),
-      resolvedMaterials: {
-        reading: readingMaterial([
-          { type: 'true_false_not_given', prompt: 'Claim one.', correctAnswer: 'FALSE' },
-        ]),
-        listening: null,
-        writing: null,
-        speaking: null,
-      },
-    });
+describe('sittingToAdaptedTest', () => {
+  it('adapts exactly the components the sitting carries, at the parts they were pinned to', () => {
+    const adapted = sittingToAdaptedTest(
+      sitting([
+        {
+          section: 'reading',
+          part: 2,
+          materialId: 'adm-rea-1',
+          material: readingMaterial([{ type: 'true_false_not_given', prompt: 'Claim one.', correctAnswer: 'FALSE' }]),
+        },
+      ]),
+    );
 
     expect(adapted.test.id).toBe('cdi-test');
     expect(adapted.test.title).toBe('Adapter Bundle');
@@ -208,90 +226,101 @@ describe('bundleToAdaptedTest', () => {
     expect(passages[0].title).toBe('Algae');
     expect(passages[0].passageNumber).toBe(2);
     expect(passages[0].questions[0].prompt).toBe('Claim one.');
-    expect(adapted.missingSections).toHaveLength(0);
   });
 
   it('never hands the learner a question with an empty prompt', () => {
-    const adapted = bundleToAdaptedTest({
-      bundle: bundle({ readingId: 'adm-rea-1' }),
-      resolvedMaterials: {
-        reading: readingMaterial([
-          { id: 1, type: 'multiple_choice', questionText: 'Legacy text', options: ['A', 'B'], correctAnswer: 'A' },
-          { id: 2, type: 'fill_in_the_blank', prompt: 'Canonical text', correctAnswer: 'x' },
-        ]),
-        listening: null,
-        writing: null,
-        speaking: null,
-      },
-    });
+    const adapted = sittingToAdaptedTest(
+      sitting([
+        {
+          section: 'reading',
+          part: 1,
+          materialId: 'adm-rea-1',
+          material: readingMaterial([
+            { id: 1, type: 'multiple_choice', questionText: 'Legacy text', options: ['A', 'B'], correctAnswer: 'A' },
+            { id: 2, type: 'fill_in_the_blank', prompt: 'Canonical text', correctAnswer: 'x' },
+          ]),
+        },
+      ]),
+    );
 
     const questions = adapted.test.reading?.passages[0].questions ?? [];
     expect(questions).toHaveLength(2);
     expect(questions.filter((q) => !q.prompt)).toHaveLength(0);
   });
 
-  it('reports a skill the bundle named but could not supply', () => {
-    const adapted = bundleToAdaptedTest({
-      bundle: bundle({ readingId: 'adm-rea-1', listeningId: 'adm-lis-missing' }),
-      resolvedMaterials: {
-        reading: readingMaterial([
-          { type: 'true_false_not_given', prompt: 'Claim.', correctAnswer: 'TRUE' },
-        ]),
-        // A draft material inside a published bundle resolves to null.
-        listening: null,
-        writing: null,
-        speaking: null,
-      },
-    });
+  it('reports every section it cannot supply, and substitutes nothing', () => {
+    const adapted = sittingToAdaptedTest(
+      sitting([
+        {
+          section: 'reading',
+          part: 1,
+          materialId: 'adm-rea-1',
+          material: readingMaterial([{ type: 'true_false_not_given', prompt: 'Claim.', correctAnswer: 'TRUE' }]),
+        },
+      ]),
+    );
 
-    expect(adapted.missingSections).toEqual(['listening']);
-    // Nothing is substituted for it. The screen refuses to open Listening and
-    // says which test is misconfigured, instead of seating the learner in front
-    // of the built-in paper under this bundle's title.
+    expect(adapted.missingSections).toEqual(['listening', 'writing', 'speaking']);
+    // The screen refuses a missing section instead of seating the learner in
+    // front of the built-in paper under this bundle's title.
     expect(adapted.test.listening).toBe(null);
     expect(sectionAvailable(adapted.test, 'listening')).toBe(false);
     expect(sectionAvailable(adapted.test, 'reading')).toBe(true);
   });
 
+  it('orders Listening parts by part, each from its own material, with its recording', () => {
+    const adapted = sittingToAdaptedTest(
+      sitting([
+        { section: 'listening', part: 2, materialId: 'adm-lis-2', material: listeningMaterial('adm-lis-2', 2, 'Second') },
+        { section: 'listening', part: 1, materialId: 'adm-lis-1', material: listeningMaterial('adm-lis-1', 1, 'First') },
+      ]),
+    );
+
+    const parts = adapted.test.listening?.parts ?? [];
+    expect(parts.map((part) => [part.partNumber, part.title])).toEqual([
+      [1, 'First'],
+      [2, 'Second'],
+    ]);
+    expect(parts[0].audioUrl).toBe('/api/assets/ast_adm-lis-1');
+    expect(parts[1].questions[0].prompt).toBe('Question for Second');
+  });
+
   it('surfaces question issues per skill', () => {
-    const adapted = bundleToAdaptedTest({
-      bundle: bundle({ readingId: 'adm-rea-1' }),
-      resolvedMaterials: {
-        reading: readingMaterial([{ type: 'mystery', prompt: 'x', correctAnswer: 'y' }]),
-        listening: null,
-        writing: null,
-        speaking: null,
-      },
-    });
+    const adapted = sittingToAdaptedTest(
+      sitting([
+        { section: 'reading', part: 1, materialId: 'adm-rea-1', material: readingMaterial([{ type: 'mystery', prompt: 'x', correctAnswer: 'y' }]) },
+      ]),
+    );
 
     expect(adapted.issues.reading).toHaveLength(1);
     expect(adapted.issues.reading![0].reason).toBe('unknown_type');
   });
 
   it('adapts writing task 1 and task 2 separately', () => {
-    const adapted = bundleToAdaptedTest({
-      bundle: bundle({ writingId: 'adm-wri-1' }),
-      resolvedMaterials: {
-        reading: null,
-        listening: null,
-        speaking: null,
-        writing: {
-          id: 'adm-wri-1',
-          title: 'Adapter Writing',
+    const adapted = sittingToAdaptedTest(
+      sitting([
+        {
           section: 'writing',
-          module: 'academic',
-          status: 'published',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          updatedAt: '2026-01-01T00:00:00.000Z',
-          content: {
-            task: {
-              task1: { prompt: 'Describe the chart.', minimumWords: 150 },
-              task2: { prompt: 'To what extent do you agree?', minimumWords: 250 },
+          part: 1,
+          materialId: 'adm-wri-1',
+          material: {
+            id: 'adm-wri-1',
+            title: 'Adapter Writing',
+            section: 'writing',
+            module: 'academic',
+            status: 'published',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            content: {
+              task: {
+                task1: { prompt: 'Describe the chart.', minimumWords: 150 },
+                task2: { prompt: 'To what extent do you agree?', minimumWords: 250 },
+              },
             },
-          },
-        } as any,
-      },
-    });
+          } as any,
+        },
+      ]),
+    );
 
     // Both tasks used to receive the same adapted object, so Task 2 showed the
     // Task 1 prompt.

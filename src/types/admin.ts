@@ -133,18 +133,7 @@ export interface AdminWritingMaterial extends BaseAdminMaterial {
 
 export type AdminMaterial = AdminSpeakingMaterial | AdminReadingMaterial | AdminListeningMaterial | AdminWritingMaterial;
 
-export interface FullCdiBundle {
-  id: string;
-  title: string;
-  module: 'academic' | 'general';
-  targetBand?: string;
-  status: AdminContentStatus;
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-  timings: { listeningMinutes: number; readingMinutes: number; writingMinutes: number; speakingMinutes: number };
-  materials: { listeningId?: string; readingId?: string; writingId?: string; speakingId?: string };
-}
+export type { FullCdiBundle } from './bundle';
 
 export interface AdminStats {
   totalMaterials: number;

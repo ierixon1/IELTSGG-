@@ -31,6 +31,8 @@ const { learnerContentRouter } = await import('../src/routes/learnerContentRoute
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { enforceAdminSecurity } = await import('../src/middleware/adminSecurityMiddleware');
 const { publishMaterial } = await import('./publishMaterial');
+const { bundleStore } = await import('../src/services/bundleStore');
+const { materialContentHash } = await import('../src/services/materialVersion');
 
 const ANSWER = 'B. Excessive upfront capital costs';
 const TRANSCRIPT = 'The eco-farm tour runs from the sixth to the twentieth of June.';
@@ -96,12 +98,20 @@ before(async () => {
   await publishMaterial(adminStore, 'reading', reading);
   await publishMaterial(adminStore, 'listening', listening);
 
-  const bundle = await adminStore.saveBundle({
+  const pinned = async (section: 'reading' | 'listening', id: string) => {
+    const material = await adminStore.getMaterial(section, id);
+    if (!material) throw new Error(`fixture ${id} is missing`);
+    return { section, part: 1, materialId: id, contentHash: materialContentHash(material) };
+  };
+  const bundle = await bundleStore.create({
     title: 'Audited CDI',
     module: 'academic',
-    status: 'published',
-    materials: { readingId: reading.id, listeningId: listening.id },
+    components: [await pinned('reading', reading.id), await pinned('listening', listening.id)],
+    timing: { listeningMinutes: 30, readingMinutes: 60, writingMinutes: 60, speakingMinutes: 14, basis: 'custom', allowEarlyFinish: true },
   });
+  // Published at the store, past the gate on purpose: the anonymous routes must
+  // stay safe for any published bundle, including one that no longer passes it.
+  await bundleStore.setStatus(bundle.id, 'published');
   bundleId = bundle.id;
 
   const app = express();
@@ -161,7 +171,11 @@ describe('anonymous access to published content', () => {
     // The learner still needs to know which skills the bundle carries.
     const parsed = JSON.parse(body);
     expect(parsed.bundle.id).toBe(bundleId);
-    expect(parsed.resolvedMaterials.reading.title).toBe('Audited Reading');
+    expect(parsed.bundle.parts.reading).toBe(1);
+    expect(parsed.bundle.parts.listening).toBe(1);
+    // A summary only: no materials, no pinned references.
+    expect(body).not.toContain('materialId');
+    expect(body).not.toContain('Audited Reading');
   });
 
   it('refuses the learner test route without a session', async () => {

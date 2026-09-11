@@ -20,6 +20,9 @@ import type {UploadedAssetSummary} from '../types/asset';
 import {authService} from '../services/authService';
 import {storageProvider} from '../services/storage';
 import {sourceRouter} from './sourceRoutes';
+import {createBundleRouter} from './bundleRoutes';
+import {bundleStore} from '../services/bundleStore';
+import {bundlesReferencing,summarizeBundle} from '../services/bundleService';
 
 export const adminRouter=express.Router();
 type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string};adminSessionToken?:string};
@@ -94,6 +97,8 @@ adminRouter.get('/stats',requireAdminAuth,async(_req,res)=>{try{return res.json(
  * the anonymous `/public/*` routes below.
  */
 adminRouter.use('/sources',requireAdminAuth,requireAdminRole,sourceRouter);
+// Full CDI bundles: reads for any admin session, changes for the admin role (applied per route).
+adminRouter.use('/bundles',requireAdminAuth,createBundleRouter(requireAdminRole));
 /**
  * Accepts one file, verifies it really is what it claims, and stores it as a
  * staged asset.
@@ -244,9 +249,9 @@ async function saveMaterialWithAssets(section:'speaking'|'reading'|'listening'|'
 /**
  * Deletes a material and releases the assets nothing else references.
  *
- * Refused while a bundle still names the material: resolving that slot to null
- * makes the learner sit built-in content under the bundle's own title, which is
- * worse than refusing the delete.
+ * Refused while any bundle still names the material, whatever its status: the
+ * bundle would be left pinning something that no longer exists, and an attempt
+ * that sat it could no longer be reconstructed.
  */
 async function deleteMaterialWithAssets(section:'speaking'|'reading'|'listening'|'writing',id:string){
   const material=await adminStore.getMaterial(section,id);
@@ -258,8 +263,7 @@ async function deleteMaterialWithAssets(section:'speaking'|'reading'|'listening'
     // putting it out of reach.
     return {ok:false as const,status:409,error:'This material is published. Unpublish or archive it before deleting.'};
   }
-  const bundles=await adminStore.listBundles();
-  const blocking=bundles.filter(b=>Object.values(b.materials||{}).includes(id));
+  const blocking=await bundlesReferencing(id);
   if(blocking.length>0){
     return {ok:false as const,status:409,error:`This material is used by ${blocking.length} CDI bundle(s): ${blocking.map(b=>b.title).join(', ')}. Remove it from them first.`};
   }
@@ -352,11 +356,6 @@ adminRouter.post('/materials/:section/:id/:action(publish|unpublish|archive|rest
     return res.status(400).json({error:error instanceof Error?error.message:'Unable to change status.'});
   }
 });
-adminRouter.get('/bundles',requireAdminAuth,async(req,res)=>res.json({bundles:await adminStore.listBundles(['all','published','draft'].includes(String(req.query.status))?String(req.query.status) as any:undefined)}));
-adminRouter.get('/bundles/:id',requireAdminAuth,async(req,res)=>{const x=await adminStore.getResolvedBundle(req.params.id);return x?res.json(x):res.status(404).json({error:'CDI Bundle not found.'});});
-adminRouter.post('/bundles',requireAdminAuth,requireAdminRole,async(req,res)=>res.json({success:true,bundle:await adminStore.saveBundle(deepSanitizeHtml(req.body))}));
-adminRouter.put('/bundles/:id',requireAdminAuth,requireAdminRole,async(req,res)=>res.json({success:true,bundle:await adminStore.saveBundle({...deepSanitizeHtml(req.body),id:req.params.id})}));
-adminRouter.delete('/bundles/:id',requireAdminAuth,requireAdminRole,async(req,res)=>await adminStore.deleteBundle(req.params.id)?res.json({success:true}):res.status(404).json({error:'Bundle not found.'}));
 // ---------------------------------------------------------------------------
 // Anonymous routes. These sit behind no session at all, so they carry metadata
 // only: never an answer key, never a marking explanation, never a Listening
@@ -364,5 +363,6 @@ adminRouter.delete('/bundles/:id',requireAdminAuth,requireAdminRole,async(req,re
 // from /api/learner/* instead, which requires a session.
 // ---------------------------------------------------------------------------
 adminRouter.get('/public/materials/:section',async(req,res)=>{if(!isSection(req.params.section))return res.status(400).json({error:'Invalid section.'});const items=await adminStore.listMaterials(req.params.section,'published');return res.json({items:items.map(toPublicMaterialSummary)});});
-adminRouter.get('/public/bundles',async(_req,res)=>res.json({bundles:await adminStore.listBundles('published')}));
-adminRouter.get('/public/bundles/:id',async(req,res)=>{const x=await adminStore.getResolvedBundle(req.params.id);if(!x||x.bundle.status!=='published')return res.status(404).json({error:'Published CDI exam not found.'});const resolvedMaterials=Object.fromEntries(Object.entries(x.resolvedMaterials).map(([k,v])=>[k,v?toPublicMaterialSummary(v):null]));return res.json({bundle:x.bundle,resolvedMaterials});});
+// A published bundle's summary only: what it is, its timing and how many parts each section has. No materials.
+adminRouter.get('/public/bundles/:id',async(req,res)=>{try{const bundle=await bundleStore.get(req.params.id);if(!bundle||bundle.status!=='published')return res.status(404).json({error:'Published CDI exam not found.'});return res.json({bundle:summarizeBundle(bundle)});}catch(error){console.error('[Bundles] public read failed:',error);return res.status(500).json({error:'Unable to load the exam.'});}});
+adminRouter.get('/public/bundles',async(_req,res)=>{try{const bundles=await bundleStore.list('published');return res.json({bundles:bundles.map(summarizeBundle)});}catch(error){console.error('[Bundles] public list failed:',error);return res.status(500).json({error:'Unable to load published exams.'});}});

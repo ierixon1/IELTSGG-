@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MockTest, SkillType, WritingGradingResult } from '../types';
-import { PublishedTestSummary, SittableTest, sectionAvailable } from '../services/publishedTests';
+import { SittableTest, sectionAvailable } from '../services/publishedTests';
+import type { LearnerBundleSummary } from '../types/bundle';
 import { SectionUnavailable } from './common/SectionUnavailable';
 import { LearnerMaterialCatalog } from './LearnerMaterialCatalog';
 import { ListeningSession } from './ListeningSession';
@@ -18,7 +19,7 @@ interface MocksHubProps {
   onWritingGraded?: (result: WritingGradingResult, essay: string) => void;
   onSpeakingGraded?: (transcript: string) => void;
   /** Tests published from the admin CMS, alongside the built-in one. */
-  publishedTests?: PublishedTestSummary[];
+  publishedTests?: LearnerBundleSummary[];
   activeTestId?: string;
   builtInTestId?: string;
   onSelectTest?: (id: string) => void;
@@ -59,7 +60,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
   // `@types/react` is not installed, so `React.FC<Props>` provides no
   // contextual type and a destructuring default infers `never[]`. Defaulting
   // here keeps the declared element type.
-  const tests: PublishedTestSummary[] = publishedTests ?? [];
+  const tests: LearnerBundleSummary[] = publishedTests ?? [];
   const gaps: SkillType[] = missingSections ?? [];
   const [activeSection, setActiveSection] = useState<SkillType | null>(
     initialSelectedSection || null,
@@ -190,7 +191,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
             {builtInTestId && <option value={builtInTestId}>{t('mocks.builtInTest')}</option>}
             {tests.map((test) => (
               <option key={test.id} value={test.id}>
-                {test.title}
+                {test.available ? test.title : `${test.title} — ${t('exam.unavailable')}`}
               </option>
             ))}
           </select>

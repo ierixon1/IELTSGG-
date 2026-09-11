@@ -20,7 +20,7 @@ import type { AdminMaterial, MaterialLifecycleStatus } from '../src/types/admin'
  * offer it.
  *
  * The learner assertions are the other half of removing the built-in-test
- * backfill. `bundleToAdaptedTest` returning null for a missing section is only
+ * backfill. `sittingToAdaptedTest` returning null for a missing section is only
  * safe because the screens refuse to open one — a test asserting the adapter
  * alone would not notice a screen that crashed or, worse, rendered an empty
  * paper as though it were the real thing.
@@ -82,17 +82,9 @@ const hub = (test: SittableTest, initialSelectedSection: 'reading' | 'listening'
     ),
   );
 
-const exam = (test: SittableTest) =>
+const exam = () =>
   renderToStaticMarkup(
-    createElement(
-      I18nProvider,
-      null,
-      createElement(ExamMode, {
-        mockTest: test,
-        onCompleteExam: () => {},
-        onExitExam: () => {},
-      }),
-    ),
+    createElement(I18nProvider, null, createElement(ExamMode, { onCompleteExam: () => {}, onExitExam: () => {} })),
   );
 
 describe('the admin material catalog', () => {
@@ -208,17 +200,12 @@ describe('a learner screen given a section the test does not carry', () => {
     expect(html.includes(String(borrowedTitle))).toBe(false);
   });
 
-  it('refuses to start a full exam that is missing a paper', () => {
-    const html = exam(halfATest);
+  it('offers a full exam only from published bundles, never the built-in test', () => {
+    const html = exam();
 
-    expect(html.includes('exam-configuration-error')).toBe(true);
-    expect(html.includes('section-unavailable-listening')).toBe(true);
-    expect(html.includes('section-unavailable-writing')).toBe(true);
-    expect(html.includes('section-unavailable-speaking')).toBe(true);
-  });
-
-  it('starts a full exam when every paper is there', () => {
-    const html = exam(builtInSittableTest());
-    expect(html.includes('exam-configuration-error')).toBe(false);
+    expect(html.includes('exam-bundle-catalog')).toBe(true);
+    // Nothing is sittable until a published bundle has been opened through the server.
+    expect(html.includes('btn-start-exam')).toBe(false);
+    expect(html.includes(builtInSittableTest().title)).toBe(false);
   });
 });

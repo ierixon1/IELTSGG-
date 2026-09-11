@@ -157,12 +157,13 @@ describe('attempt persistence', () => {
     expect(response.status).toBe(401);
   });
 
-  it('stores a full-mock attempt and reads it back under the learner', async () => {
+  it('stores a full-mock attempt recorded before exam attempts named their bundle', async () => {
+    // Exam-mode attempts are verified against their bundle (tests/bundleExam.test.ts);
+    // an older attempt that does not claim exam mode is stored as it was.
     const attempt = {
       id: 'attempt-1',
       testId: 'cdi-bundle-7',
       testTitle: 'Pipeline CDI',
-      mode: 'exam',
       isFullMock: true,
       date: '2026-09-09',
       scores: {
@@ -197,9 +198,9 @@ describe('attempt persistence', () => {
   });
 
   it('rejects an attempt carrying unknown fields', async () => {
-    // The schema is strict. Phase 10 widens it deliberately, for `answers`,
-    // `bundleId`, `materialRevision`, `startedAt` and `completedAt` — so this
-    // assertion is the thing that will have to change, on purpose.
+    // The schema is strict. Exam records have their own named fields
+    // (`responses`, `writingTasks`, `speakingParts`, `sections`); a loose
+    // `answers` map is still not one of them.
     const response = await post('/api/data/attempts', {
       id: 'attempt-extra',
       testId: 't1',

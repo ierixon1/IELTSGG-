@@ -1,19 +1,17 @@
 import React from 'react';
 import { X, Eye, BookOpen, Headphones, Edit3, Mic, CheckCircle2 } from 'lucide-react';
-import { AdminMaterial, FullCdiBundle } from '../../types/admin';
+import { AdminMaterial } from '../../types/admin';
 
 interface AdminPreviewModalProps {
   material?: AdminMaterial | null;
-  bundle?: { bundle: FullCdiBundle; resolvedMaterials: any } | null;
   onClose: () => void;
 }
 
 export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
   material,
-  bundle,
   onClose,
 }) => {
-  if (!material && !bundle) return null;
+  if (!material) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-ink-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -195,52 +193,6 @@ export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
             </div>
           )}
 
-          {/* Bundle Preview */}
-          {bundle && (
-            <div className="space-y-4">
-              <div className="border-b border-ink-100 pb-3">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-600">
-                  FULL CDI TEST EXAM
-                </span>
-                <h3 className="text-xl font-bold text-ink-900">{bundle.bundle.title}</h3>
-                <p className="text-xs text-ink-500 mt-1">{bundle.bundle.description}</p>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <div className="p-3 bg-brand-50 border border-brand-200 rounded-xl">
-                  <div className="text-[10px] font-bold text-brand-700 uppercase">Listening</div>
-                  <div className="text-xs font-extrabold text-ink-900">{bundle.bundle.timings.listeningMinutes} min</div>
-                  <div className="text-[10px] text-ink-500 truncate mt-1">
-                    {bundle.resolvedMaterials.listening?.title || 'Default Track'}
-                  </div>
-                </div>
-
-                <div className="p-3 bg-success-50 border border-success-50 rounded-xl">
-                  <div className="text-[10px] font-bold text-success-700 uppercase">Reading</div>
-                  <div className="text-xs font-extrabold text-ink-900">{bundle.bundle.timings.readingMinutes} min</div>
-                  <div className="text-[10px] text-ink-500 truncate mt-1">
-                    {bundle.resolvedMaterials.reading?.title || 'Default Passage'}
-                  </div>
-                </div>
-
-                <div className="p-3 bg-warning-50 border border-warning-50 rounded-xl">
-                  <div className="text-[10px] font-bold text-warning-700 uppercase">Writing</div>
-                  <div className="text-xs font-extrabold text-ink-900">{bundle.bundle.timings.writingMinutes} min</div>
-                  <div className="text-[10px] text-ink-500 truncate mt-1">
-                    {bundle.resolvedMaterials.writing?.title || 'Default Tasks'}
-                  </div>
-                </div>
-
-                <div className="p-3 bg-danger-50 border border-danger-50 rounded-xl">
-                  <div className="text-[10px] font-bold text-danger-700 uppercase">Speaking</div>
-                  <div className="text-xs font-extrabold text-ink-900">{bundle.bundle.timings.speakingMinutes} min</div>
-                  <div className="text-[10px] text-ink-500 truncate mt-1">
-                    {bundle.resolvedMaterials.speaking?.title || 'Default Interview'}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Footer */}
