@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { MockTest, SkillType, WritingGradingResult } from '../types';
+import { AnswerValue, SittingQuestion, SkillType, WritingGradingResult } from '../types';
+import type { PracticeMarking, PracticeSection } from '../types/practice';
 import { SittableTest, sectionAvailable } from '../services/publishedTests';
 import type { LearnerBundleSummary } from '../types/bundle';
 import { SectionUnavailable } from './common/SectionUnavailable';
@@ -13,7 +14,10 @@ import { useT } from '../i18n';
 import { Badge, Button, Card } from './ui';
 
 interface MocksHubProps {
-  mockTest: SittableTest;
+  /** The test on screen, without answer keys. */
+  mockTest: SittableTest<SittingQuestion>;
+  /** Marks a submitted Listening or Reading section on the server, against this test. */
+  onMarkPractice: (section: PracticeSection, answers: Record<string, AnswerValue>) => Promise<PracticeMarking>;
   onRecordScore: (skill: SkillType, band: number, raw?: number) => void;
   initialSelectedSection?: SkillType | null;
   onWritingGraded?: (result: WritingGradingResult, essay: string) => void;
@@ -44,6 +48,7 @@ const SECTIONS: Array<{ skill: SkillType; icon: React.ElementType; iconClass: st
 
 export const MocksHub: React.FC<MocksHubProps> = ({
   mockTest,
+  onMarkPractice,
   onRecordScore,
   initialSelectedSection,
   onWritingGraded,
@@ -90,6 +95,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
     return (
       <ListeningSession
         listeningData={mockTest.listening}
+        mark={(answers) => onMarkPractice('listening', answers)}
         onRecordScore={(band, raw) => onRecordScore('listening', band, raw)}
         onBackToMocks={() => setActiveSection(null)}
       />
@@ -100,6 +106,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
     return (
       <ReadingSession
         readingData={mockTest.reading}
+        mark={(answers) => onMarkPractice('reading', answers)}
         onRecordScore={(band, raw) => onRecordScore('reading', band, raw)}
         onBackToMocks={() => setActiveSection(null)}
       />

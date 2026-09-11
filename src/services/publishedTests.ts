@@ -1,8 +1,9 @@
-import { AdminMaterial } from '../types/admin';
-import type { ExamSitting, LearnerBundleErrorCode, LearnerBundleSummary } from '../types/bundle';
+import type { AnswerValue, SittingQuestion } from '../types';
+import type { LearnerBundleErrorCode, LearnerBundleSummary } from '../types/bundle';
+import type { PracticeMarking, PracticeSection, PracticeSource, PracticeTest } from '../types/practice';
 import { MOCK_TEST_1 } from '../data/mockBank';
 import type { PublicMaterialSummary } from './publicMaterialView';
-import { type AdaptedTest, type SittableTest, materialToSittable } from './sittingAdapters';
+import { type SittableTest, toPracticeTest } from './sittingAdapters';
 
 export * from './sittingAdapters';
 
@@ -10,10 +11,10 @@ export * from './sittingAdapters';
  * Loads published content for the practice screens.
  *
  * Two ways in: a whole bundle, resolved by the server into exactly the
- * materials it pinned, or one published material opened by id. The adapters
- * that shape either one live in `sittingAdapters`, where the exam session uses
- * them too. A full exam does not come through here at all: it is sat through an
- * exam session, which never sends an answer key to the browser.
+ * materials it pinned, or one published material opened by id. Either arrives
+ * already adapted and without a single answer key; a submitted section is
+ * marked by the server (`markPracticeSection`). A full exam does not come
+ * through here at all: it is sat through an exam session.
  */
 
 export type LearnerBundlesLoad = { ok: true; bundles: LearnerBundleSummary[] } | { ok: false; message: string };
@@ -30,41 +31,36 @@ export async function fetchLearnerBundles(): Promise<LearnerBundlesLoad> {
   }
 }
 
-export type SittingLoad =
-  | { ok: true; sitting: ExamSitting }
+export type PracticeBundleLoad =
+  | ({ ok: true } & PracticeTest)
   | { ok: false; code: LearnerBundleErrorCode | 'unauthorized' | 'network'; message: string };
 
-/**
- * One published bundle, resolved server-side into the exact materials it pinned.
- *
- * Reads the authenticated endpoint: marking needs the answer key, and the key
- * never goes to an anonymous request.
- */
-export async function fetchExamSitting(id: string): Promise<SittingLoad> {
+/** One published bundle for section practice, resolved server-side into the exact materials it pinned. */
+export async function fetchPracticeBundle(id: string): Promise<PracticeBundleLoad> {
   try {
     const response = await fetch(`/api/learner/bundles/${encodeURIComponent(id)}`, { credentials: 'same-origin' });
     const body = await response.json().catch(() => null);
-    if (response.status === 401) return { ok: false, code: 'unauthorized', message: 'Sign in to sit this exam.' };
+    if (response.status === 401) return { ok: false, code: 'unauthorized', message: 'Sign in to practise this test.' };
     if (!response.ok) {
       return {
         ok: false,
         code: (body?.code as LearnerBundleErrorCode | undefined) ?? 'invalid_bundle',
-        message: body?.error || `This exam could not be opened (${response.status}).`,
+        message: body?.error || `This test could not be opened (${response.status}).`,
       };
     }
-    return { ok: true, sitting: body as ExamSitting };
+    const loaded = body as PracticeTest;
+    return { ok: true, test: loaded.test, missingSections: loaded.missingSections };
   } catch {
-    return { ok: false, code: 'network', message: 'This exam could not be opened: the server did not answer.' };
+    return { ok: false, code: 'network', message: 'This test could not be opened: the server did not answer.' };
   }
 }
 
 /**
- * The built-in demo test, as something a learner may choose on purpose for
- * section practice.
+ * The built-in demo test, with its answer keys.
  *
- * It is reached solely by picking it from the practice list by name. It is never
- * used to fill a gap in a real test, and the full exam never offers it: exam
- * mode sits published bundles only.
+ * Kept whole for the server, which marks practice on it. It is reached solely by
+ * picking it from the practice list by name; it is never used to fill a gap in a
+ * real test, and the full exam never offers it.
  */
 export function builtInSittableTest(): SittableTest {
   return {
@@ -77,6 +73,11 @@ export function builtInSittableTest(): SittableTest {
     speaking: MOCK_TEST_1.speaking,
     origin: 'built_in',
   };
+}
+
+/** The built-in demo test as the practice screens hold it: no keys, marked on the server like any other. */
+export function builtInPracticeTest(): SittableTest<SittingQuestion> {
+  return toPracticeTest(builtInSittableTest());
 }
 
 /** Published materials in one section, for the learner catalog. */
@@ -106,18 +107,52 @@ export async function fetchLearnerMaterials(
 export async function fetchLearnerMaterial(
   section: 'listening' | 'reading' | 'writing' | 'speaking',
   id: string,
-): Promise<AdaptedTest | null> {
+): Promise<PracticeTest | null> {
   try {
     const response = await fetch(`/api/learner/materials/${section}/${encodeURIComponent(id)}`, {
       credentials: 'same-origin',
     });
     if (!response.ok) return null;
-    const data = await response.json();
-    if (!data?.item) return null;
-    return materialToSittable(data.item as AdminMaterial);
+    const data = (await response.json()) as Partial<PracticeTest> | null;
+    if (!data?.test) return null;
+    return { test: data.test, missingSections: data.missingSections ?? [] };
   } catch (error) {
     console.warn('Could not load published material:', error);
     return null;
   }
 }
 
+/** Why a submitted section could not be marked. */
+export class PracticeMarkingError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PracticeMarkingError';
+  }
+}
+
+/** Marks a submitted Listening or Reading section on the server. Rejects with a `PracticeMarkingError`. */
+export async function markPracticeSection(
+  source: PracticeSource,
+  section: PracticeSection,
+  answers: Record<string, AnswerValue>,
+): Promise<PracticeMarking> {
+  let response: Response;
+  try {
+    response = await fetch('/api/learner/practice/mark', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, section, answers }),
+    });
+  } catch {
+    throw new PracticeMarkingError('network', 'The answers could not be marked: the server did not answer.');
+  }
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new PracticeMarkingError(typeof body?.code === 'string' ? body.code : 'unknown', body?.error || `The answers could not be marked (${response.status}).`);
+  }
+  return body as PracticeMarking;
+}

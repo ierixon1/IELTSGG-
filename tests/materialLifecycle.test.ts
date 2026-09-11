@@ -186,14 +186,32 @@ describe('draft to learner, the whole way', () => {
     // 7. Learner opens exactly that id, and gets a sittable material.
     const openedResponse = await learner(`/api/learner/materials/reading/${listed.id}`);
     expect(openedResponse.status).toBe(200);
-    const opened = (await openedResponse.json()).item;
+    const openedText = await openedResponse.text();
+    const opened = JSON.parse(openedText).test;
     expect(opened.id).toBe(draft.id);
-    expect(opened.content.passage.questions).toHaveLength(2);
-    expect(opened.content.passage.questions[0].prompt).toBe(
+    expect(opened.reading.passages[0].questions).toHaveLength(2);
+    expect(opened.reading.passages[0].questions[0].prompt).toBe(
       'Path integration accumulates error with distance.',
     );
-    // Marking happens in the browser, so a signed-in learner does get the key.
-    expect(opened.content.passage.questions[0].correctAnswer).toBe('TRUE');
+    // The key stays on the server until the learner submits.
+    expect(opened.reading.passages[0].questions[0].correctAnswer).toBe(undefined);
+    expect(openedText.includes('correctAnswer')).toBe(false);
+
+    // 8. Submitted, it is marked on the server against exactly this material.
+    const marked = await learner('/api/learner/practice/mark', {
+      method: 'POST',
+      body: JSON.stringify({
+        source: { kind: 'material', section: 'reading', materialId: draft.id },
+        section: 'reading',
+        answers: { 'lc-1': 'TRUE', 'lc-2': 'wrong' },
+      }),
+    });
+    expect(marked.status).toBe(200);
+    const marking = await marked.json();
+    expect([marking.correct, marking.total]).toEqual([1, 2]);
+    expect(marking.results['lc-1']).toEqual({ correct: true, answers: ['TRUE'] });
+    expect(marking.results['lc-2'].correct).toBe(false);
+    expect(marking.results['lc-2'].answers).toEqual(['step']);
   });
 });
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnswerValue, ListeningData, ListeningPart, QuestionBody, SittingQuestion } from '../types';
-import { checkQuestionAnswer, objectiveSectionScore } from '../utils/ieltsScoring';
+import type { PracticeMarking } from '../types/practice';
 import { 
   Headphones, 
   Play, 
@@ -20,9 +20,15 @@ import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionBlock';
 
+/**
+ * Practice: the questions arrive without keys, and a submission is marked by
+ * the server, which returns the verdicts, correct answers and explanations
+ * shown once the learner has submitted.
+ */
 interface PracticeProps {
   examMode?: false;
-  listeningData: ListeningData;
+  listeningData: ListeningData<SittingQuestion>;
+  mark: (answers: Record<string, AnswerValue>) => Promise<PracticeMarking>;
   onRecordScore?: (band: number, rawScore: number) => void;
   onBackToMocks?: () => void;
 }
@@ -149,34 +155,41 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
     exam?.onAnswersChange(next);
   };
 
-  // Practice marks here, across all parts. An exam has no keys to mark with.
-  const practiceQuestions = practice ? practice.listeningData.parts.flatMap((p) => p.questions) : [];
-  const practiceById = new Map(practiceQuestions.map((question) => [question.id, question]));
-  /**
-   * Marked once per question, so the same verdict drives the score, the number
-   * marker and the feedback line.
-   */
-  const results: Record<string, boolean> = Object.fromEntries(
-    practiceQuestions.map((q) => [q.id, checkQuestionAnswer(q, userAnswers[q.id])]),
-  );
-  const { correct: correctCount, band } = objectiveSectionScore('listening', practiceQuestions, userAnswers);
-  const questionTotal = parts.reduce((sum, part) => sum + part.questions.length, 0);
+  // Practice marking comes back from the server; nothing on this screen can mark.
+  const [marking, setMarking] = useState<PracticeMarking | null>(null);
+  const [isMarking, setIsMarking] = useState(false);
+  const [markingError, setMarkingError] = useState<string | null>(null);
+  /** One verdict per question, so the score, the number marker and the feedback line agree. */
+  const results: Record<string, boolean> | undefined = marking
+    ? Object.fromEntries(Object.entries(marking.results).map(([id, feedback]) => [id, feedback.correct]))
+    : undefined;
 
-  const handleSubmit = () => {
-    setSubmittedHere(true);
+  const handleSubmit = async () => {
     stopAudio();
     if (exam) {
+      setSubmittedHere(true);
       exam.onSubmitAnswers();
       return;
     }
-    practice?.onRecordScore?.(band, correctCount);
-
-    if (band >= 7.0) {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-      });
+    if (!practice || isMarking) return;
+    setIsMarking(true);
+    setMarkingError(null);
+    try {
+      const marked = await practice.mark(userAnswers);
+      setMarking(marked);
+      setSubmittedHere(true);
+      practice.onRecordScore?.(marked.band, marked.correct);
+      if (marked.band >= 7.0) {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+        });
+      }
+    } catch (error) {
+      setMarkingError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsMarking(false);
     }
   };
 
@@ -347,18 +360,14 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
               groupName={`listening-${currentPart.partNumber}`}
               results={isSubmitted && !examMode ? results : undefined}
               renderFeedback={(rendered, isCorrect) => {
-                const question = practiceById.get(rendered.id);
-                if (!question) return null;
+                const feedback = marking?.results[rendered.id];
+                if (!feedback) return null;
                 return (
                   <AnswerVerdict
-                    question={question}
+                    feedback={feedback}
                     correct={isCorrect}
                     correctLabel={t('session.correct')}
-                    incorrectLabel={t('session.incorrect', {
-                      answers: Array.isArray(question.correctAnswer)
-                        ? question.correctAnswer.join(' / ')
-                        : question.correctAnswer,
-                    })}
+                    incorrectLabel={t('session.incorrect', { answers: feedback.answers.join(' / ') })}
                   />
                 );
               }}
@@ -369,36 +378,44 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
         {/* Action Button & Results Card */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-ink-100">
           {!isSubmitted ? (
-            <button
-              id="btn-submit-listening"
-              onClick={handleSubmit}
-              className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-ink-900 hover:bg-ink-800 text-white font-semibold text-sm transition-all shadow-md ml-auto"
-            >
-              <span>{t('session.submit')}</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            <>
+              {markingError && (
+                <p id="listening-marking-error" role="alert" className="text-sm text-danger-700">
+                  {markingError}
+                </p>
+              )}
+              <button
+                id="btn-submit-listening"
+                onClick={() => void handleSubmit()}
+                disabled={isMarking}
+                className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-ink-900 hover:bg-ink-800 text-white font-semibold text-sm transition-all shadow-md ml-auto disabled:opacity-60"
+              >
+                <span>{t('session.submit')}</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </>
           ) : examMode ? (
             <p id="listening-answers-submitted" className="w-full rounded-xl border border-ink-200 bg-ink-50 p-4 text-sm font-semibold text-ink-700">
               {t('exam.answersSubmitted')}
             </p>
-          ) : (
-            <div className="w-full flex items-center justify-between bg-success-50 border border-success-50 p-4 rounded-xl">
+          ) : marking ? (
+            <div id="listening-practice-result" className="w-full flex items-center justify-between bg-success-50 border border-success-50 p-4 rounded-xl">
               <div>
                 <span className="text-xs font-bold text-success-700 uppercase tracking-wider">
                   {t('listening.resultTitle')}
                 </span>
                 <div className="text-sm text-ink-800 font-semibold mt-0.5 tabular">
-                  {t('session.raw', { correct: correctCount, total: questionTotal })}
+                  {t('session.raw', { correct: marking.correct, total: marking.total })}
                 </div>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="text-right">
                   <div className="text-xs text-ink-500 font-medium">{t('session.conversion')}</div>
-                  <div className="font-mono text-xl font-bold tabular text-success-700">{band.toFixed(1)}</div>
+                  <div className="font-mono text-xl font-bold tabular text-success-700">{marking.band.toFixed(1)}</div>
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

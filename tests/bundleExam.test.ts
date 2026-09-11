@@ -7,6 +7,7 @@ import type { Server } from 'node:http';
 import { expect } from './harness';
 import { removeTempRoot } from './tempDir';
 import type { ExamSitting } from '../src/types/bundle';
+import type { PracticeTest } from '../src/types/practice';
 import {
   CUSTOM_TIMING,
   FULL_SLOTS,
@@ -48,6 +49,7 @@ const { authenticateRequest } = await import('../src/middleware/authMiddleware')
 const { assetStore } = await import('../src/services/assetStore');
 const { bundleStore } = await import('../src/services/bundleStore');
 const { buildExamPlan } = await import('../src/services/examRun');
+const { openSitting } = await import('../src/services/bundleService');
 
 let server: Server;
 let origin = '';
@@ -261,10 +263,10 @@ describe('a learner opens exactly what was published', () => {
   });
 
   it('resolves the bundle to the exact components it pinned, in exam order', async () => {
-    const response = await learner(`/api/learner/bundles/${bundleId}`);
-    expect(response.status).toBe(200);
-    const text = await response.text();
-    sitting = JSON.parse(text);
+    const outcome = await openSitting(bundleId);
+    if (!outcome.ok) throw new Error(`the bundle did not resolve: ${outcome.code}`);
+    sitting = outcome.sitting;
+    const text = JSON.stringify(sitting);
 
     expect(sitting.components.map((entry) => [entry.section, entry.part, entry.materialId])).toEqual(
       FULL_SLOTS.map(({ section, part }) => [section, part, ids[slotKey(section, part)]]),
@@ -279,13 +281,30 @@ describe('a learner opens exactly what was published', () => {
 
     const listening1 = sitting.components[0].material;
     expect(listening1.section === 'listening' && listening1.content.audioUrl).toBe(`/api/assets/${audio[1]}`);
-    // What a sitting must not carry.
+    // What the resolved sitting must not carry, even on the server.
     for (const withheld of ['provenance', 'importRecord', 'generationRecord', 'sourceAssetId', 'audioTranscript', '"transcript"', 'needsReview', 'customGradingCriteria']) {
       expect(text.includes(withheld)).toBe(false);
     }
-    // This is the practice sitting, marked in the browser, so the key travels. A full
-    // exam is sat through an exam session whose paper never carries one (tests/examSession.test.ts).
+    // The server marks from this, so its questions keep their keys; no learner response is this object.
     expect(text.includes(listeningAnswer(1, 1))).toBe(true);
+  });
+
+  it('sends the learner that bundle for practice with every component and no answer key', async () => {
+    const response = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    const practice = JSON.parse(text) as PracticeTest;
+
+    expect(practice.missingSections).toEqual([]);
+    expect(practice.test.listening?.parts.map((part) => part.questions.map((question) => question.id))).toEqual(
+      [1, 2, 3, 4].map((part) => [`lis-p${part}-q1`, `lis-p${part}-q2`]),
+    );
+    expect(practice.test.reading?.passages).toHaveLength(3);
+    expect(practice.test.listening?.parts[0].audioUrl).toBe(`/api/assets/${audio[1]}`);
+    for (const withheld of ['correctAnswer', 'acceptableAnswers', 'explanation', 'provenance', 'importRecord', 'generationRecord', 'sourceAssetId', 'needsReview', 'customGradingCriteria']) {
+      expect(text.includes(withheld)).toBe(false);
+    }
+    for (const part of [1, 2, 3, 4]) for (const index of [1, 2] as const) expect(text.includes(listeningAnswer(part, index))).toBe(false);
   });
 
   it('plans a full exam from it, with the configured minutes', () => {
@@ -331,8 +350,8 @@ describe('a published bundle that goes bad is refused, never patched', () => {
 
     const reopened = await learner(`/api/learner/bundles/${bundleId}`);
     expect(reopened.status).toBe(200);
-    const passage2 = ((await reopened.json()) as ExamSitting).components.find((entry) => entry.section === 'reading' && entry.part === 2)!.material;
-    expect(passage2.section === 'reading' && passage2.content.passage.questions[0].prompt).toBe('An edited first question');
+    const passage2 = ((await reopened.json()) as PracticeTest).test.reading?.passages.find((passage) => passage.passageNumber === 2);
+    expect(passage2?.questions[0].prompt).toBe('An edited first question');
   });
 
   it('refuses it while a component is withdrawn', async () => {

@@ -1,8 +1,10 @@
 import express, { Response } from 'express';
+import { z } from 'zod';
 import { adminStore } from '../services/adminStore';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { toPublicMaterialSummary } from '../services/publicMaterialView';
-import { listLearnerBundles, openSitting } from '../services/bundleService';
+import { listLearnerBundles } from '../services/bundleService';
+import { markPractice, practiceTestFor, type PracticeFailure } from '../services/practiceMarking';
 import { toLearnerMaterial } from '../services/sittingView';
 import { assetStore } from '../services/assetStore';
 import { sendAsset } from './adminRoutes';
@@ -10,12 +12,13 @@ import { sendAsset } from './adminRoutes';
 /**
  * Published content for a signed-in learner.
  *
- * This router exists to separate two things the CMS used to serve from one
- * place: the anonymous catalog view, which must not carry answer keys, and the
- * sittable test, which cannot be marked without them. Marking happens in the
- * browser, so the key has to reach a learner who is actually taking the test —
- * but it has no business reaching an anonymous request, and the `/public/*`
- * routes now withhold it.
+ * No response here carries an answer key, an explanation, generation
+ * provenance or an imported page's printed key section — not to an anonymous
+ * request, and not to a signed-in learner either. A practice test is sent
+ * without keys; when the learner submits a Listening or Reading section,
+ * `POST /learner/practice/mark` marks it on the server and returns the
+ * verdicts, correct answers and explanations practice shows after submission.
+ * A full exam goes through an exam session (`examSessionRoutes`).
  *
  * Mounted behind `authenticateRequest`, so `req.userId` is always present here.
  */
@@ -38,11 +41,11 @@ learnerContentRouter.get('/learner/bundles', async (_req: AuthenticatedRequest, 
   }
 });
 
+const refuse = (res: Response, failure: PracticeFailure) => res.status(failure.status).json({ error: failure.error, code: failure.code });
+
 /**
- * One published bundle, resolved to exactly the materials it pinned, for
- * section practice — which marks in the browser, so the keys travel here. A full
- * exam is never sat from this response: it goes through an exam session
- * (`examSessionRoutes`), whose paper carries no key.
+ * One published bundle, for section practice: exactly the materials it pinned,
+ * adapted for the practice screens, with no answer key anywhere.
  *
  * Refused — with a code the screen turns into an explanation — when the
  * bundle does not exist, has been withdrawn or retired, or no longer passes the
@@ -50,9 +53,8 @@ learnerContentRouter.get('/learner/bundles', async (_req: AuthenticatedRequest, 
  */
 learnerContentRouter.get('/learner/bundles/:id', async (req: AuthenticatedRequest, res) => {
   try {
-    const outcome = await openSitting(req.params.id);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error, code: outcome.code });
-    return res.json(outcome.sitting);
+    const outcome = await practiceTestFor({ kind: 'bundle', bundleId: req.params.id });
+    return outcome.ok ? res.json(outcome.value) : refuse(res, outcome);
   } catch (error) {
     console.error('[LearnerContent] bundle read error:', error);
     return res.status(500).json({ error: 'The exam could not be loaded.', code: 'invalid_bundle' });
@@ -71,16 +73,45 @@ learnerContentRouter.get('/learner/materials/:section', async (req: Authenticate
   }
 });
 
-/** One published material in full, answer keys included, for a sitting. */
+/** One published material, adapted for practice, with no answer key anywhere. */
 learnerContentRouter.get('/learner/materials/:section/:id', async (req: AuthenticatedRequest, res) => {
   if (!isSection(req.params.section)) return res.status(400).json({ error: 'Invalid section.' });
   try {
-    const item = await adminStore.getMaterial(req.params.section, req.params.id);
-    if (!item || item.status !== 'published') return unavailable(res);
-    return res.json({ item: toLearnerMaterial(item, { keepTranscript: true }) });
+    const outcome = await practiceTestFor({ kind: 'material', section: req.params.section, materialId: req.params.id });
+    return outcome.ok ? res.json(outcome.value) : unavailable(res);
   } catch (error) {
     console.error('[LearnerContent] material read error:', error);
     return unavailable(res);
+  }
+});
+
+const answerValue = z.union([z.string().max(2000), z.array(z.string().max(2000)).max(50)]);
+const markBody = z
+  .object({
+    source: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('builtin') }).strict(),
+      z.object({ kind: z.literal('bundle'), bundleId: z.string().min(1).max(200) }).strict(),
+      z.object({ kind: z.literal('material'), section: z.enum(['listening', 'reading', 'writing', 'speaking']), materialId: z.string().min(1).max(200) }).strict(),
+    ]),
+    section: z.enum(['listening', 'reading']),
+    answers: z.record(z.string().min(1).max(128), answerValue).refine((answers) => Object.keys(answers).length <= 400, 'Too many answers.'),
+  })
+  .strict();
+
+/**
+ * Marks a submitted practice section against the test the learner opened, and
+ * returns what practice shows after submission: each question's verdict, its
+ * correct answer and explanation, and the section score.
+ */
+learnerContentRouter.post('/learner/practice/mark', async (req: AuthenticatedRequest, res) => {
+  const body = markBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Invalid practice submission.' });
+  try {
+    const outcome = await markPractice(body.data.source, body.data.section, body.data.answers);
+    return outcome.ok ? res.json(outcome.value) : refuse(res, outcome);
+  } catch (error) {
+    console.error('[LearnerContent] practice marking error:', error);
+    return res.status(500).json({ error: 'The answers could not be marked.' });
   }
 });
 

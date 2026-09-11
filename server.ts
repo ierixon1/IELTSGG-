@@ -14,6 +14,7 @@ import { IELTS_THEMES, READING_QUESTION_TYPES, LISTENING_QUESTION_TYPES, WRITING
 import { executeGeminiWithRetry, AiUnavailableError } from './prompts/geminiRetry';
 import { getGenAI, gradeWithFallback, gradeSpeakingSubmission, gradeWritingSubmission } from './src/services/grading';
 import { examSessionRouter } from './src/routes/examSessionRoutes';
+import { withoutAnswerKeys } from './src/services/learnerRedaction';
 import { adminRouter } from './src/routes/adminRoutes';
 import { userDataRouter } from './src/routes/userDataRoutes';
 import { learnerContentRouter } from './src/routes/learnerContentRoutes';
@@ -64,7 +65,8 @@ app.post('/api/mocks/generate',async(req:AuthenticatedRequest,res)=>{
     const result=await mockGeneratorService.generateMock(parsed.data,recentThemes);
     await dataStore.recordGeneratedTest(req.userId,{id:result.id,userId:req.userId,timestamp:new Date().toISOString(),module:result.module,section:result.section,targetBand:result.targetBand,theme:result.theme,contentHash:result.contentHash,title:result.title,questionTypes:result.questionTypes,data:result.testData});
     const quota=await dataStore.getDailyQuota(req.userId);
-    return res.json({success:true,test:result,remainingGenerations:Math.max(0,RATE_LIMIT_GENERATIONS-quota.generationsCount),recentThemesCount:recentThemes.length});
+    // The learner is sent the test without its keys, explanations or provenance; the stored record keeps them.
+    return res.json({success:true,test:withoutAnswerKeys(result),remainingGenerations:Math.max(0,RATE_LIMIT_GENERATIONS-quota.generationsCount),recentThemesCount:recentThemes.length});
   }catch(error){
     if(error instanceof Error&&error.message==='Daily generation limit reached.')return res.status(429).json({error:error.message,quota:{max:RATE_LIMIT_GENERATIONS}});
     console.error('[Mocks]',error);
@@ -87,7 +89,7 @@ app.get('/api/mocks/:id',async(req:AuthenticatedRequest,res)=>{
     if(!req.userId)return res.status(401).json({error:'Unauthorized.'});
     const test=await dataStore.getGeneratedTestById(req.userId,req.params.id);
     if(!test)return res.status(404).json({error:'Mock test not found.'});
-    return res.json(test);
+    return res.json(withoutAnswerKeys(test));
   }catch(error){console.error('[Mock lookup]',error);return res.status(500).json({error:'Unable to load mock test.'});}
 });
 

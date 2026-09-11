@@ -10,14 +10,15 @@ import { MOCK_TEST_1 } from './data/mockBank';
 import { MockTest } from './types';
 import {
   SittableTest,
-  builtInSittableTest,
-  fetchExamSitting,
+  builtInPracticeTest,
+  fetchPracticeBundle,
+  markPracticeSection,
   fetchLearnerBundles,
   fetchLearnerMaterial,
-  sittingToAdaptedTest,
 } from './services/publishedTests';
 import type { LearnerBundleSummary } from './types/bundle';
-import { VocabCard, WritingGradingResult } from './types';
+import { SittingQuestion, VocabCard, WritingGradingResult } from './types';
+import type { PracticeSource } from './types/practice';
 import { fetchInitialData, syncDataToServer, fetchVocabCards, saveVocabCards } from './services/api';
 import { generateInitialPlan, recalculatePlan, RecalculationResult } from './utils/planEngine';
 import { harvestFromSpeaking, harvestFromWriting } from './utils/vocabEngine';
@@ -81,8 +82,10 @@ export default function App() {
    * swaps the material every session screen works from.
    */
   const [publishedTests, setPublishedTests] = useState<LearnerBundleSummary[]>([]);
-  const [activeTest, setActiveTest] = useState<SittableTest>(() => builtInSittableTest());
+  const [activeTest, setActiveTest] = useState<SittableTest<SittingQuestion>>(() => builtInPracticeTest());
   const [activeTestId, setActiveTestId] = useState<string>(MOCK_TEST_1.id);
+  /** What the server marks a submitted section against: the test on screen, by source. */
+  const [practiceSource, setPracticeSource] = useState<PracticeSource>({ kind: 'builtin' });
   /**
    * Why the last requested test could not be opened.
    *
@@ -220,23 +223,24 @@ export default function App() {
   const handleSelectTest = async (id: string) => {
     setActiveTestError(null);
     if (id === MOCK_TEST_1.id) {
-      setActiveTest(builtInSittableTest());
+      setActiveTest(builtInPracticeTest());
       setActiveTestId(MOCK_TEST_1.id);
+      setPracticeSource({ kind: 'builtin' });
       setActiveTestGaps([]);
       return;
     }
 
-    const load = await fetchExamSitting(id);
+    const load = await fetchPracticeBundle(id);
     if (!load.ok) {
       // Not a fallback: the previously loaded test stays visible under its own
       // name, and the learner is told why this one did not open.
       setActiveTestError(`That test could not be opened (${id}, ${load.code}): ${load.message}`);
       return;
     }
-    const adapted = sittingToAdaptedTest(load.sitting);
-    setActiveTest(adapted.test);
+    setActiveTest(load.test);
     setActiveTestId(id);
-    setActiveTestGaps(adapted.missingSections);
+    setPracticeSource({ kind: 'bundle', bundleId: id });
+    setActiveTestGaps(load.missingSections);
   };
 
   /**
@@ -260,6 +264,7 @@ export default function App() {
     }
     setActiveTest(adapted.test);
     setActiveTestId(id);
+    setPracticeSource({ kind: 'material', section: section as 'listening' | 'reading' | 'writing' | 'speaking', materialId: id });
     setActiveTestGaps(adapted.missingSections);
   };
 
@@ -406,7 +411,7 @@ export default function App() {
         className="es-enter flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8"
       >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
-        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} missingSections={activeTestGaps} onOpenMaterial={handleOpenMaterial} loadError={activeTestError} />}
+        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onMarkPractice={(section, answers) => markPracticeSection(practiceSource, section, answers)} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} missingSections={activeTestGaps} onOpenMaterial={handleOpenMaterial} loadError={activeTestError} />}
         {activeTab === 'exam' && <ExamMode onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}
         {activeTab === 'vocab' && <VocabTrainer cards={vocabCards} onUpdateCards={persistVocab} />}

@@ -7,7 +7,8 @@ import { AdminMaterialCatalog } from '../src/components/admin/AdminMaterialCatal
 import { MocksHub } from '../src/components/MocksHub';
 import { ExamMode } from '../src/components/ExamMode';
 import { I18nProvider } from '../src/i18n';
-import { builtInSittableTest } from '../src/services/publishedTests';
+import { builtInPracticeTest, builtInSittableTest } from '../src/services/publishedTests';
+import type { SittingQuestion } from '../src/types';
 import type { SittableTest } from '../src/services/publishedTests';
 import type { AdminMaterial, MaterialLifecycleStatus } from '../src/types/admin';
 
@@ -69,13 +70,14 @@ const catalog = (materials: AdminMaterial[]) =>
     }),
   );
 
-const hub = (test: SittableTest, initialSelectedSection: 'reading' | 'listening' | null = null) =>
+const hub = (test: SittableTest<SittingQuestion>, initialSelectedSection: 'reading' | 'listening' | null = null) =>
   renderToStaticMarkup(
     createElement(
       I18nProvider,
       null,
       createElement(MocksHub, {
         mockTest: test,
+        onMarkPractice: () => Promise.reject(new Error('not marked in a render test')),
         onRecordScore: () => {},
         initialSelectedSection,
       }),
@@ -156,12 +158,12 @@ describe('the admin material catalog', () => {
 });
 
 describe('a learner screen given a section the test does not carry', () => {
-  const halfATest: SittableTest = {
+  const halfATest: SittableTest<SittingQuestion> = {
     id: 'cdi-half',
     title: 'Half a Test',
     difficulty: 'Standard Academic',
     listening: null,
-    reading: { passages: builtInSittableTest().reading?.passages ?? [] },
+    reading: { passages: builtInPracticeTest().reading?.passages ?? [] },
     writing: { task1: null, task2: null },
     speaking: null,
     origin: 'bundle',

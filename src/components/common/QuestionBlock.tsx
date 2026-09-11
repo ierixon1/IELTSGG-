@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
-import { AnswerValue, Question, QuestionBody, QuestionLayout } from '../../types';
+import { AnswerValue, QuestionBody, QuestionLayout } from '../../types';
 import { QuestionField, QuestionInstruction, QuestionMedia } from './QuestionField';
 import { cx } from '../ui';
 
@@ -241,13 +241,17 @@ export const QuestionBlock: React.FC<QuestionBlockProps> = ({
   );
 };
 
-/** The standard correct/incorrect line, shared by both session screens. */
+/**
+ * The standard correct/incorrect line, shared by both session screens. It shows
+ * the feedback the server returned after submission; the screen holds no key of
+ * its own to show.
+ */
 export const AnswerVerdict: React.FC<{
-  question: Question;
+  feedback: { explanation?: string };
   correct: boolean;
   correctLabel: string;
   incorrectLabel: string;
-}> = ({ question, correct, correctLabel, incorrectLabel }) => (
+}> = ({ feedback, correct, correctLabel, incorrectLabel }) => (
   <div className="mt-2 space-y-1 border-t border-ink-200/60 pt-2 text-xs">
     <div className="flex items-center gap-1.5 font-bold">
       <Verdict correct={correct} />
@@ -255,8 +259,8 @@ export const AnswerVerdict: React.FC<{
         {correct ? correctLabel : incorrectLabel}
       </span>
     </div>
-    {question.explanation && (
-      <p className="leading-relaxed text-ink-600">{question.explanation}</p>
+    {feedback.explanation && (
+      <p className="leading-relaxed text-ink-600">{feedback.explanation}</p>
     )}
   </div>
 );

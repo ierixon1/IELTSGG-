@@ -5,6 +5,7 @@ import {
   SpeakingData,
   MockTest,
   Question,
+  QuestionBody,
   ReadingPassage,
   SittingQuestion,
   SkillType,
@@ -36,12 +37,12 @@ import { QuestionIssue, normalizeAuthoredQuestions } from '../schemas/question';
  * be backfilled from the built-in test. `SittableTest` can say a section is not
  * there, and a null section is a configuration error the learner is shown.
  */
-export interface SittableTest {
+export interface SittableTest<Q extends QuestionBody = Question> {
   id: string;
   title: string;
   difficulty: MockTest['difficulty'];
-  listening: ListeningData | null;
-  reading: ReadingData | null;
+  listening: ListeningData<Q> | null;
+  reading: ReadingData<Q> | null;
   writing: { task1: WritingTaskData | null; task2: WritingTaskData | null };
   speaking: SpeakingData | null;
   /** Where this came from, so a screen can say what the learner is sitting. */
@@ -58,7 +59,7 @@ export interface AdaptedTest {
 }
 
 /** Whether a sittable test can actually open this skill. */
-export function sectionAvailable(test: SittableTest, skill: SkillType): boolean {
+export function sectionAvailable(test: SittableTest<QuestionBody>, skill: SkillType): boolean {
   switch (skill) {
     case 'listening':
       return (test.listening?.parts.length ?? 0) > 0;
@@ -299,5 +300,22 @@ export function toExamPaper(test: SittableTest): ExamPaper | null {
     reading: { passages: reading.passages.map((passage) => ({ ...passage, questions: passage.questions.map(toSittingQuestion) })) },
     writing: { task1, task2 },
     speaking,
+  };
+}
+
+/**
+ * A test as the practice screens receive it: every section the test carries,
+ * every question without its key, explanation or provenance.
+ *
+ * Practice is marked on the server (`POST /api/learner/practice/mark`), which
+ * returns the verdicts and the correct answers only once the learner submits.
+ * Unlike an exam paper, a practice test may carry only some sections, and a
+ * Listening part keeps its transcript for reading along.
+ */
+export function toPracticeTest(test: SittableTest): SittableTest<SittingQuestion> {
+  return {
+    ...test,
+    listening: test.listening ? { parts: test.listening.parts.map((part) => ({ ...part, questions: part.questions.map(toSittingQuestion) })) } : null,
+    reading: test.reading ? { passages: test.reading.passages.map((passage) => ({ ...passage, questions: passage.questions.map(toSittingQuestion) })) } : null,
   };
 }

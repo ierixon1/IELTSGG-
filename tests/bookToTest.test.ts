@@ -686,11 +686,13 @@ describe('the generated draft goes through the existing review and lifecycle', (
       headers: { cookie: learnerCookie },
     });
     expect(learner.status).toBe(200);
-    const item = (await learner.json()).item;
-    expect(item.content.passage.questions).toHaveLength(1);
+    const learnerText = await learner.text();
+    const questions = JSON.parse(learnerText).test.reading.passages[0].questions;
+    expect(questions).toHaveLength(1);
     // Provenance quotes the sentence the answer rests on. A learner sitting does
     // not need it, so it stays on the stored material and never reaches the learner.
-    expect(item.content.passage.questions[0].provenance).toBe(undefined);
+    expect(learnerText.includes('provenance')).toBe(false);
+    expect(learnerText.includes('evidence')).toBe(false);
     const stored = await adminStore.getMaterial('reading', materialId);
     const storedQuestion = stored?.section === 'reading' ? stored.content.passage.questions[0] : undefined;
     expect(storedQuestion?.provenance?.sourceId).toBe(source.id);
