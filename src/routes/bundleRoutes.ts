@@ -11,6 +11,7 @@ import {
 } from '../services/bundleService';
 import type { BundleLifecycleStatus } from '../types/bundle';
 import { guardAsyncHandlers } from '../http/asyncHandlers';
+import { isStorageUnavailableError } from '../services/storage/availability';
 
 /**
  * The admin side of Full CDI bundles: the catalog, the builder's data, and the
@@ -30,12 +31,15 @@ const STATE_STATUS: Record<BundleStateCode, number> = {
   bundle_not_draft: 409,
   bundle_published: 409,
   bundle_was_published: 409,
+  bundle_changed: 409,
   invalid_transition: 409,
 };
 
 const STATUSES: Array<BundleLifecycleStatus | 'all'> = ['all', 'draft', 'published', 'archived'];
 
 function fail(res: Response, error: unknown, context: string) {
+  // A data backend that cannot be reached is the API error boundary's 503, not a bundle failure.
+  if (isStorageUnavailableError(error)) throw error;
   if (error instanceof BundleStateError) {
     return res.status(STATE_STATUS[error.code]).json({ error: error.message, code: error.code });
   }

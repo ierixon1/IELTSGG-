@@ -114,7 +114,8 @@ export async function publishBundle(id: string): Promise<PublishOutcome> {
   }
   const blockers = await checkBundle(bundle);
   if (blockers.length > 0) return { ok: false, blockers };
-  return { ok: true, bundle: await bundleStore.setStatus(id, 'published') };
+  // Published only if the stored bundle is still the revision the gate just read.
+  return { ok: true, bundle: await bundleStore.setStatus(id, 'published', bundle.updatedAt) };
 }
 
 const TRANSITIONS: Record<'unpublish' | 'archive' | 'restore', { from: FullCdiBundle['status'][]; to: FullCdiBundle['status'] }> = {
@@ -131,7 +132,7 @@ export async function transitionBundle(id: string, action: 'unpublish' | 'archiv
   if (!rule.from.includes(bundle.status)) {
     throw new BundleStateError('invalid_transition', `A ${bundle.status} bundle cannot be ${action === 'unpublish' ? 'unpublished' : `${action}d`}.`);
   }
-  return bundleStore.setStatus(id, rule.to);
+  return bundleStore.setStatus(id, rule.to, bundle.updatedAt);
 }
 
 /** The first kind of problem, in the order a learner can do least about. */

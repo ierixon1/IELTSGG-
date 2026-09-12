@@ -144,9 +144,19 @@ class AssetStore {
     if (ids.length === 0) return;
     if (useFirestore()) {
       const db = getFirestoreDb();
-      const batch = db.batch();
-      for (const id of ids) batch.set(db.collection('admin_assets').doc(id), { state }, { merge: true });
-      await batch.commit();
+      // Only records that exist are changed, as the local store changes only the
+      // assets it finds. A merge on an id with no record would create one holding
+      // nothing but `state`: a file with no bytes that the publish gate then counts
+      // as present. Chunked below Firestore's 500 writes per transaction.
+      for (let start = 0; start < ids.length; start += 400) {
+        const refs = ids.slice(start, start + 400).map((id) => db.collection('admin_assets').doc(id));
+        await db.runTransaction(async (tx) => {
+          const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
+          snapshots.forEach((snapshot, index) => {
+            if (snapshot.exists) tx.update(refs[index], { state });
+          });
+        });
+      }
       return;
     }
     const assets = this.readAll();

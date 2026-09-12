@@ -21,11 +21,17 @@ export class FirestoreDataStore implements DataStore{
  private get db():Firestore{return getFirestoreDb();}
  private userRef(userId:string){assertUserId(userId);return this.db.collection('users').doc(userId);} private subRef(userId:string,c:string){return this.userRef(userId).collection(c);} private quotaRef(userId:string,date:string){return this.subRef(userId,'quotas').doc(date);}
  async getUserProfile(userId:string):Promise<UserProfile|null>{const s=await this.userRef(userId).get();return s.exists?(s.data()?.profile as UserProfile)||null:null;}
- async saveUserProfile(userId:string,profile:UserProfile){await this.userRef(userId).set({profile:{...profile,id:userId},updatedAt:FieldValue.serverTimestamp()},{merge:true});}
+ /**
+  * The user document can hold more than the profile, so only the two fields written
+  * here are replaced — and `profile` is replaced whole. A merge would keep an exam
+  * date or a name the learner cleared, where the local store writes the profile
+  * afresh (H5).
+  */
+ async saveUserProfile(userId:string,profile:UserProfile){await this.userRef(userId).set({profile:{...profile,id:userId},updatedAt:FieldValue.serverTimestamp()},{mergeFields:['profile','updatedAt']});}
  async getUserTasks(userId:string):Promise<PlanTask[]>{const s=await this.subRef(userId,'tasks').get();return s.docs.sort((a,b)=>a.id.localeCompare(b.id)).map(d=>d.data() as PlanTask);}
  async saveUserTasks(userId:string,tasks:PlanTask[]){const c=this.subRef(userId,'tasks');const keep=new Map(tasks.map(t=>[t.id,t]));await this.db.runTransaction(async tx=>{const old=await tx.get(c);old.docs.filter(d=>!keep.has(d.id)).forEach(d=>tx.delete(d.ref));tasks.forEach(t=>{if(!t?.id||typeof t.id!=='string'||t.id.length>128)throw new Error('Invalid task identifier.');tx.set(c.doc(t.id),t);});});}
  async getUserChecklist(userId:string):Promise<ChecklistWeek[]>{const s=await this.subRef(userId,'checklist').get();return s.docs.sort((a,b)=>a.id.localeCompare(b.id)).map(d=>d.data() as ChecklistWeek);}
- async saveUserChecklist(userId:string,checklist:ChecklistWeek[]){const c=this.subRef(userId,'checklist');const keep=new Map(checklist.map(x=>[String(x.weekNumber),x]));await this.db.runTransaction(async tx=>{const old=await tx.get(c);old.docs.filter(d=>!keep.has(d.id)).forEach(d=>tx.delete(d.ref));checklist.forEach(x=>{const id=String(x.weekNumber);if(!/^-?\\d+$/.test(id)||id.length>12)throw new Error('Invalid checklist week identifier.');tx.set(c.doc(id),x);});});}
+ async saveUserChecklist(userId:string,checklist:ChecklistWeek[]){const c=this.subRef(userId,'checklist');const keep=new Map(checklist.map(x=>[String(x.weekNumber),x]));await this.db.runTransaction(async tx=>{const old=await tx.get(c);old.docs.filter(d=>!keep.has(d.id)).forEach(d=>tx.delete(d.ref));checklist.forEach(x=>{const id=String(x.weekNumber);if(!/^-?\d+$/.test(id)||id.length>12)throw new Error('Invalid checklist week identifier.');tx.set(c.doc(id),x);});});}
  async getUserAttempts(userId:string):Promise<MockAttempt[]>{const s=await this.subRef(userId,'attempts').get();return s.docs.map(d=>d.data() as MockAttempt);}
  async saveUserAttempt(userId:string,attempt:MockAttempt){assertUserId(userId);if(!attempt?.id||typeof attempt.id!=='string'||attempt.id.length>128)throw new Error('Invalid attempt identifier.');await this.subRef(userId,'attempts').doc(attempt.id).set({...attempt,userId});}
  async getUserVocab(userId:string):Promise<VocabCard[]>{const s=await this.subRef(userId,'vocab').get();return s.docs.map(d=>d.data() as VocabCard);}

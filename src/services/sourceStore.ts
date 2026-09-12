@@ -80,7 +80,10 @@ class SourceStore {
   async save(source: StoredSource): Promise<StoredSource> {
     assertId(source.id);
     if (useFirestore()) {
-      await this.collection().doc(source.id).set(source, { merge: true });
+      // A source is always saved whole, so it replaces what is stored, as the local
+      // store does. A merge would keep the `error` of a failed run on the source a
+      // later run made ready (H5).
+      await this.collection().doc(source.id).set(source);
       return source;
     }
     const items = this.read<StoredSource>('sources');

@@ -187,7 +187,10 @@ class AdminStore {
         const existing=await tx.get(ref);
         const previous=(existing.exists?existing.data():undefined)as Record<string,unknown>|undefined;
         const outcome=this.applySave(section,previous,incoming,id,author,options);
-        if(!outcome.unchanged)tx.set(ref,outcome.material,{merge:true});
+        // The canonical document replaces the stored one, as the local store replaces
+        // its row. A merge keeps every nested field the save no longer carries — old
+        // passage markup, a removed audio or source id — and learners are served it (H5).
+        if(!outcome.unchanged)tx.set(ref,outcome.material);
         return outcome;
       });
     }

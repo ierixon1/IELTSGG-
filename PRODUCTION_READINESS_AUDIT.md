@@ -29,6 +29,17 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **H3 is resolved.** Every file read — learner or staff — goes through one policy that decides from the role the stored records give the file, not from its id. A learner gets only the audio and images a published material renders, never an imported original or a source-library file, and every refusal is the same 404 as an unknown id. Learner views no longer carry a material's `assetIds` list. See the H3 resolution.
 > - **Status is still NOT READY.** H2 and H5–H10 are unchanged.
 
+> **Update after Phase 23.**
+> - **H5 is resolved on the Firestore code path.** Material and source saves replace the stored document. The profile replaces its map inside the user document, which stays merged. The intended partial writes — status patches, counters, sign-in fields — keep their merge. A field a save no longer carries is gone from Firestore and from what learners get. This is proven against the in-memory Firestore with behavioural, parity and mutation tests. See the H5 resolution.
+> - **H10 is `UNVERIFIED — real Firestore unavailable`.** This machine has no credentials, project or emulator. Instead, adapter parity, deterministic race and outage tests ran against the in-memory Firestore, and they found and fixed several Firestore-only defects:
+>   - checklist saves always failed;
+>   - a reset token could be used twice;
+>   - asset records were created for missing files;
+>   - a bundle edited during its publish check could be published;
+>   - storage outages were not answered 503 by some write routes.
+>   See the H10 detail.
+> - **Status is still NOT READY.** H2, H6–H9 and H10 remain.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -51,7 +62,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22; 7 open), 14 Medium, 12 Low.
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23; 6 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 14 Medium, 12 Low.
 
 ## Method and evidence legend
 
@@ -88,12 +99,12 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H2 | High | Rate limiting | Global (120/min) and auth limiters are keyed by `req.ip`, with no `trust proxy`, and shared by all users behind one address. | reproduced | Probe 1 S16 | Behind a load balancer every user shares one budget; a classroom behind one NAT gets 429 on exam autosaves and logins. | Configure `trust proxy` for the deployment; key the authenticated limiter by user id; size limits against exam autosave traffic. |
 | H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced; **resolved in Phase 22** (one asset policy; originals and private files refused to learners like unknown ids) | Probe 1 S4; `tests/assetAccess.test.ts` | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
 | H4 | High | Publication integrity | Saving a published material keeps it published without re-running the publish gate. | reproduced; **resolved in Phase 21** (a changed published material is withdrawn to draft in the same write) | Probe 1 D1; `tests/publishedMaterialProtection.test.ts` | Learners are served content the gate would refuse: no questions, missing classification, stale confirmations of generated questions, missing assets. | Re-run the gate on save of a published material (refuse, or move to draft); or require unpublish before edit, as bundles do. |
-| H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); unverified (real Firestore) | Probe 3 F1/F2 | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
+| H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); **resolved in Phase 23** (materials and sources replace the stored document; the profile replaces its map inside a merged user document; proven on the in-memory Firestore, real Firestore unverified — H10) | Probe 3 F1/F2; `tests/firestoreStaleFields.test.ts`, `tests/storageParity.test.ts` | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
 | H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced | Probe 2 A; `examSession.ts:299-319`, `examRun.ts:299-305` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
 | H7 | High | AI reliability | Grading, rewrite, transcribe and mentor calls have no timeout; each fallback model consumes a quota unit; at the limit the learner gets 500 instead of a quota message. | reproduced | Probe 2 B1/B2/C | One outage burns ~3 units per grading (default 4/hour); a hung call holds the request indefinitely; exams can become impossible to finish. | Add per-attempt and total timeouts; charge quota once per grading; map quota refusal to 429 with a clear code. |
 | H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); unverified (Safari/iOS device) | Probe 1 S4b; `ListeningSession.tsx:86-92` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
 | H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`) | `package.json`; `adminRoutes.ts:2,6`; `sourceRoutes.ts:2` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
-| H10 | High | Firestore verification | No real Firestore project has been run, and the fake leaves large paths unexercised. | unverified | Firestore audit below | Production requires Firestore; auth, quotas, sources, Book → Test and contention behaviour are unknown. | Run the full suite and a smoke test against an emulator or staging project before production. |
+| H10 | High | Firestore verification | No real Firestore project has been run. | **`UNVERIFIED — real Firestore unavailable`**. Phase 23 found no credentials, project or emulator on this machine. The adapter parity, race and outage tests pass against the in-memory Firestore. | Firestore audit below; H10 detail; `tests/storageParity.test.ts`, `tests/firestoreTransactions.test.ts` | Production requires Firestore. Real contention and locking, composite indexes, batch limits and cost are unknown. The Firestore-only defects the parity and race tests found are fixed (H10 detail). | Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project (never one holding production data), clean up, and define composite indexes. |
 | H11 | High | Answer keys / exam integrity | The exam session's run view exposes each closed Listening/Reading section's correct count and band before the exam ends; abandoned sessions can be reopened without limit. | reproduced (counts exposed mid-exam); hypothesis (key derivation); **resolved in Phase 19** (no marks in any response before the exam finishes) | Probe 1 S9b; `tests/examOracle.test.ts` | Repeated sessions let a learner infer closed-choice keys from count changes; far slower than C1 and bounded by timing when early finish is off. | Withhold objective counts and bands from the run view until the exam is finished; consider limiting abandoned sittings per bundle. Exam session logic was out of Phase 18 scope. |
 | M1 | Medium | Deployment | Port is hard-coded to 3000; `process.env.PORT` is ignored. | confirmed | `server.ts:24,179` | Platforms that assign `PORT` (Heroku, Railway; Cloud Run defaults to 8080) cannot route to the app without extra configuration. | Honour `PORT`. |
 | M2 | Medium | Web security | No CSP, frame protection, HSTS, nosniff or Referrer-Policy on app or API responses; `X-Powered-By: Express`. | reproduced | Probe 1 H1 | The exam and admin UIs can be framed (clickjacking); weaker defence in depth. | Add security headers in production. |
@@ -536,6 +547,67 @@ Rate limiting alone does not fix it.
 
 **Recommendation.** Write the fully validated material without merge. Verify on an emulator.
 
+**Resolution (Phase 23)** — resolved on the Firestore code path; proven against the in-memory Firestore, not a real project (H10).
+
+- **Writes audited.** Every Firestore write with merge or partial semantics was classified, to decide between replacing the document and keeping a partial write.
+  - **Complete canonical documents — now replaced.**
+    - Material saves (`adminStore.saveMaterialDetailed`, inside its transaction) and source saves (`sourceStore.save`).
+    - Both write a document that is the whole entity: the parsed canonical material, or a complete `StoredSource`. The local stores replace these rows.
+  - **Partial by intent — kept.**
+    - The material status patch `{status, updatedAt}`, inside the transaction that read the row.
+    - Counters: request rate limits, AI quota, daily quota.
+    - Sign-in and reset fields, written with `update` and removed with `FieldValue.delete()`.
+  - **A merged document holding a canonical field — the merge kept, the field replaced.** The user document is merged at its top level; its `profile` field is always a complete profile. `saveUserProfile` now writes `mergeFields: ['profile','updatedAt']`: other top-level fields stay, and the profile is replaced whole, as the local store writes the profile file afresh.
+  - **Already full writes.** Bundles, attempts, exam sessions, the generation ledger and run log, chunks, asset records and auth sessions.
+  - **A merge that created documents.** Asset state (`promote`/`reconcile`) merged `{state}` onto ids that may have no record, creating a record holding only `state`; the publish gate then counted a missing file as present. It now updates, inside a transaction, only the records that exist.
+- **Stale fields, before.** On Firestore:
+  - a Reading material saved without its passage markup, page markup, `sourceAssetId`, `assetIds` or a question's `explanation` kept all of them, and learners were served the old passage and the old explanation;
+  - an imported Listening material kept its old page and section markup and its source reference;
+  - a source saved ready after a failed run kept the failure's `error`;
+  - a profile kept an exam date and a name that were no longer in it.
+- **Invariant.** For materials and sources, what Firestore holds after a save is exactly the canonical document the save produced and returned — removed fields included — and it equals what the store reads back. The same holds on the local stores.
+  - A material save that omits a *top-level* field still carries the stored value forward on both backends (`finalise`). That is the save contract, not a storage merge.
+  - `importRecord`, `generationRecord` and reviewer decisions are carried forward as evidence (Phases 12–14).
+- **Tests.**
+  - **`tests/firestoreStaleFields.test.ts`** makes each field exist, saves without it through the production route or store, and requires the field gone from the stored document, the stored document equal to the save's result, and the learner response without it:
+    - Reading nested fields, through the practice view and practice marking;
+    - an imported Listening material: markup and source reference gone, the replaced recording refused by the learner asset route, the import record kept;
+    - a source's `error`;
+    - a profile's exam date and name, with the user document's other field kept and `/api/data` updated;
+    - a material naming an id with no asset record: no record is created, and publishing is still refused with `asset_missing`.
+  - **`tests/storageParity.test.ts`** runs removal sequences for materials, bundles, sources, asset records, learner data and the ledger on the local and the Firestore stores, and compares every step.
+  - **`tests/fakeFirestore.test.ts`** pins the write semantics the tests depend on: merge keeps nested fields, `set` replaces, `mergeFields` replaces named fields whole, and `FieldValue.delete()` removes a field.
+- **Transactions and outages (Parts C and D, same phase).** Details are in the H10 detail and the Firestore audit.
+  - Bundle changes are transactional, and a status change checks the revision it was decided on.
+  - The reset token is checked inside its transaction.
+  - Asset state updates only records that exist.
+  - A storage outage reaches the boundary's 503 from the material save and lifecycle, bundle and learner-data routes.
+  - Deterministic races are in `tests/firestoreTransactions.test.ts`; outages are in `firestoreStaleFields` and `tests/firestoreRouteOutage.test.ts`.
+- **Suite.** Full suite 643/643; `tsc --noEmit` clean. The four new store suites ran together 8 times, and the H5 route suite 8 times concurrently with them: 16 of 16 runs passed.
+- **Mutations: 17/17 caught.**
+  - **H5 (stale merges):**
+    - merge restored for material saves;
+    - merge restored for source saves;
+    - profile map merged instead of replaced;
+    - asset state merged onto ids with no record.
+  - **Transactions:**
+    - material revision check skipped;
+    - material, exam session and bundle each written outside their transaction;
+    - bundle revision check skipped;
+    - publish not naming the revision its gate read;
+    - reset token checked outside the transaction only;
+    - delete-field semantics ignored for the reset token.
+  - **Outages:** the material save, bundle and learner-data routes each swallowing a storage outage.
+  - **Parity:**
+    - checklist id pattern broken again;
+    - sign-in answering with the account as read before its write.
+- **Not changed.** H2, H6 and H7; the asset and bundle designs (only their persistence is now transactional); scoring; Book → Test; the CDI parser.
+- **Residual.**
+  - A material save that omits a top-level field keeps the stored value, on both backends, by contract.
+  - The learner material and bundle *read* routes still answer a storage failure with 404 or a generic 500 rather than 503.
+  - One early combined run reported the H5 route suite as failed at file level with no failing test. Its log was not captured, and 16 later runs did not reproduce it.
+  - Real Firestore behaviour remains unverified (H10).
+
 ### H6 — Exam Writing/Speaking lost at the deadline — High, reproduced
 
 **Code path.**
@@ -614,6 +686,44 @@ See the Firestore audit. In summary:
 - the fake serialises all transactions, so real optimistic contention is not modelled;
 - the fake lacks `orderBy` (Probe 3 F3: `getRecentGenerations` throws on the fake);
 - authentication, quotas, rate limits, sources, Book → Test ledger and chunks, and user tasks/checklist/vocab never run against it.
+
+**Status after Phase 23: `UNVERIFIED — real Firestore unavailable`.**
+
+- **Evidence that no real Firestore was available** (checked in Phase 23; variable names only, no secret values read).
+  - `.env` defines `GEMINI_API_KEY` and `STORAGE_BACKEND=local`. It has no `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` or `FIREBASE_PRIVATE_KEY`.
+  - The process environment has no `FIREBASE_*`, `FIRESTORE_*`, `GOOGLE_*`, `GCLOUD*` or `GCP*` variable.
+  - There is no application-default credentials file (`%APPDATA%\gcloud\application_default_credentials.json`). `firebaseAdmin.ts` therefore has nothing to authenticate with.
+  - `gcloud`, `firebase` and `java` are not installed, and `firebase-tools` is not in `node_modules`, so the Firestore emulator could not run either. Nothing was downloaded or installed.
+- **What ran instead: adapter and in-memory parity only.**
+  - **`tests/fakeFirestore.ts`** now models:
+    - `set`, `set` with `merge`, `mergeFields`, `update` and `create`;
+    - the `FieldValue` delete, increment and server-timestamp sentinels;
+    - queries inside transactions, and `orderBy`;
+    - reads before writes;
+    - an optimistic transaction mode, in which a commit whose reads changed is run again (up to five attempts, then `ABORTED`), with a read barrier that makes a race deterministic.
+    `tests/fakeFirestore.test.ts` pins each of those rules.
+  - **`tests/storageParity.test.ts`** runs the same operations on the local and Firestore stores and compares every step. It covers materials, bundles, sources, asset records, profile, plan, checklist, vocabulary, attempts, generated tests, daily quota, exam sessions, accounts, rate limits, AI quota and the generation ledger.
+  - **`tests/firestoreTransactions.test.ts`** holds the deterministic races (Part C).
+  - **`tests/firestoreStaleFields.test.ts`** covers H5 and the material-write outage.
+  - **`tests/firestoreRouteOutage.test.ts`** covers bundle and learner-data writes during an outage (Part D).
+  - `firestoreExam` and `errorBoundary` pass unchanged on the new fake.
+  - **Repeated:** the four new store suites together 8 times, and the H5 route suite 8 times concurrently with them: 16 of 16 runs passed.
+- **Firestore-only defects the parity and race tests found, now fixed.**
+  - **Checklist saves always threw.** The week-id pattern was the literal `/^-?\\d+$/`, which matches no number.
+  - **Sign-in answered with stale data.** A successful sign-in returned the account as read before its own write, so the failure counter was stale.
+  - **One reset token could reset a password twice.** It was checked before the transaction, not on the row the transaction read.
+  - **Asset state created ghost records.** A merge wrote a `{state}`-only record for an id with no record, which defeated the publish gate's missing-file check.
+  - **Bundle publish could skip the gate.** A bundle edited while its publish gate ran was published without the gate having read it. This applied on both backends; changes are now a transaction plus a revision check.
+  - **Outages were not answered with 503.** During an outage, the material save and lifecycle routes answered 400 with the library's message, and the bundle and learner-data routes answered 500.
+- **Still unverified on a real project.**
+  - **Contention.** The server SDK's real locking, retry and `ABORTED` behaviour; the fake models the outcome with optimistic retries.
+  - **Register uniqueness under concurrent registrations.** It relies on equality queries inside a transaction, and the fake does not model a document appearing in a query already run.
+  - **Composite indexes.** `aiRateLimitService.getUsageLogs` combines `where` on `userId` or `operation` with `orderBy('timestamp')`, which real Firestore refuses without a composite index. No index definitions exist (M12).
+  - **Limits and cost.** More than 500 writes in a batch or transaction (M10); read cost and latency (M6); Cloud Storage (stubbed).
+  - **Timestamps.** `FieldValue.serverTimestamp()` stores a Firestore `Timestamp`, not the fake's `Date`. Nothing reads that field back today.
+- **To resolve H10.**
+  - Use a dedicated Firestore project. Collection names are fixed (`admin_content`, `users`, `auth_users`, …), so a verification run must never share a project with production data.
+  - Run the parity, race, stale-field and outage scenarios against it with generated ids, then delete everything they created.
 
 ### H11 — Exam-session score counts as an answer oracle — High (added in Phase 18)
 
@@ -742,9 +852,9 @@ All requests below were made against the real `server.ts` (Probe 1) unless state
 | Reaper safety | Only unreferenced assets older than 24 h. Race: a manual reap concurrent with a save naming a >24 h staged asset can delete it (manual trigger; low likelihood). | confirmed / hypothesis |
 | Bundle pinned fingerprints | Hash excludes provenance; published bundles re-gated on every open. | tests (bundleGate, bundleExam, firestoreExam) |
 | Changed component detection | `component_changed` stops sittings; exercised by tests. | tested |
-| Exam session revision checks | Compare-and-set with retries (local lock; Firestore transaction). Deterministic race test exists. | tested (local); tested indirectly (Firestore fake) |
-| Attempt reconstruction | Server-built, verified before storing, idempotent by session id; content not snapshotted (M8). | tested + confirmed |
-| Generated provenance / review history | Write-once generation record and append-only reviews enforced on save. Firestore `appendGenerationReview` is read-modify-write without a transaction, so concurrent reviews could drop one (hypothesis; low concurrency). | tested (local) / hypothesis |
+| Exam session revision checks | Compare-and-set with retries (local lock; Firestore transaction). Deterministic race tests on both backends: locally, and since Phase 23 on the in-memory Firestore with interleaved transactions, where exactly one of two same-revision writes is stored. | tested (local); tested on fake (`firestoreTransactions`) |
+| Attempt reconstruction | Server-built, verified before storing, idempotent by session id; content not snapshotted (M8). A write retried under the same id is one document on Firestore as well. | tested + confirmed |
+| Generated provenance / review history | Write-once generation record and append-only reviews enforced on save. Since Phase 21 `appendGenerationReview` runs in a transaction on Firestore, so a concurrent review can no longer drop one. | tested (local); Firestore path tested indirectly |
 | Draft reopening | Generated drafts reopen from the stored material. | tested (bookToTest) |
 | Cleanup after failed operations | Import writes inline assets after parsing; save→promote/reconcile and delete→release swallow errors and log. | confirmed |
 | Partial failure recovery | Multi-step operations (material write then asset state; source delete then reconcile; exam attempt write then session CAS) have no compensation. Attempt write is idempotent; the asset steps are reconciled on the next save. | confirmed |
@@ -752,36 +862,42 @@ All requests below were made against the real `server.ts` (Probe 1) unless state
 
 ## Firestore audit
 
-`verified` would mean run against a real Firestore project. **Nothing in this table is verified.**
+`verified` would mean run against a real Firestore project. **Nothing in this table is verified: H10 is `UNVERIFIED — real Firestore unavailable`.**
 
-| Store / operation | Local semantics | Firestore implementation | Equivalent? | Status |
+Since Phase 23, "tested on fake" means the production adapter ran against `FakeFirestore`. The fake's semantics are pinned in `tests/fakeFirestore.test.ts`:
+- `set`, `set` with `merge`, `mergeFields`, `update` and `create`;
+- the `FieldValue` delete, increment and server-timestamp sentinels;
+- reads before writes;
+- optimistic transactions that retry on conflict.
+
+`tests/storageParity.test.ts` runs the same operations on the local and the Firestore stores and compares the result at every step.
+
+| Store / operation | Local semantics | Firestore implementation (after Phase 23) | Equivalent? | Status |
 |---|---|---|---|---|
-| `FirestoreDataStore` profile | Replace file | `set({profile}, {merge:true})`; profile schema has all-required fields | Yes in practice | tested indirectly (session tests read profile) |
-| tasks / checklist / vocab | Replace file | Transaction: `tx.get(collection)`, delete missing, set others | Yes by design | unverified (no test; the fake's `tx.get` takes a document, not a collection) |
-| attempts | Upsert by id under lock | `doc(id).set` | Yes | tested indirectly |
-| exam sessions CAS | Lock + revision compare | Transaction get + revision compare + set; progress stored as a JSON string | Yes by design | tested indirectly (fake serialises transactions; real optimistic retries not modelled) |
-| generated tests (mocks) | Array in file, newest first | `orderBy('timestamp','desc')` | Yes by design | unverified (fake lacks `orderBy`; Probe 3 F3) |
-| daily quota | Lock + file | `FieldValue.increment` / transaction | Yes by design | unverified |
-| `adminStore.saveMaterial` | Replace row | `get` then `set(merge:true)` | **No** — removed nested fields persist (H5) | reproduced on fake |
-| `setMaterialStatus` | Rewrite row | `set({status,updatedAt},{merge:true})` | Yes; gate read and write not transactional | tested indirectly |
-| `deleteMaterial` | Filter file | `get` + `delete` | Yes | tested indirectly |
-| `appendGenerationReview` | Rewrite row | `get` + `set` (no transaction) | Yes serially; concurrent reviews can lose one | unverified / hypothesis |
-| `bundleStore` | Rewrite file | Document `set` (replace); `setStatus` get+set not transactional | Yes serially | tested indirectly (firestoreExam) |
-| `assetStore` create / get / list / promote | Files + JSON | Cloud Storage + `admin_assets`; batch `set(merge)` for state | Yes; batch >500 unhandled | tested indirectly (Cloud Storage stubbed) |
+| Profile | Replace file | `set({profile, updatedAt}, {mergeFields: ['profile','updatedAt']})`. The user document stays merged at its top level; the profile map is replaced whole. | Yes since Phase 23. The map used to merge, so a cleared exam date or name stayed. | tested on fake (`firestoreStaleFields`, `storageParity`) |
+| Tasks / checklist / vocab | Replace file | Transaction: query the collection, delete missing documents, set the rest | Yes since Phase 23. The checklist id pattern was the literal `/^-?\\d+$/`, which matches no week number, so **every Firestore checklist save threw**. | tested on fake (`storageParity`) |
+| Attempts | Upsert by id under lock | `doc(id).set` (replace) | Yes; the Firestore document also carries `userId` | tested on fake (`storageParity`, `firestoreTransactions`) |
+| Exam sessions CAS | Lock + revision compare | Transaction: get, compare revision, set; progress stored as a JSON string | Yes | tested on fake, including a deterministic race (`firestoreTransactions`, `storageParity`) |
+| Generated tests (mocks) | Array in file, newest first | `orderBy('timestamp','desc')` | Yes while records are written in time order, as they are | tested on fake (`storageParity`) |
+| Daily quota | Lock + file | Transaction for a reservation; `FieldValue.increment` with merge for counts (a partial write by intent) | Yes | tested on fake (`storageParity`) |
+| `adminStore.saveMaterialDetailed` | Replace row | Transaction: get, revision check, `set` of the canonical document (replace) | Yes since Phase 23 (was `merge:true`, H5) | tested on fake (`firestoreStaleFields`, `storageParity`, `firestoreTransactions`) |
+| `setMaterialStatus` | Spread a status patch over the row | Transaction: get, gate, `set({status,updatedAt},{merge:true})` (a partial patch by intent) | Yes | tested on fake, including a race with an edit (`firestoreTransactions`) |
+| `deleteMaterial` / `appendGenerationReview` | Filter / rewrite row | Transactions (Phase 21) | Yes | delete tested on fake (`storageParity`); review tested indirectly |
+| `bundleStore` create / updateDraft / setStatus / remove | Rewrite file | Create: `set`. Every other change: transaction get → decide → `set` or `delete`. `setStatus` refuses a revision other than the one its caller decided on (Phase 23). | Yes since Phase 23. A publish used to write whatever bundle was stored when it finished, even one edited while its gate ran. | tested on fake, including publish racing an edit and concurrent transitions (`firestoreTransactions`, `storageParity`) |
+| `assetStore` create / get / list | Files + JSON | Cloud Storage + `admin_assets` `set` | Yes | tested on fake (Cloud Storage stubbed) |
+| `assetStore` promote / reconcile (state) | Change the assets that exist | A transaction per ≤400 ids: get, `update` only records that exist (Phase 23) | Yes since Phase 23. The batch `set(merge)` created a `{state}`-only record for an id with none, and the publish gate then counted a missing file as present. | tested on fake (`firestoreStaleFields`, `storageParity`) |
 | `assetStore.readContent` | Local file | GCS download | — | unverified (stubbed) |
-| `sourceStore.save` | Replace row | `set(merge:true)` | **No** (stale fields persist) | confirmed |
-| `sourceStore.delete` | Filter + remove chunk file | One batch: all chunks + document | **No** for >500 chunks (M10) | confirmed |
-| `sourceStore.getChunks` | Sort in memory | `orderBy('ordinal')` | Yes by design | unverified (fake lacks `orderBy`) |
-| `generationLog` ledger | File + lock | Transactions | Yes by design | unverified |
-| `authService` register / login / reset | JSON files | Transactions with queries, lockout via transaction, session documents | Yes by design | unverified (never exercised, even on the fake) |
+| `sourceStore.save` | Replace row | `set` (replace) since Phase 23 (was `merge:true`) | Yes | tested on fake (`firestoreStaleFields`, `storageParity`) |
+| `sourceStore.saveChunks` / `getChunks` / `delete` | Replace file / sort / remove file | Batches ≤400 / `orderBy('ordinal')` / one batch of chunks plus the document | Yes, except that a `delete` of more than 500 chunks exceeds one batch (M10) | tested on fake (`storageParity`); M10 confirmed |
+| `generationLog` ledger | File + lock | Transactions; entries written whole, so a dropped `materialId` is removed | Yes | tested on fake, including concurrent claims (`firestoreTransactions`, `storageParity`) |
+| `authService` register / login / reset | JSON files | Register: transaction with queries + `create`. Login: failures and lockout in a transaction with `FieldValue.delete`; success `update`. Reset: token checked on the row the transaction reads (Phase 23); fields removed with `FieldValue.delete`. | Yes since Phase 23. Before, one reset token could be used by two concurrent requests, and a sign-in answered with the account as read before its own write. | tested on fake (`storageParity`, `firestoreTransactions`); register uniqueness under concurrency depends on real Firestore query locking — unverified |
 | Admin bootstrap | Seeds or promotes from env | Not implemented (M3) | **No** | confirmed |
-| Request rate limit | JSON file + lock | Transaction per request on a bucket document; never deleted | Yes; cost per request | unverified |
-| AI quota | JSON file + lock | Transaction on day/hour documents | Yes | unverified |
-| Undefined values | JSON drops them | `ignoreUndefinedProperties: true`; arrays with undefined still refused | Yes | tested indirectly (fake enforces) |
-| Queries / filtering | In-memory filters | `where('status','==')`; `where('sourceId','==')` | Yes; no composite index needed for current callers | tested indirectly (status); unverified (sourceId) |
+| Request rate limit / AI quota | JSON file + lock | Transaction on a bucket document; counts written with merge (by intent) | Yes within a window. Buckets are clock-aligned rather than reset from the first request. | tested on fake, including a race for the last allowed slot |
+| Undefined values | JSON drops them | `ignoreUndefinedProperties: true`; arrays with undefined still refused | Yes | tested on fake |
+| Queries / filtering | In-memory filters | `where('status','==')`, `where('sourceId','==')`, `orderBy` | Yes; no composite index needed by the current callers | tested on fake; real index requirements unverified |
+| Storage outage during a write | — | gRPC UNAVAILABLE and the other storage codes go to the boundary's 503 `storage_unavailable`. Since Phase 23 the admin material save and lifecycle, bundle and learner-data routes no longer answer them with 400/500 themselves. | — | tested on fake (`firestoreStaleFields`, `firestoreRouteOutage`) |
 | Migrations | Read-time migration of legacy question shapes | Same function on read | Yes | tested indirectly |
 | Local → Firestore data migration | — | None exists (M12) | — | confirmed |
-| Transactions required but missing | `saveMaterial`, `setMaterialStatus` (gate check vs content write), `appendGenerationReview`, `bundleStore.setStatus` | read-modify-write without a transaction | Risk only under concurrent admin writes | confirmed |
 
 ## Exam correctness re-check (current state after Phases 15/16)
 
@@ -946,6 +1062,12 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
 - **No browser checks this phase.** Every finding was reproduced at HTTP or process level against the real server or production bundle; the brief asks for browser checks only where they validate a finding.
 - **H8 on Safari/iOS is unverified.** No Safari or Apple device was available.
 - **This is not `BROWSER_AUDIT_BLOCKED`.** No browser check was attempted. Chrome was available with a learner session; the admin session had expired in Phase 16 and would need the user to sign in again.
+- **Phase 23: no browser check, by design.**
+  - On this machine a browser can reach the server only on local storage or on the in-memory Firestore. Neither is Firestore-backed, so a browser run would prove no Firestore behaviour.
+  - The user-visible effects are asserted over HTTP against the production routes instead (`firestoreStaleFields.test.ts`, `firestoreRouteOutage.test.ts`):
+    - a learner is no longer served removed markup, explanations or a replaced recording;
+    - `/api/data` stops returning a cleared profile field;
+    - a storage outage answers 503.
 
 ## Confirmed blockers
 
@@ -957,12 +1079,12 @@ These Critical/High issues genuinely block production.
 3. **H2** — IP-keyed shared rate limits.
 4. ~~**H3** — private imported originals downloadable by learners.~~ Resolved in Phase 22.
 5. ~~**H4** — published content edited without the gate.~~ Resolved in Phase 21.
-6. **H5** — Firestore merge keeps removed fields (production path).
+6. ~~**H5** — Firestore merge keeps removed fields (production path).~~ Resolved in Phase 23 (proven on the in-memory Firestore).
 7. **H6** — exam Writing/Speaking lost at the deadline.
 8. **H7** — AI timeout, quota and error-mapping defects.
 9. **H8** — Listening audio range support and once-only start on playback failure (device impact to verify).
 10. **H9** — runtime dependencies misdeclared (blocker for any install that prunes devDependencies).
-11. **H10** — Firestore production path unverified.
+11. **H10** — Firestore production path `UNVERIFIED — real Firestore unavailable`. Adapter parity, race and outage tests pass on the in-memory Firestore (Phase 23).
 
 M1 (port), M3 (admin bootstrap) and the email configuration are deployment prerequisites rather than code defects, but a production launch cannot proceed without them.
 
@@ -986,7 +1108,14 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 
 ## Unverified areas
 
-- **Real Firestore** (H10): no project or emulator run. Unverified paths include auth transactions with queries, rate limits and quotas under contention, sources, `orderBy` queries, the Book → Test ledger, tasks/checklist/vocab, batch limits, and real optimistic transaction retries.
+- **Real Firestore** (H10): `UNVERIFIED — real Firestore unavailable`. There are no credentials, project or emulator on this machine.
+  - Since Phase 23, every store runs against the in-memory Firestore with parity, race and outage tests.
+  - Still unverified against a real project:
+    - real locking and retries under contention;
+    - register uniqueness under concurrent registrations;
+    - composite indexes (`getUsageLogs`);
+    - batch limits, cost and latency;
+    - server timestamps.
 - **Real Cloud Storage:** upload, download and delete are stubbed in tests.
 - **Safari/iOS Listening playback** (H8).
 - **Production install with pruned devDependencies** (H9).
@@ -1013,12 +1142,12 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - **M11** — ensure no hosted environment runs with `EXPLICIT_DEV_AUTH`.
 - Short manual check of the first-click issue in a visible browser.
 
-If the beta runs on production infrastructure, **H5** and **H10** belong here too.
+If the beta runs on production infrastructure, **H10** belongs here too (H5 was resolved in Phase 23).
 
 ### Before production
 
-- **H5** — non-merge material writes; review `sourceStore.save`.
-- **H10** — run the suite and a smoke test against a Firestore emulator or staging project (auth, quotas, sources, Book → Test, contention).
+- ~~**H5**~~ — done in Phase 23. Canonical documents are replaced rather than merged, and the intended partial writes keep their merge.
+- **H10** — still `UNVERIFIED — real Firestore unavailable`. Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project that holds no production data, clean up afterwards, and define composite indexes (`getUsageLogs`). The adapter-level work was done in Phase 23.
 - **M4** — local store fail-loud (if any non-dev local use remains).
 - **M5** — server-side sanitisation of every HTML-rendered field.
 - **M6** — measure and reduce per-event Firestore reads.

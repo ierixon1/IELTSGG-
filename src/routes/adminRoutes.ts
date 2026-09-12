@@ -319,6 +319,8 @@ async function respondWithSave(res:Response,section:'speaking'|'reading'|'listen
     }
     return res.json({success:true,item:outcome.material,...(outcome.unpublished?{unpublished:true,publishedBundles}:{}),...(outcome.unchanged?{unchanged:true}:{})});
   }catch(error){
+    // A data backend that cannot be reached is the API error boundary's 503 — never a 400 carrying the library's message.
+    if(isStorageUnavailableError(error))throw error;
     if(error instanceof MaterialValidationError)return res.status(400).json({error:'Material failed validation.',issues:error.issues});
     if(error instanceof ClientRequestError)return res.status(error.status).json({error:error.message,code:error.code});
     console.error('[Materials] save failed:',error);
@@ -380,6 +382,7 @@ adminRouter.post('/materials/:section/:id/:action(publish|unpublish|archive|rest
     }
     return res.json({success:true,item:result.material});
   }catch(error){
+    if(isStorageUnavailableError(error))throw error;
     if(error instanceof Error&&error.message==='Material not found.')return res.status(404).json({error:error.message});
     if(error instanceof ClientRequestError)return res.status(error.status).json({error:error.message,code:error.code});
     console.error('[Materials] lifecycle change failed:',error);
