@@ -88,6 +88,12 @@ export interface ReviewState {
    */
   materialId?: string;
   /**
+   * The revision (`updatedAt`) of that material when review opened it. Sent with
+   * the save, so a draft changed by someone else in the meantime is not
+   * overwritten from a screen that never showed the change.
+   */
+  materialUpdatedAt?: string;
+  /**
    * Present when the questions came from Book → Test. Carried into the saved
    * material unchanged; nothing on this screen edits it.
    */
@@ -221,6 +227,7 @@ export function buildReviewState(
     sourceHtml: string;
     sourceAssetId?: string;
     materialId?: string;
+    materialUpdatedAt?: string;
     generationRecord?: StoredGenerationRecord;
     generationReviews?: ReviewConfirmation[];
   } = { sourceHtml: '' },
@@ -260,6 +267,7 @@ export function buildReviewState(
     },
     stats: result.stats,
     materialId: options.materialId,
+    materialUpdatedAt: options.materialUpdatedAt,
     generationRecord: options.generationRecord,
     generationReviews: options.generationReviews,
   };
@@ -375,6 +383,8 @@ export function includedQuestions(state: ReviewState): Question[] {
 export interface SavePayload {
   /** Set when the review edits a material that already exists. */
   id?: string;
+  /** That material's revision when review opened it; the save is refused if it has changed since. */
+  updatedAt?: string;
   title: string;
   section: 'reading' | 'listening';
   module: 'academic' | 'general';
@@ -456,6 +466,7 @@ export function toSavePayload(state: ReviewState): SavePayload | null {
 
   return {
     ...(state.materialId ? { id: state.materialId } : {}),
+    ...(state.materialId && state.materialUpdatedAt ? { updatedAt: state.materialUpdatedAt } : {}),
     title: classification.title,
     section: classification.section,
     module: classification.module,

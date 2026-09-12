@@ -334,11 +334,29 @@ async function expectOpensAgain() {
 }
 
 describe('a published bundle that goes bad is refused, never patched', () => {
-  it('refuses it once a component changes, until the new version is pinned on purpose', async () => {
+  it('refuses it once a component is edited: withdrawn first, then changed, until the new version is republished and pinned on purpose', async () => {
+    const readingId = ids['reading-2'];
+    const current = (await (await admin(`/api/admin/materials/reading/${readingId}`)).json()).item;
     const edited = readingPayload(2);
     edited.content.passage.questions[0].prompt = 'An edited first question';
-    expect((await admin(`/api/admin/materials/reading/${ids['reading-2']}`, { method: 'PUT', body: JSON.stringify(edited) })).status).toBe(200);
+    const saved = await admin(`/api/admin/materials/reading/${readingId}`, { method: 'PUT', body: JSON.stringify({ ...edited, updatedAt: current.updatedAt }) });
+    expect(saved.status).toBe(200);
+    const savedBody = await saved.json();
+    // The save withdraws the published material, and says which published exam that affects.
+    expect([savedBody.item.status, savedBody.unpublished]).toEqual(['draft', true]);
+    expect(savedBody.publishedBundles.map((bundle: { id: string }) => bundle.id)).toEqual([bundleId]);
 
+    const withdrawn = await learner(`/api/learner/bundles/${bundleId}`);
+    expect(withdrawn.status).toBe(409);
+    const withdrawnBody = await withdrawn.json();
+    expect(withdrawnBody.code).toBe('component_unpublished');
+    expect(withdrawnBody.components).toBe(undefined);
+    const blockers = codes((await (await admin(`/api/admin/bundles/${bundleId}/check`)).json()).blockers);
+    expect(blockers).toContain('component_unpublished');
+    expect(blockers).toContain('component_changed');
+
+    // Republishing the material does not put its new version into the exam: the pin still names the old one.
+    expect((await admin(`/api/admin/materials/reading/${readingId}/publish`, { method: 'POST' })).status).toBe(200);
     const opened = await learner(`/api/learner/bundles/${bundleId}`);
     expect(opened.status).toBe(409);
     const body = await opened.json();

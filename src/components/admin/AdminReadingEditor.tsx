@@ -110,6 +110,8 @@ export const AdminReadingEditor: React.FC<AdminReadingEditorProps> = ({
     try {
       await onSave({
         id: initialData?.id,
+        // The revision this editor opened: the save is refused if the material changed since.
+        updatedAt: initialData?.updatedAt,
         title,
         section: 'reading',
         module,

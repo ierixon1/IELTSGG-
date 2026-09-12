@@ -21,6 +21,10 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **H1 is resolved.** A failed API request no longer takes the process down. Every async handler's rejection reaches one JSON error boundary: 400/413/415 for input the server cannot use, 503 when storage is unavailable, 500 otherwise, with nothing internal in the body. A Firestore deployment without credentials answers 503 instead of exiting, and `/api/health` answers 503 when the data backend cannot be used. See the H1 resolution.
 > - **Status is still NOT READY.** H2–H10 are unchanged.
 
+> **Update after Phase 21.**
+> - **H4 is resolved.** A save that changes a published material in any way writes it back as a draft in the same write, so learners never see content the publish gate has not passed. Saves through the admin API must name the revision they were opened at. Publishing, reviewer decisions and deletes re-check the row inside the write. See the H4 resolution.
+> - **Status is still NOT READY.** H2, H3 and H5–H10 are unchanged.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -43,7 +47,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20; 9 open), 14 Medium, 12 Low.
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21; 8 open), 14 Medium, 12 Low.
 
 ## Method and evidence legend
 
@@ -79,7 +83,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H1 | High | Runtime / availability | Async route handlers without try/catch plus no process handler: one thrown error exits the process. | reproduced; **resolved in Phase 20** (no longer reproducible over the real `server.ts`) | Probe 1 S17; production boot; `tests/serverStability.test.ts`, `tests/errorBoundary.test.ts` | Any examiner/admin typo in an id, or a Firestore error on the anonymous `/api/admin/public/materials/:section`, takes the server down for all learners mid-exam. | Wrap every async handler (or add an Express async error wrapper and a JSON error handler); add a process-level `unhandledRejection` log-and-survive policy. |
 | H2 | High | Rate limiting | Global (120/min) and auth limiters are keyed by `req.ip`, with no `trust proxy`, and shared by all users behind one address. | reproduced | Probe 1 S16 | Behind a load balancer every user shares one budget; a classroom behind one NAT gets 429 on exam autosaves and logins. | Configure `trust proxy` for the deployment; key the authenticated limiter by user id; size limits against exam autosave traffic. |
 | H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced | Probe 1 S4 | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
-| H4 | High | Publication integrity | Saving a published material keeps it published without re-running the publish gate. | reproduced | Probe 1 D1 | Learners are served content the gate would refuse: no questions, missing classification, stale confirmations of generated questions, missing assets. | Re-run the gate on save of a published material (refuse, or move to draft); or require unpublish before edit, as bundles do. |
+| H4 | High | Publication integrity | Saving a published material keeps it published without re-running the publish gate. | reproduced; **resolved in Phase 21** (a changed published material is withdrawn to draft in the same write) | Probe 1 D1; `tests/publishedMaterialProtection.test.ts` | Learners are served content the gate would refuse: no questions, missing classification, stale confirmations of generated questions, missing assets. | Re-run the gate on save of a published material (refuse, or move to draft); or require unpublish before edit, as bundles do. |
 | H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); unverified (real Firestore) | Probe 3 F1/F2 | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
 | H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced | Probe 2 A; `examSession.ts:299-319`, `examRun.ts:299-305` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
 | H7 | High | AI reliability | Grading, rewrite, transcribe and mentor calls have no timeout; each fallback model consumes a quota unit; at the limit the learner gets 500 instead of a quota message. | reproduced | Probe 2 B1/B2/C | One outage burns ~3 units per grading (default 4/hour); a hung call holds the request indefinitely; exams can become impossible to finish. | Add per-attempt and total timeouts; charge quota once per grading; map quota refusal to 429 with a clear code. |
@@ -347,6 +351,84 @@ Rate limiting alone does not fix it.
 
 **Recommendation.** Re-run the gate on saves of published materials (refuse, or unpublish), or require unpublish-before-edit as bundles already do.
 
+**Resolution (Phase 21)**
+
+- **Write paths audited.**
+  - `saveMaterial`: every POST/PUT `/api/admin/materials` route. It serves the four material editors and the import and generated-draft review (`toSavePayload`). Book → Test also calls it, but only to create a new draft.
+  - `setMaterialStatus`: `/materials/:section/:id/(publish|unpublish|archive|restore)`.
+  - `appendGenerationReview`: `/sources/generated/:id/questions/:questionId/reviews`.
+  - `deleteMaterial`: both DELETE routes.
+  - Asset changes are content edits (asset ids and URLs in content). The reaper removes only unreferenced assets.
+- **What could happen to a published material before.**
+  - Every save kept `published`: content, questions, classification and asset references alike.
+  - A reviewer decision could land on a published material if a publish slipped in after the route's draft check.
+  - Publish gated one read, then merged `status` into whatever row existed at write time. On Firestore nothing was transactional.
+  - Delete checked for `published` only in the route.
+  - Nothing detected a stale editor overwriting someone else's change.
+- **Policy: the smallest behaviour consistent with explicit publishing.**
+  - A save that changes a published material in any way writes it back as `draft` in the same write (`adminStore.saveMaterialDetailed` → `applySave`). "Any way" means anything in the stored record except the revision stamp.
+  - It reaches learners again only through Check and Publish.
+  - There is no metadata exception. The one save that leaves a material published is one that leaves the whole record identical (`materialRecordFingerprint`); nothing is written.
+  - Drafts stay drafts and archived materials stay archived.
+- **Invariant.**
+  - Learners read only rows stored as `published`.
+  - The only write that sets `published` is `setMaterialStatus`. It gates the row it read and writes the status onto that same row: the local store re-reads and compares the revision, and Firestore does both in one transaction. Otherwise it refuses with 409 `material_changed_during_publish`.
+  - Every other write that changes a published row sets it to `draft` in the same atomic write.
+  - So after every successful write, a published material passes its gate on exactly the stored content, with no window in which learners could see anything else.
+- **Concurrency.**
+  - Saves through the admin API must name the revision (`updatedAt`) they were opened at, checked inside the write. A missing revision is 428 `material_revision_required`; a stale one is 409 `material_stale`.
+  - Revisions strictly increase, so two writes within one millisecond cannot share one.
+  - Status transitions and reviewer decisions also advance the revision, so an editor opened before a publish cannot save over it unseen.
+  - `appendGenerationReview` accepts only a draft, and `deleteMaterial` refuses a published material, both inside the write.
+  - On Firestore, save, status transitions, reviewer decisions and delete each run in a transaction. Material writes keep `merge: true` (H5 unchanged).
+- **Bundles.**
+  - Editing a material pinned by a published bundle withdraws it. The save response lists the published bundles affected, and the dashboard says they cannot be opened.
+  - Learners get `component_unpublished`. Once the material is republished they get `component_changed` until the bundle is re-pinned.
+  - Nothing is re-pinned or replaced automatically.
+- **UI.**
+  - The four editors send `updatedAt`. The generated-draft review sends it too, refreshed after a reviewer decision.
+  - The dashboard says when a save withdrew a published material, or changed nothing.
+  - Conflicts show the server's message.
+- **Tests.**
+  - **`tests/publishedMaterialProtection.test.ts` (10 tests).** After every write, each test checks from storage that every published material passes its gate. They cover:
+    - the exact Phase 17 reproduction: publish, then save with no questions and no theme. Result: draft, learner 404, publish 409;
+    - a valid edit also withdraws, and republishing serves the edit;
+    - changing an answer, adding or removing a question, or changing the title, theme, band, module or an asset reference each withdraws;
+    - a reference to a missing asset withdraws and blocks publishing;
+    - an unchanged save writes nothing and stays published;
+    - a missing revision gets 428, a stale revision gets 409 and the first edit is kept, and exactly one of two simultaneous edits succeeds;
+    - a save from an editor opened before a publish is refused;
+    - a save landing while the gate reads the material aborts the publish;
+    - a reviewer decision and a delete are refused on a published material.
+  - **Updated to the new policy:**
+    - `bundleExam`: an edit gives `component_unpublished` and names the bundle; after republishing, `component_changed` until re-pinned;
+    - `examSession`: a mid-exam edit stops the sitting, and restoring the pinned content is itself an edit that needs republishing before the sitting resumes;
+    - `firestoreExam`: the same on the Firestore path, in one transaction;
+    - `materialPipeline`: a claimed status is ignored as a no-op.
+  - **Revisions threaded** through `bookToTest`, `questionQuality` and `materialLifecycle`.
+  - **Suite:** full suite 600/600, `tsc --noEmit` clean.
+  - **Mutations: 8/8 caught.**
+    - status transition bypassed;
+    - publish gate bypassed;
+    - published kept after invalid content;
+    - stale write accepted;
+    - revision not required;
+    - publish written onto a row the gate did not read;
+    - reviewer decision accepted on a published material;
+    - published material deleted by the store.
+- **Browser (real admin UI, dev server, the user's own sessions).**
+  - Created "H4 Browser Check Reading" in the Reading editor. Check said publishable. After Publish, the learner saw it listed and could open it (2 questions).
+  - Opened it in the editor, deleted both questions, cleared the theme and saved. The request carried the revision, and the response was 200 with `status: draft` and `unpublished: true`.
+  - The catalog showed Draft, "no theme", 0 questions. The learner catalog no longer listed it, and opening it gave 404. Check listed the missing theme and the missing questions.
+  - Fixed it (theme "Corrected Navigation", one new question) and saved. It was still a draft and the learner still got 404. Check said publishable; Publish returned 200.
+  - The learner catalog listed it with the corrected theme and 1 question. Opening it served the corrected prompt, with no answer key.
+- **Not changed.**
+  - Scoring, Book → Test generation, the CDI parser, the lifecycle states and transitions, and H2, H3 and H5–H10.
+  - `cdiImport/review.ts` gained only the optional revision, passed into the save payload.
+- **Residual.**
+  - A row written before revisions were stamped accepts its first save without a revision check, since there is nothing to compare, and is stamped by that save.
+  - A bundle still relies on its pinned hashes to refuse a changed material (M9 unchanged).
+
 ### H5 — Firestore keeps fields an edit removed — High, reproduced on the fake, unverified on real Firestore
 
 **Code path.** `adminStore.ts:112` writes `ref.set(item, { merge: true })`. Firestore merges nested maps field by field, so keys absent from `item.content` keep their old values. The local store replaces the row. `sourceStore.save` also merges (`sourceStore.ts:83`).
@@ -562,7 +644,7 @@ All requests below were made against the real `server.ts` (Probe 1) unless state
 
 | Area | Finding | Status |
 |---|---|---|
-| Material save / publish / delete transitions | Save never publishes; publish is gated; delete refused while published or referenced by any bundle. **But** an edit to a published material is not re-gated (H4). | reproduced (D1) + existing tests |
+| Material save / publish / delete transitions | Save never publishes; publish is gated; delete refused while published or referenced by any bundle. An edit to a published material was not re-gated (H4); since Phase 21 any change withdraws it to draft in the same write, saves name their revision, and publish, reviewer decisions and deletes re-check the row inside the write. | reproduced (D1); resolved (`publishedMaterialProtection`, updated bundle/session/Firestore tests) |
 | Source ingestion states | Original stored first; `ready` written after chunks; failures stored with a reason. Firestore `saveChunks` is multi-batch and not atomic, but a failure leaves status `failed`, so chunks are not searchable. | confirmed |
 | Asset reference counting | Computed by scanning materials and sources, not a counter. `reconcile` runs after save or delete; failures only logged. Firestore batch cap unhandled (M10). | confirmed |
 | Reaper safety | Only unreferenced assets older than 24 h. Race: a manual reap concurrent with a save naming a >24 h staged asset can delete it (manual trigger; low likelihood). | confirmed / hypothesis |
@@ -640,7 +722,7 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 | Quota | Per-user hourly/daily per operation; **charged per fallback model** (H7). Admin generation (not under `authenticateRequest`) has no per-user quota. | reproduced (B1/B2) / confirmed |
 | Idempotency / duplicates | Book → Test: persisted request ledger with lease, replay and conflict handling. Exam grading: a second concurrent grading of the same task calls the model twice and the loser gets `already_graded` (quota wasted). Practice grading has no idempotency. | confirmed |
 | Malformed output | `JSON.parse` failure → 500 `grading_failed`; missing or out-of-range `band_overall` → 502; criterion bands not validated (L10). Book → Test validates every question against schema, grounding and quality. | confirmed + tests |
-| Provenance / grounding | Book → Test records source chunks, prompt version, generator version, model, attempts and per-question evidence; unverified questions cannot be published (except via H4). | tests (generationBoundary, bookToTest) |
+| Provenance / grounding | Book → Test records source chunks, prompt version, generator version, model, attempts and per-question evidence; unverified questions cannot be published (the H4 path — editing a question after publication — closed in Phase 21: the edit withdraws the material, and republishing re-runs the gate, including stale confirmations). | tests (generationBoundary, bookToTest) |
 | Writing/Speaking failure handling | No invented bands; 503/500 surfaced; exam records nothing. | tests |
 | Fallback model behaviour | 3.8 → 3.7 → 3.6 flash on unavailability only; model names hard-coded. | confirmed |
 | Model/prompt version recording | Book → Test: yes. Grading: model logged in the AI usage log only; attempts store bands without model or prompt version. | confirmed (M7) |
@@ -782,7 +864,7 @@ These Critical/High issues genuinely block production.
 2. ~~**H1** — server crash on unhandled async errors; health does not reflect storage.~~ Resolved in Phase 20.
 3. **H2** — IP-keyed shared rate limits.
 4. **H3** — private imported originals downloadable by learners.
-5. **H4** — published content edited without the gate.
+5. ~~**H4** — published content edited without the gate.~~ Resolved in Phase 21.
 6. **H5** — Firestore merge keeps removed fields (production path).
 7. **H6** — exam Writing/Speaking lost at the deadline.
 8. **H7** — AI timeout, quota and error-mapping defects.
@@ -831,7 +913,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - ~~**H1**~~ — done in Phase 20 (async error boundary, process policy for stray rejections, storage-aware health).
 - **H2** — `trust proxy`, per-user limits sized for exam autosaves.
 - **H3** — remove imported originals from the learner asset allowlist.
-- **H4** — re-gate saves of published materials.
+- ~~**H4**~~ — done in Phase 21 (a changed published material is withdrawn to draft; revisioned saves; publish re-checks the row it gated).
 - **H6 + H7** — timeouts, single quota charge per grading, 429 for quota, submission-time acceptance for Writing/Speaking (or document the limitation explicitly).
 - **H8** — Range support and start-on-playing, then a Safari/iOS check.
 - **H9, M1, M3** — dependency declarations, `PORT`, admin bootstrap for the target deployment.

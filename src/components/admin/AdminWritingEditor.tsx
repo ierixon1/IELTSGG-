@@ -93,6 +93,8 @@ export const AdminWritingEditor: React.FC<AdminWritingEditorProps> = ({
 
       await onSave({
         id: initialData?.id,
+        // The revision this editor opened: the save is refused if the material changed since.
+        updatedAt: initialData?.updatedAt,
         title,
         section: 'writing',
         module,

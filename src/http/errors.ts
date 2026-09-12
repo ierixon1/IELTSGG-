@@ -5,7 +5,7 @@
  */
 export class ClientRequestError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409 | 413 | 415,
+    readonly status: 400 | 404 | 409 | 413 | 415 | 428,
     readonly code: string,
     message: string,
   ) {

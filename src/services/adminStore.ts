@@ -11,7 +11,8 @@ import { publishBlockers } from './publishGate';
 import type { PublishBlocker, PublishGateContext } from './publishGate';
 import type { QuestionIssue } from '../schemas/question';
 import { describeQuestionIssue } from '../schemas/question';
-import { InvalidIdentifierError } from '../http/errors';
+import { ClientRequestError, InvalidIdentifierError } from '../http/errors';
+import { materialRecordFingerprint } from './materialVersion';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'admin_content');
 const PRIVATE_UPLOADS_DIR = path.join(process.cwd(), 'data', 'private_uploads');
@@ -37,6 +38,54 @@ export class MaterialValidationError extends Error {
     super(`Material failed validation: ${issues.join(' | ')}`);
     this.name = 'MaterialValidationError';
   }
+}
+
+/**
+ * A write refused because the material is no longer the one its author opened.
+ *
+ * Materials are edited in place and published by a separate act, so two admins
+ * — or an admin and a publish — can act on the same row at once. A write names
+ * the revision (`updatedAt`) it was based on, and is refused if the row has moved
+ * on: anything else would silently overwrite a change its author never saw.
+ */
+export class MaterialConflictError extends ClientRequestError {
+  constructor(code: 'material_revision_required' | 'material_stale' | 'material_changed_during_publish') {
+    super(
+      code === 'material_revision_required' ? 428 : 409,
+      code,
+      code === 'material_revision_required'
+        ? 'Saving an existing material needs the revision it was opened at (updatedAt). Reload it and save again.'
+        : code === 'material_stale'
+          ? 'This material has changed since it was opened. Reload it to see the current version, then make your edit again.'
+          : 'This material changed while it was being published, so it was not published. Check it again.',
+    );
+    this.name = 'MaterialConflictError';
+  }
+}
+
+/** A write the material's lifecycle state does not allow. */
+export class MaterialStateError extends ClientRequestError {
+  constructor(code: 'not_draft' | 'material_published') {
+    super(
+      409,
+      code,
+      code === 'not_draft'
+        ? 'Only a draft can be reviewed. Unpublish it first.'
+        : 'This material is published. Unpublish or archive it before deleting.',
+    );
+    this.name = 'MaterialStateError';
+  }
+}
+
+/**
+ * The revision a write stamps: now, and always later than the one it replaces.
+ * Two writes inside one millisecond would otherwise share a revision, and an
+ * editor still holding it would pass the stale-write check.
+ */
+function nextRevision(previous: unknown): string {
+  const now = Date.now();
+  const last = typeof previous === 'string' ? Date.parse(previous) : Number.NaN;
+  return new Date(Number.isFinite(last) && last >= now ? last + 1 : now).toISOString();
 }
 const assertObject = (value:unknown,name:string,maxBytes=2_000_000) => { if(!value || typeof value!=='object' || Array.isArray(value)) throw new Error(`Invalid ${name}.`); const bytes=Buffer.byteLength(JSON.stringify(value),'utf8'); if(bytes>maxBytes) throw new Error(`${name} is too large.`); };
 /**
@@ -95,35 +144,87 @@ class AdminStore {
    * still leave an unusable row on disk. `parseMaterialForWrite` also converts
    * legacy question shapes, so this is the single point at which authored data
    * becomes canonical.
+   *
+   * For callers inside the server that create materials (Book → Test) or seed
+   * fixtures. Saves through the admin API use `saveMaterialDetailed` and must
+   * name the revision they were opened at.
    */
   public async saveMaterial(section:SectionType,materialData:unknown,author='Admin'):Promise<AdminMaterial>{
+    return (await this.saveMaterialDetailed(section,materialData,author)).material;
+  }
+
+  /**
+   * Writes a material, and says what the write did to its lifecycle.
+   *
+   * Learners read published rows directly, so a published material must never
+   * hold content its publish gate has not passed (H4). Therefore:
+   *
+   *   - a save that changes a published material in any way — content,
+   *     questions, classification, assets, provenance, anything but the revision
+   *     stamp — writes it back as `draft`, in that same write. It reaches learners
+   *     again only through `setMaterialStatus`, behind the gate, so there is no
+   *     moment at which the new content is published;
+   *   - a save identical to the stored record writes nothing and changes nothing;
+   *   - `expectedUpdatedAt`, when given, must be the stored revision, and
+   *     `requireRevision` makes it mandatory for an update.
+   *
+   * Every check happens inside the write — the synchronous read-modify-write of
+   * the local store, a transaction on Firestore — so an edit, another admin's
+   * edit and a publish cannot slip in between the check and the write.
+   */
+  public async saveMaterialDetailed(section:SectionType,materialData:unknown,author='Admin',options:{expectedUpdatedAt?:string;requireRevision?:boolean}={}):Promise<{material:AdminMaterial;unpublished:boolean;unchanged:boolean}>{
     assertId(section);
     assertMaterialEnvelope(section,materialData);
     const incoming=materialData as Record<string,unknown>;
-    const now=new Date().toISOString();
+    const newId=()=>`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`;
 
     if(useFirestore()){
       const db=getFirestoreDb();
-      const id=incoming.id?String(incoming.id):`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`;
+      const id=incoming.id?String(incoming.id):newId();
       assertId(id);
       const ref=db.collection('admin_content').doc(section).collection('items').doc(id);
-      const existing=await ref.get();
-      const previous=(existing.exists?existing.data():undefined)as Record<string,unknown>|undefined;
-      const item=this.finalise(section,previous,incoming,id,author,now);
-      await ref.set(item,{merge:true});
-      return item;
+      return db.runTransaction(async tx=>{
+        const existing=await tx.get(ref);
+        const previous=(existing.exists?existing.data():undefined)as Record<string,unknown>|undefined;
+        const outcome=this.applySave(section,previous,incoming,id,author,options);
+        if(!outcome.unchanged)tx.set(ref,outcome.material,{merge:true});
+        return outcome;
+      });
     }
 
     const items=this.readCollection<Record<string,unknown>>(section);
     const index=incoming.id?items.findIndex(x=>x.id===incoming.id):-1;
     const previous=index>=0?items[index]:undefined;
-    const id=String(incoming.id||`adm-${section.slice(0,3)}-${Date.now()}-${nanoid(5)}`);
+    const id=String(incoming.id||newId());
     assertId(id);
-    const item=this.finalise(section,previous,incoming,id,author,now);
-    if(index>=0)items[index]=item as unknown as Record<string,unknown>;
-    else items.unshift(item as unknown as Record<string,unknown>);
+    const outcome=this.applySave(section,previous,incoming,id,author,options);
+    if(outcome.unchanged)return outcome;
+    if(index>=0)items[index]=outcome.material as unknown as Record<string,unknown>;
+    else items.unshift(outcome.material as unknown as Record<string,unknown>);
     this.writeCollection(section,items);
-    return item;
+    return outcome;
+  }
+
+  /**
+   * What a save does to the stored row, decided before anything is written.
+   * Throws on a missing or stale revision, or on content that is not canonical.
+   */
+  private applySave(section:SectionType,previous:Record<string,unknown>|undefined,incoming:Record<string,unknown>,id:string,author:string,options:{expectedUpdatedAt?:string;requireRevision?:boolean}):{material:AdminMaterial;unpublished:boolean;unchanged:boolean}{
+    // A row written before revisions were stamped has nothing to compare against;
+    // its first save stamps one.
+    const storedRevision=typeof previous?.updatedAt==='string'?previous.updatedAt:undefined;
+    if(previous&&storedRevision!==undefined){
+      if(options.expectedUpdatedAt===undefined){
+        if(options.requireRevision)throw new MaterialConflictError('material_revision_required');
+      }else if(options.expectedUpdatedAt!==storedRevision){
+        throw new MaterialConflictError('material_stale');
+      }
+    }
+    const material=this.finalise(section,previous,incoming,id,author,nextRevision(storedRevision));
+    if(previous?.status!=='published')return{material,unpublished:false,unchanged:false};
+    const stored=migrateStoredMaterial(previous).material as AdminMaterial;
+    if(materialRecordFingerprint(stored)===materialRecordFingerprint(material))return{material:stored,unpublished:false,unchanged:true};
+    return{material:{...material,status:'draft'},unpublished:true,unchanged:false};
   }
 
   /**
@@ -179,39 +280,70 @@ class AdminStore {
     if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
     return parsed.material as unknown as AdminMaterial;
   }
-  public async deleteMaterial(section:SectionType,id:string){assertId(id);if(useFirestore()){const ref=getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id),snap=await ref.get();if(!snap.exists)return false;await ref.delete();return true;}const items=this.readCollection<any>(section),filtered=items.filter(x=>x.id!==id);if(filtered.length===items.length)return false;this.writeCollection(section,filtered);return true;}
+  /**
+   * Deletes a material, refusing a published one inside the write. The route
+   * checks first, but a publish landing between that check and this delete would
+   * otherwise remove a learner-visible material without withdrawing it.
+   */
+  public async deleteMaterial(section:SectionType,id:string):Promise<boolean>{
+    assertId(id);
+    if(useFirestore()){
+      const db=getFirestoreDb();
+      const ref=db.collection('admin_content').doc(section).collection('items').doc(id);
+      return db.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists)return false;
+        if(snap.data()?.status==='published')throw new MaterialStateError('material_published');
+        tx.delete(ref);
+        return true;
+      });
+    }
+    const items=this.readCollection<Record<string,unknown>>(section);
+    const target=items.find(item=>item.id===id);
+    if(!target)return false;
+    if(target.status==='published')throw new MaterialStateError('material_published');
+    this.writeCollection(section,items.filter(item=>item.id!==id));
+    return true;
+  }
   /**
    * Appends one reviewer decision to a generated material.
    *
    * The only write path for `generationReviews`. The whole material is validated
    * again, so a decision about a question the record does not know, or one the
    * machine did not flag, is refused here as well as at the route.
+   *
+   * Only a draft takes a decision, and that is checked inside the write. The
+   * publish gate reads these decisions, so one landing on a published material —
+   * a publish slipping in after the route's own check — could leave it published
+   * with a question the gate would now refuse.
    */
   public async appendGenerationReview(section:SectionType,id:string,review:StoredGenerationReview):Promise<AdminMaterial>{
     assertId(id);
-    let row:Record<string,unknown>|null=null;
+    const append=(row:Record<string,unknown>|undefined):AdminMaterial=>{
+      if(!row)throw new Error('Material not found.');
+      if(row.status!=='draft')throw new MaterialStateError('not_draft');
+      const content=(row.content??{}) as Record<string,unknown>;
+      const existing=Array.isArray(content.generationReviews)?content.generationReviews:[];
+      const next={...row,content:{...content,generationReviews:[...existing,review]},updatedAt:nextRevision(row.updatedAt)};
+      const parsed=parseMaterialForWrite(section,next);
+      if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
+      return parsed.material as unknown as AdminMaterial;
+    };
     if(useFirestore()){
-      const snap=await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).get();
-      row=snap.exists?(snap.data() as Record<string,unknown>):null;
-    }else{
-      row=this.readCollection<Record<string,unknown>>(section).find(item=>item.id===id)||null;
+      const db=getFirestoreDb();
+      const ref=db.collection('admin_content').doc(section).collection('items').doc(id);
+      return db.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        const material=append(snap.exists?(snap.data() as Record<string,unknown>):undefined);
+        tx.set(ref,material);
+        return material;
+      });
     }
-    if(!row)throw new Error('Material not found.');
-    const content=(row.content??{}) as Record<string,unknown>;
-    const existing=Array.isArray(content.generationReviews)?content.generationReviews:[];
-    const next={...row,content:{...content,generationReviews:[...existing,review]},updatedAt:new Date().toISOString()};
-    const parsed=parseMaterialForWrite(section,next);
-    if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
-    const material=parsed.material as unknown as AdminMaterial;
-    if(useFirestore()){
-      await getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id).set(material);
-    }else{
-      const items=this.readCollection<Record<string,unknown>>(section);
-      const index=items.findIndex(item=>item.id===id);
-      if(index<0)throw new Error('Material not found.');
-      items[index]=material as unknown as Record<string,unknown>;
-      this.writeCollection(section,items);
-    }
+    const items=this.readCollection<Record<string,unknown>>(section);
+    const index=items.findIndex(item=>item.id===id);
+    const material=append(index>=0?items[index]:undefined);
+    items[index]=material as unknown as Record<string,unknown>;
+    this.writeCollection(section,items);
     return material;
   }
 
@@ -251,25 +383,45 @@ class AdminStore {
    */
   public async setMaterialStatus(section:SectionType,id:string,status:MaterialLifecycleStatus,context:PublishGateContext):Promise<{ok:true;material:AdminMaterial}|{ok:false;blockers:PublishBlocker[]}>{
     assertId(id);
-    const reviewed=await this.reviewMaterial(section,id);
-    if(!reviewed)throw new Error('Material not found.');
-    const material=reviewed.material;
-    if(status==='published'){
-      const blockers=publishBlockers(material,{...context,needsReview:reviewed.needsReview.map(describeQuestionIssue)});
-      if(blockers.length>0)return{ok:false,blockers};
-    }
-    const now=new Date().toISOString();
+    // The transition decided against one read of the row. What is published is
+    // exactly the row the gate read: it is written back only if it is still that row.
+    const decide=(row:Record<string,unknown>|undefined):{ok:true;material:AdminMaterial;patch:{status:MaterialLifecycleStatus;updatedAt:string}}|{ok:false;blockers:PublishBlocker[]}=>{
+      if(!row)throw new Error('Material not found.');
+      const reviewed=migrateStoredMaterial(row);
+      const material=reviewed.material as AdminMaterial;
+      if(status==='published'){
+        const blockers=publishBlockers(material,{...context,needsReview:reviewed.needsReview.map(describeQuestionIssue)});
+        if(blockers.length>0)return{ok:false,blockers};
+      }
+      const patch={status,updatedAt:nextRevision(row.updatedAt)};
+      return{ok:true,material:{...material,...patch},patch};
+    };
+
     if(useFirestore()){
-      const ref=getFirestoreDb().collection('admin_content').doc(section).collection('items').doc(id);
-      await ref.set({status,updatedAt:now},{merge:true});
-      return{ok:true,material:{...material,status,updatedAt:now}};
+      const db=getFirestoreDb();
+      const ref=db.collection('admin_content').doc(section).collection('items').doc(id);
+      return db.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        const decision=decide(snap.exists?(snap.data() as Record<string,unknown>):undefined);
+        if(!decision.ok)return decision;
+        tx.set(ref,decision.patch,{merge:true});
+        return{ok:true as const,material:decision.material};
+      });
     }
+
+    const gated=this.readCollection<Record<string,unknown>>(section).find(item=>item.id===id);
+    const decision=decide(gated);
+    if(!decision.ok)return decision;
+    // The gate calls back into its context, so the row is read again before the
+    // status goes onto it. A save that landed in between would otherwise be
+    // published without the gate ever having read it.
     const items=this.readCollection<Record<string,unknown>>(section);
-    const index=items.findIndex(x=>x.id===id);
+    const index=items.findIndex(item=>item.id===id);
     if(index<0)throw new Error('Material not found.');
-    items[index]={...items[index],status,updatedAt:now};
+    if(items[index].updatedAt!==gated?.updatedAt)throw new MaterialConflictError('material_changed_during_publish');
+    items[index]={...items[index],...decision.patch};
     this.writeCollection(section,items);
-    return{ok:true,material:{...material,status,updatedAt:now}};
+    return{ok:true,material:decision.material};
   }
   public async getStats():Promise<AdminStats>{const [speaking,reading,listening,writing,bundles]=await Promise.all([this.listMaterials('speaking'),this.listMaterials('reading'),this.listMaterials('listening'),this.listMaterials('writing'),bundleStore.list()]);let fileCount=0,totalBytes=0;if(useFirestore()){const snap=await getFirestoreDb().collection('admin_assets').get();fileCount=snap.size;snap.docs.forEach(d=>{totalBytes+=Number(d.data().size||0);});}else if(fs.existsSync(PRIVATE_UPLOADS_DIR))for(const f of fs.readdirSync(PRIVATE_UPLOADS_DIR))try{totalBytes+=fs.statSync(path.join(PRIVATE_UPLOADS_DIR,f)).size;fileCount++;}catch{}const all=[...speaking,...reading,...listening,...writing];return{totalMaterials:all.length,publishedMaterials:all.filter(m=>m.status==='published').length,draftMaterials:all.filter(m=>m.status==='draft').length,bySection:{speaking:speaking.length,reading:reading.length,listening:listening.length,writing:writing.length},totalBundles:bundles.length,uploadedFilesCount:fileCount,uploadedTotalBytes:totalBytes};}
 }

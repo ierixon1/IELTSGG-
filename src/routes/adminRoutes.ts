@@ -246,13 +246,17 @@ adminRouter.get('/materials/:section/:id',requireAdminAuth,async(req,res)=>{if(!
  * `reconcile` then releases anything the edit dropped, so replacing an audio
  * file does not leave the old one pinned as active forever.
  */
-async function saveMaterialWithAssets(section:'speaking'|'reading'|'listening'|'writing',body:unknown,author:string){
-  const item=await adminStore.saveMaterial(section,body,author);
-  try{
-    await assetStore.promote(extractAssetIds(item));
-    await assetStore.reconcile();
-  }catch(error){console.error('[Assets] reconcile after save failed:',error);}
-  return item;
+async function saveMaterialWithAssets(section:'speaking'|'reading'|'listening'|'writing',body:unknown,author:string,revision:{expectedUpdatedAt?:string}){
+  // Every save through the API names the revision it was opened at: an update
+  // without one is refused rather than allowed to overwrite a change unseen.
+  const outcome=await adminStore.saveMaterialDetailed(section,body,author,{...revision,requireRevision:true});
+  if(!outcome.unchanged){
+    try{
+      await assetStore.promote(extractAssetIds(outcome.material));
+      await assetStore.reconcile();
+    }catch(error){console.error('[Assets] reconcile after save failed:',error);}
+  }
+  return outcome;
 }
 
 /**
@@ -292,15 +296,27 @@ async function deleteMaterialWithAssets(section:'speaking'|'reading'|'listening'
 async function respondWithSave(res:Response,section:'speaking'|'reading'|'listening'|'writing',body:unknown,author:string){
   // `status` is stripped rather than validated: the editors no longer send it,
   // and a request that does is trying to publish through the back door. The
-  // store keeps whatever the material already had.
+  // store keeps whatever the material already had — except that a change to a
+  // published material withdraws it (`adminStore.saveMaterialDetailed`).
+  let expectedUpdatedAt:string|undefined;
   if(body&&typeof body==='object'&&!Array.isArray(body)){
-    const {status:_ignored,...rest}=body as Record<string,unknown>;
+    const {status:_ignored,updatedAt,...rest}=body as Record<string,unknown>;
+    // The revision the editor opened. Checked inside the write, never written.
+    expectedUpdatedAt=typeof updatedAt==='string'?updatedAt:undefined;
     body=rest;
   }
   try{
-    return res.json({success:true,item:await saveMaterialWithAssets(section,body,author)});
+    const outcome=await saveMaterialWithAssets(section,body,author,{expectedUpdatedAt});
+    let publishedBundles:Array<{id:string;title:string}>=[];
+    if(outcome.unpublished){
+      // Said, not hidden: an exam that pins this material stops opening until it is republished and pinned again.
+      try{publishedBundles=(await bundlesReferencing(outcome.material.id)).filter(bundle=>bundle.status==='published').map(bundle=>({id:bundle.id,title:bundle.title}));}
+      catch(error){console.error('[Materials] listing the exams that use a withdrawn material failed:',error);}
+    }
+    return res.json({success:true,item:outcome.material,...(outcome.unpublished?{unpublished:true,publishedBundles}:{}),...(outcome.unchanged?{unchanged:true}:{})});
   }catch(error){
     if(error instanceof MaterialValidationError)return res.status(400).json({error:'Material failed validation.',issues:error.issues});
+    if(error instanceof ClientRequestError)return res.status(error.status).json({error:error.message,code:error.code});
     console.error('[Materials] save failed:',error);
     return res.status(400).json({error:error instanceof Error?error.message:'Unable to save material.'});
   }
@@ -361,6 +377,7 @@ adminRouter.post('/materials/:section/:id/:action(publish|unpublish|archive|rest
     return res.json({success:true,item:result.material});
   }catch(error){
     if(error instanceof Error&&error.message==='Material not found.')return res.status(404).json({error:error.message});
+    if(error instanceof ClientRequestError)return res.status(error.status).json({error:error.message,code:error.code});
     console.error('[Materials] lifecycle change failed:',error);
     return res.status(400).json({error:error instanceof Error?error.message:'Unable to change status.'});
   }

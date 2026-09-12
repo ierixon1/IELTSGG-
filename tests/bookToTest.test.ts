@@ -540,6 +540,7 @@ describe('the generated draft goes through the existing review and lifecycle', (
       buildReviewState(input.result, {
         sourceHtml: input.sourceHtml,
         materialId: input.materialId,
+        materialUpdatedAt: input.updatedAt,
         generationRecord: input.generationRecord,
       }),
       { section: 'reading', ...input.classification },

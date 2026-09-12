@@ -647,8 +647,9 @@ describe('a person can promote a flagged question, and only that way', () => {
       body: JSON.stringify(body),
     });
   const publish = () => api(`/api/admin/materials/reading/${materialId}/publish`, { method: 'POST' });
-  const put = async (material: unknown) =>
-    api(`/api/admin/materials/reading/${materialId}`, { method: 'PUT', body: JSON.stringify(material) });
+  // Each save names the stored revision: these tests are about provenance, not about two admins editing at once.
+  const put = async (material: object) =>
+    api(`/api/admin/materials/reading/${materialId}`, { method: 'PUT', body: JSON.stringify({ ...material, updatedAt: (await stored()).updatedAt }) });
 
   it('blocks publication while the flagged question has no decision', async () => {
     const response = await publish();

@@ -257,12 +257,15 @@ describe('material round trip', () => {
     // The only way through is the lifecycle endpoint. A PUT carrying
     // `status: 'draft'` is a request to publish or withdraw through the back
     // door, and it is ignored rather than honoured.
+    const revision = (await adminStore.getMaterial('reading', materialId))?.updatedAt;
     const response = await api(`/api/admin/materials/reading/${materialId}`, {
       method: 'PUT',
-      body: JSON.stringify({ ...readingEditorPayload, status: 'draft' }),
+      body: JSON.stringify({ ...readingEditorPayload, status: 'draft', updatedAt: revision }),
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).item.status).toBe('published');
+    // Only the claimed status differs from what is stored, so nothing is written and it stays published.
+    const body = await response.json();
+    expect([body.item.status, body.unchanged]).toEqual(['published', true]);
   });
 
   it('refuses a bundle whose component has been withdrawn', async () => {
@@ -277,11 +280,12 @@ describe('material round trip', () => {
     expect(check.publishable).toBe(false);
     expect(check.blockers.map((blocker: { code: string }) => blocker.code)).toContain('component_unpublished');
 
-    await api(`/api/admin/materials/reading/${materialId}`, {
+    const saved = await api(`/api/admin/materials/reading/${materialId}`, {
       method: 'PUT',
-      body: JSON.stringify(readingEditorPayload),
+      body: JSON.stringify({ ...readingEditorPayload, updatedAt: (await adminStore.getMaterial('reading', materialId))?.updatedAt }),
     });
-    await api(`/api/admin/materials/reading/${materialId}/publish`, { method: 'POST' });
+    expect(saved.status).toBe(200);
+    expect((await api(`/api/admin/materials/reading/${materialId}/publish`, { method: 'POST' })).status).toBe(200);
   });
 
   it('survives an update without losing question data', async () => {
@@ -290,7 +294,7 @@ describe('material round trip', () => {
 
     const response = await api(`/api/admin/materials/reading/${materialId}`, {
       method: 'PUT',
-      body: JSON.stringify(edited),
+      body: JSON.stringify({ ...edited, updatedAt: (await adminStore.getMaterial('reading', materialId))?.updatedAt }),
     });
     expect(response.status).toBe(200);
 

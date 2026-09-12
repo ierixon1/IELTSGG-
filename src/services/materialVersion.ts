@@ -36,3 +36,17 @@ export function materialContentHash(material: AdminMaterial): string {
   const payload = JSON.stringify(canonical({ section: material.section, module: material.module, content }));
   return createHash('sha256').update(payload).digest('hex');
 }
+
+/**
+ * The whole stored record, for telling whether a save changed anything at all.
+ *
+ * Unlike `materialContentHash` this covers every field — title, theme, band,
+ * provenance, reviewer decisions, author — because the question it answers is
+ * "is this still exactly the record that passed the publish gate", not "would a
+ * candidate notice". Only what a write stamps (`updatedAt`) and what a read
+ * computes (`needsReview`) are left out.
+ */
+export function materialRecordFingerprint(material: AdminMaterial): string {
+  const { updatedAt: _updatedAt, needsReview: _needsReview, ...record } = material;
+  return createHash('sha256').update(JSON.stringify(canonical(record))).digest('hex');
+}

@@ -21,6 +21,7 @@ import { questionContentHash } from '../services/bookToTest/questionHash';
 import { MaterialValidationError } from '../services/adminStore';
 import type { StoredGenerationReview } from '../schemas/material';
 import { guardAsyncHandlers } from '../http/asyncHandlers';
+import { ClientRequestError } from '../http/errors';
 
 /**
  * The source library: ingest a book, see what came of it, search inside it.
@@ -437,6 +438,8 @@ sourceRouter.get('/generated/:materialId/review', async (req, res) => {
     return res.json({
       materialId: material.id,
       status: material.status,
+      // The draft's revision: a save from this review names it, and is refused if the draft moved on.
+      updatedAt: material.updatedAt,
       generationReviews,
       classification: {
         section: 'reading',
@@ -532,6 +535,8 @@ sourceRouter.post('/generated/:materialId/questions/:questionId/reviews', async 
     if (error instanceof MaterialValidationError) {
       return res.status(400).json({ error: 'The decision could not be recorded.', issues: error.issues });
     }
+    // The store re-checks the draft state inside the write, in case it was published after the check above.
+    if (error instanceof ClientRequestError) return res.status(error.status).json({ error: error.message, code: error.code });
     console.error('[BookToTest] review record failed:', error);
     return res.status(500).json({ error: 'Unable to record the decision.' });
   }

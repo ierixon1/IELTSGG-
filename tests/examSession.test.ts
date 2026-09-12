@@ -659,17 +659,23 @@ describe('a sitting that cannot go on is stopped, never patched', () => {
     await events(benSession, [{ type: 'start' }], 'ben');
   });
 
-  it('stops when a component changes mid-exam, and continues only once the pinned content is back', async () => {
+  it('stops when a component is edited mid-exam, and continues only once the pinned content is back and published again', async () => {
+    const readingId = ids['reading-2'];
+    const revision = async () => (await (await admin(`/api/admin/materials/reading/${readingId}`)).json()).item.updatedAt as string;
     const edited = readingPayload(2);
     edited.content.passage.questions[0].prompt = 'Changed while a learner was sitting it';
-    expect((await admin(`/api/admin/materials/reading/${ids['reading-2']}`, { method: 'PUT', body: JSON.stringify(edited) })).status).toBe(200);
+    expect((await admin(`/api/admin/materials/reading/${readingId}`, { method: 'PUT', body: JSON.stringify({ ...edited, updatedAt: await revision() }) })).status).toBe(200);
 
+    // The edit withdraws the material, so the sitting stops.
     const stopped = await events(benSession, [{ type: 'answers', answers: { 'lis-p1-q1': 'x' } }], 'ben');
     expect(stopped.status).toBe(409);
-    expect(stopped.body.code).toBe('component_changed');
-    expect((await getSession(benSession, 'ben')).body.code).toBe('component_changed');
+    expect(stopped.body.code).toBe('component_unpublished');
+    expect((await getSession(benSession, 'ben')).body.code).toBe('component_unpublished');
 
-    expect((await admin(`/api/admin/materials/reading/${ids['reading-2']}`, { method: 'PUT', body: JSON.stringify(readingPayload(2)) })).status).toBe(200);
+    // Putting the pinned content back is an edit too: it stays a draft, and the sitting stays stopped, until it is published.
+    expect((await admin(`/api/admin/materials/reading/${readingId}`, { method: 'PUT', body: JSON.stringify({ ...readingPayload(2), updatedAt: await revision() }) })).status).toBe(200);
+    expect((await getSession(benSession, 'ben')).body.code).toBe('component_unpublished');
+    expect((await admin(`/api/admin/materials/reading/${readingId}/publish`, post({}))).status).toBe(200);
     const resumed = await events(benSession, [{ type: 'answers', answers: { 'lis-p1-q1': 'x' } }], 'ben');
     expect(resumed.status).toBe(200);
     expect(resumed.body.run.sections.listening.answers).toEqual({ 'lis-p1-q1': 'x' });

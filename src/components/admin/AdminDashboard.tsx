@@ -131,7 +131,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save material.');
 
-      showToast(`Successfully saved "${item.title || 'material'}"`);
+      if (data.unpublished) {
+        // A change to a published material withdraws it; learners get it back only through Check and Publish.
+        const exams = Array.isArray(data.publishedBundles) ? data.publishedBundles.length : 0;
+        showToast(
+          `Saved "${item.title || 'material'}" as a draft. It was published, so check it and publish it again.` +
+            (exams > 0 ? ` ${exams} published exam(s) using it cannot be opened until it is republished and pinned again.` : ''),
+        );
+      } else {
+        showToast(data.unchanged ? `No changes to save in "${item.title || 'material'}".` : `Successfully saved "${item.title || 'material'}"`);
+      }
       setEditorMode('none');
       setEditingItem(null);
       fetchData();
@@ -192,7 +201,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const refreshed = await fetch(`${base}/review`, { credentials: 'same-origin' });
     const body = await refreshed.json();
     if (refreshed.ok) {
-      setImportReview((current) => (current ? { ...current, generationReviews: body.generationReviews } : current));
+      // Recording a decision is a write, so the draft's revision moved; a save from this screen must name the new one.
+      setImportReview((current) => (current ? { ...current, generationReviews: body.generationReviews, materialUpdatedAt: body.updatedAt } : current));
     }
     showToast(decision === 'confirmed' ? 'Confirmation recorded.' : 'Flag upheld.');
   };

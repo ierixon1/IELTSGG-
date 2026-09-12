@@ -9,6 +9,8 @@ import {
 
 interface GeneratedReviewResponse {
   materialId: string;
+  /** The draft's revision, so saving it can be refused if it changed after this screen opened. */
+  updatedAt: string;
   result: CdiImportResult;
   sourceHtml: string;
   generationRecord: StoredGenerationRecord;
@@ -41,6 +43,7 @@ export async function loadGeneratedReview(materialId: string): Promise<ReviewSta
     buildReviewState(input.result, {
       sourceHtml: input.sourceHtml,
       materialId: input.materialId,
+      materialUpdatedAt: input.updatedAt,
       generationRecord: input.generationRecord,
       generationReviews: input.generationReviews,
     }),

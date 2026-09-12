@@ -293,10 +293,19 @@ describe('the Firestore path: a full exam sitting', () => {
     expect(fake.documents.get(`users/${LEARNER}/examSessions/${sessionId}`)?.attemptSavedAt).toBe(new Date(clock).toISOString());
   });
 
-  it('refuses the learner a bundle whose component changed after publication', async () => {
+  it('withdraws a component edited after publication, and still refuses the exam once it is republished until it is pinned again', async () => {
     const edited = readingPayload(3);
     edited.content.passage.text = 'Edited after publication.';
-    await adminStore.saveMaterial('reading', { ...edited, id: ids['reading-3'] }, 'Firestore test');
+    const saved = await adminStore.saveMaterialDetailed('reading', { ...edited, id: ids['reading-3'] }, 'Firestore test');
+    // One transaction: the new content and the withdrawal land in the same write.
+    expect([saved.material.status, saved.unpublished]).toEqual(['draft', true]);
+    expect(fake.documents.get(`admin_content/reading/items/${ids['reading-3']}`)?.status).toBe('draft');
+    const withdrawn = await call('/api/learner/exams', post({ bundleId }));
+    expect(withdrawn.status).toBe(409);
+    expect((await withdrawn.json()).code).toBe('component_unpublished');
+
+    const republished = await adminStore.setMaterialStatus('reading', ids['reading-3'], 'published', { assetExists: () => false });
+    expect(republished.ok).toBe(true);
     const opened = await call('/api/learner/exams', post({ bundleId }));
     expect(opened.status).toBe(409);
     expect((await opened.json()).code).toBe('component_changed');

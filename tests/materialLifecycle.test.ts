@@ -155,7 +155,7 @@ describe('draft to learner, the whole way', () => {
     expect((await learner(`/api/learner/materials/reading/${draft.id}`)).status).toBe(404);
 
     // 4. Edited. Still a draft.
-    const edited = publishableReading({ id: draft.id });
+    const edited = publishableReading({ id: draft.id, updatedAt: draft.updatedAt });
     (edited.content.passage.questions[0] as { prompt: string }).prompt =
       'Path integration accumulates error with distance.';
     const editedResponse = await api(`/api/admin/materials/reading/${draft.id}`, {
