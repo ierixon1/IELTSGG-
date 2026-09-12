@@ -8,13 +8,11 @@ import { Type } from '@google/genai';
 import { authenticateRequest, AuthenticatedRequest } from './src/middleware/authMiddleware';
 import { enforceAdminSecurity } from './src/middleware/adminSecurityMiddleware';
 import { dataStore } from './src/services/storage';
-import { mockGeneratorService } from './src/services/mockGenerator';
-import { GenerateMockRequestSchema } from './src/schemas/mockGeneratorSchema';
 import { IELTS_THEMES, READING_QUESTION_TYPES, LISTENING_QUESTION_TYPES, WRITING_TASK1_ACADEMIC_TYPES, WRITING_TASK2_TYPES, SPEAKING_PART2_CATEGORIES } from './src/config/ieltsTaxonomy';
 import { executeGeminiWithRetry, AiUnavailableError } from './prompts/geminiRetry';
 import { getGenAI, gradeWithFallback, gradeSpeakingSubmission, gradeWritingSubmission, paragraphRewriteInstruction } from './src/services/grading';
 import { examSessionRouter } from './src/routes/examSessionRoutes';
-import { withoutAnswerKeys } from './src/services/learnerRedaction';
+import { mockRouter } from './src/routes/mockRoutes';
 import { adminRouter } from './src/routes/adminRoutes';
 import { userDataRouter } from './src/routes/userDataRoutes';
 import { learnerContentRouter } from './src/routes/learnerContentRoutes';
@@ -44,6 +42,8 @@ app.use('/api',userDataRouter);
 app.use('/api',learnerContentRouter);
 // Full exams sat from published bundles: marked, timed and recorded on the server.
 app.use('/api',examSessionRouter);
+// AI-generated mocks, owned by the learner who generated them; sent without keys.
+app.use('/api',mockRouter);
 
 app.get('/api/taxonomy',(_req,res)=>res.json({themes:IELTS_THEMES,readingQuestionTypes:READING_QUESTION_TYPES,listeningQuestionTypes:LISTENING_QUESTION_TYPES,writingTask1AcademicTypes:WRITING_TASK1_ACADEMIC_TYPES,writingTask2Types:WRITING_TASK2_TYPES,speakingPart2Categories:SPEAKING_PART2_CATEGORIES}));
 
@@ -53,44 +53,6 @@ app.get('/api/quotas',async(req:AuthenticatedRequest,res)=>{
     const quota=await dataStore.getDailyQuota(req.userId);
     return res.json({date:quota.dateStr,generations:{used:quota.generationsCount,max:RATE_LIMIT_GENERATIONS,remaining:Math.max(0,RATE_LIMIT_GENERATIONS-quota.generationsCount)},uploads:{used:quota.uploadsCount,max:RATE_LIMIT_UPLOADS,remaining:Math.max(0,RATE_LIMIT_UPLOADS-quota.uploadsCount)}});
   }catch(error){console.error('[Quota]',error);return res.status(500).json({error:'Unable to load quota.'});}
-});
-
-app.post('/api/mocks/generate',async(req:AuthenticatedRequest,res)=>{
-  try{
-    if(!req.userId)return res.status(401).json({error:'Unauthorized.'});
-    const parsed=GenerateMockRequestSchema.safeParse(req.body);
-    if(!parsed.success)return res.status(400).json({error:'Invalid request payload format.'});
-    const recent=await dataStore.getRecentGenerations(req.userId,20);
-    const recentThemes=recent.map(t=>t.theme).filter(Boolean);
-    const result=await mockGeneratorService.generateMock(parsed.data,recentThemes);
-    await dataStore.recordGeneratedTest(req.userId,{id:result.id,userId:req.userId,timestamp:new Date().toISOString(),module:result.module,section:result.section,targetBand:result.targetBand,theme:result.theme,contentHash:result.contentHash,title:result.title,questionTypes:result.questionTypes,data:result.testData});
-    const quota=await dataStore.getDailyQuota(req.userId);
-    // The learner is sent the test without its keys, explanations or provenance; the stored record keeps them.
-    return res.json({success:true,test:withoutAnswerKeys(result),remainingGenerations:Math.max(0,RATE_LIMIT_GENERATIONS-quota.generationsCount),recentThemesCount:recentThemes.length});
-  }catch(error){
-    if(error instanceof Error&&error.message==='Daily generation limit reached.')return res.status(429).json({error:error.message,quota:{max:RATE_LIMIT_GENERATIONS}});
-    console.error('[Mocks]',error);
-    return res.status(500).json({error:'Failed to generate mock test.'});
-  }
-});
-
-app.get('/api/mocks/history',async(req:AuthenticatedRequest,res)=>{
-  try{
-    if(!req.userId)return res.status(401).json({error:'Unauthorized.'});
-    const n=Number.parseInt(String(req.query.limit||'20'),10);
-    const limit=Number.isFinite(n)?Math.min(Math.max(n,1),50):20;
-    const tests=await dataStore.getRecentGenerations(req.userId,limit);
-    return res.json({tests:tests.map(t=>({id:t.id,timestamp:t.timestamp,module:t.module,section:t.section,targetBand:t.targetBand,theme:t.theme,title:t.title,questionTypes:t.questionTypes}))});
-  }catch(error){console.error('[Mocks history]',error);return res.status(500).json({error:'Unable to load mock history.'});}
-});
-
-app.get('/api/mocks/:id',async(req:AuthenticatedRequest,res)=>{
-  try{
-    if(!req.userId)return res.status(401).json({error:'Unauthorized.'});
-    const test=await dataStore.getGeneratedTestById(req.userId,req.params.id);
-    if(!test)return res.status(404).json({error:'Mock test not found.'});
-    return res.json(withoutAnswerKeys(test));
-  }catch(error){console.error('[Mock lookup]',error);return res.status(500).json({error:'Unable to load mock test.'});}
 });
 
 app.post('/api/grade/writing',async(req:AuthenticatedRequest,res)=>{

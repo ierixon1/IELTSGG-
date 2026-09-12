@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, BookOpen, Headphones, Loader2, Mic, PenTool, RefreshCw } from 'lucide-react';
 import type { SkillType } from '../types';
-import type { PublicMaterialSummary } from '../services/publicMaterialView';
+import type { LearnerMaterialSummary } from '../types/practice';
 import { fetchLearnerMaterials } from '../services/publishedTests';
 import { Button, Card } from './ui';
 
@@ -37,7 +37,7 @@ export const LearnerMaterialCatalog: React.FC<LearnerMaterialCatalogProps> = ({
   onOpen,
   activeMaterialId,
 }) => {
-  const [items, setItems] = useState<PublicMaterialSummary[]>([]);
+  const [items, setItems] = useState<LearnerMaterialSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export const LearnerMaterialCatalog: React.FC<LearnerMaterialCatalogProps> = ({
     // Loaded once when the hub opens; the refresh button is the way to re-read.
   }, []);
 
-  const open = async (item: PublicMaterialSummary) => {
+  const open = async (item: LearnerMaterialSummary) => {
     setOpening(item.id);
     setError(null);
     try {
@@ -148,17 +148,23 @@ export const LearnerMaterialCatalog: React.FC<LearnerMaterialCatalogProps> = ({
                     {' • '}
                     {item.questionCount} question{item.questionCount === 1 ? '' : 's'}
                   </p>
+                  {!item.practiceAvailable && (
+                    <p className="mt-0.5 text-[11px] font-semibold text-warning-700" data-exam-content={item.id}>
+                      Part of a published exam — sit it in Exam mode. Not available for practice.
+                    </p>
+                  )}
                 </div>
               </div>
 
+              {/* Only a hint: the server refuses to open or mark exam content whatever this shows. */}
               <Button
                 id={`btn-open-material-${item.id}`}
                 variant={isActive ? 'primary' : 'secondary'}
                 size="sm"
-                disabled={opening === item.id}
+                disabled={!item.practiceAvailable || opening === item.id}
                 onClick={() => void open(item)}
               >
-                {opening === item.id ? 'Opening…' : isActive ? 'Open again' : 'Open'}
+                {!item.practiceAvailable ? 'In an exam' : opening === item.id ? 'Opening…' : isActive ? 'Open again' : 'Open'}
               </Button>
             </li>
           );

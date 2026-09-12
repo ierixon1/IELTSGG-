@@ -54,6 +54,8 @@ const learner = (url: string, init: RequestInit = {}) => call(learnerCookie)(url
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
 
 const ids: Record<string, string> = {};
+/** Published materials no bundle names: ordinary practice content. */
+const practice: Record<string, string> = {};
 let bundleId = '';
 let importedId = '';
 
@@ -97,18 +99,26 @@ before(async () => {
   });
   learnerCookie = (registered.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
 
-  for (const part of [1, 2, 3, 4]) {
-    const asset = await assetStore.create({ originalName: `p${part}.mp3`, content: Buffer.from(`ID3 ${part}`), mimeType: 'audio/mpeg', kind: 'audio', createdBy: 'test', sourceType: 'upload' });
-    ids[`listening-${part}`] = await createPublished(listeningPayload(part, asset.id));
-  }
-  for (const part of [1, 2, 3]) {
+  const readingWithExplanations = (part: number) => {
     const payload = readingPayload(part);
     // Explanations are part of the key: they must not travel before submission either.
     payload.content.passage.questions = payload.content.passage.questions.map((question) => ({ ...question, explanation: `Because the passage says ${question.correctAnswer}.` }));
-    ids[`reading-${part}`] = await createPublished(payload);
+    return payload;
+  };
+  for (const part of [1, 2, 3, 4]) {
+    const asset = await assetStore.create({ originalName: `p${part}.mp3`, content: Buffer.from(`ID3 ${part}`), mimeType: 'audio/mpeg', kind: 'audio', createdBy: 'test', sourceType: 'upload' });
+    ids[`listening-${part}`] = await createPublished(listeningPayload(part, asset.id));
+    // A published bundle's materials are exam content, not practice content
+    // (`practiceEligibility`), so practice is exercised on materials no bundle names.
+    if (part === 2) practice['listening-2'] = await createPublished({ ...listeningPayload(part, asset.id), title: 'Practice Listening 2' });
+  }
+  for (const part of [1, 2, 3]) {
+    ids[`reading-${part}`] = await createPublished(readingWithExplanations(part));
+    practice[`reading-${part}`] = await createPublished({ ...readingWithExplanations(part), title: `Practice Reading ${part}` });
   }
   ids['writing-1'] = await createPublished(writingPayload());
   ids['speaking-1'] = await createPublished(speakingPayload());
+  practice['writing-1'] = await createPublished({ ...writingPayload(), title: 'Practice Writing' });
 
   const pins = await Promise.all(
     FULL_SLOTS.map(async ({ section, part }) => {
@@ -171,36 +181,34 @@ describe('practice responses before submission', () => {
   });
 
   it('sends a published Reading material with its questions but no key, explanation or provenance', async () => {
-    const response = await learner(`/api/learner/materials/reading/${ids['reading-1']}`);
+    const response = await learner(`/api/learner/materials/reading/${practice['reading-1']}`);
     expect(response.status).toBe(200);
     const text = await response.text();
     expectKeyFree(text);
-    const practice = JSON.parse(text) as PracticeTest;
-    expect(practice.test.reading?.passages[0].questions.slice(0, 2).map((question) => [question.id, question.prompt, question.answerCount])).toEqual([
+    const opened = JSON.parse(text) as PracticeTest;
+    expect(opened.test.reading?.passages[0].questions.slice(0, 2).map((question) => [question.id, question.prompt, question.answerCount])).toEqual([
       ['rea-p1-q1', 'Reading passage 1, question 1', 1],
       ['rea-p1-q2', 'Reading passage 1, question 2', 1],
     ]);
-    expect(practice.test.reading?.passages[0].questions).toHaveLength(13);
+    expect(opened.test.reading?.passages[0].questions).toHaveLength(13);
   });
 
   it('sends a published Listening material with its audio and transcript but no key', async () => {
-    const response = await learner(`/api/learner/materials/listening/${ids['listening-2']}`);
+    const response = await learner(`/api/learner/materials/listening/${practice['listening-2']}`);
     const text = await response.text();
     expectKeyFree(text);
-    const practice = JSON.parse(text) as PracticeTest;
-    expect(practice.test.listening?.parts[0].questions.map((question) => question.id)).toEqual(Array.from({ length: 10 }, (_, index) => `lis-p2-q${index + 1}`));
-    expect(practice.test.listening?.parts[0].audioUrl?.startsWith('/api/assets/ast_')).toBe(true);
+    const opened = JSON.parse(text) as PracticeTest;
+    expect(opened.test.listening?.parts[0].questions.map((question) => question.id)).toEqual(Array.from({ length: 10 }, (_, index) => `lis-p2-q${index + 1}`));
+    expect(opened.test.listening?.parts[0].audioUrl?.startsWith('/api/assets/ast_')).toBe(true);
   });
 
-  it('sends a published bundle for practice with every section and no key anywhere', async () => {
+  it('sends none of a published bundle for practice: it is exam content', async () => {
     const response = await learner(`/api/learner/bundles/${bundleId}`);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(403);
     const text = await response.text();
     expectKeyFree(text);
-    const practice = JSON.parse(text) as PracticeTest;
-    expect(practice.test.listening?.parts).toHaveLength(4);
-    expect(practice.test.reading?.passages).toHaveLength(3);
-    expect(Boolean(practice.test.writing.task1 && practice.test.writing.task2 && practice.test.speaking)).toBe(true);
+    expect(JSON.parse(text).code).toBe('exam_content');
+    expect(text.includes('"test"')).toBe(false);
   });
 
   it('cuts an imported page’s printed answer key out of its markup and text', async () => {
@@ -253,23 +261,15 @@ describe('practice marking after submission', () => {
 
   it('marks a submitted material with the practice scoring and returns the feedback practice shows', async () => {
     const answers = { 'rea-p2-q1': readingAnswer(2, 1), 'rea-p2-q2': 'not it' };
-    const { status, body } = await mark({ source: { kind: 'material', section: 'reading', materialId: ids['reading-2'] }, section: 'reading', answers });
+    const { status, body } = await mark({ source: { kind: 'material', section: 'reading', materialId: practice['reading-2'] }, section: 'reading', answers });
     expect(status).toBe(200);
 
-    const material = await adminStore.getMaterial('reading', ids['reading-2']);
+    const material = await adminStore.getMaterial('reading', practice['reading-2']);
     const expected = objectiveSectionScore('reading', material ? questionsOf(material) : [], answers, 'academic');
     expect([body.correct, body.total, body.band]).toEqual([expected.correct, expected.total, expected.band]);
     expect(body.results['rea-p2-q1']).toEqual({ correct: true, answers: [readingAnswer(2, 1)], explanation: `Because the passage says ${readingAnswer(2, 1)}.` });
     expect(body.results['rea-p2-q2'].correct).toBe(false);
     expect(body.results['rea-p2-q2'].answers).toEqual([readingAnswer(2, 2)]);
-  });
-
-  it('marks a bundle section across all of its parts', async () => {
-    const answers = Object.fromEntries([1, 2, 3, 4].map((part) => [`lis-p${part}-q1`, listeningAnswer(part, 1)]));
-    const { status, body } = await mark({ source: { kind: 'bundle', bundleId }, section: 'listening', answers });
-    expect(status).toBe(200);
-    expect([body.correct, body.total]).toEqual([4, 40]);
-    expect(Object.keys(body.results).sort()).toEqual([1, 2, 3, 4].flatMap((part) => Array.from({ length: 10 }, (_, index) => `lis-p${part}-q${index + 1}`)).sort());
   });
 
   it('marks a General Training Reading material with the General Training table', async () => {
@@ -300,7 +300,7 @@ describe('practice marking after submission', () => {
   it('refuses to mark what the learner cannot open', async () => {
     const draft = await (await admin('/api/admin/materials', post({ ...readingPayload(3), title: 'Draft only' }))).json();
     expect((await mark({ source: { kind: 'material', section: 'reading', materialId: draft.item.id }, section: 'reading', answers: {} })).status).toBe(404);
-    const noSection = await mark({ source: { kind: 'material', section: 'writing', materialId: ids['writing-1'] }, section: 'reading', answers: {} });
+    const noSection = await mark({ source: { kind: 'material', section: 'writing', materialId: practice['writing-1'] }, section: 'reading', answers: {} });
     expect(noSection.status).toBe(409);
     expect(noSection.body.code).toBe('section_not_in_test');
     expect((await mark({ source: { kind: 'bundle', bundleId: 'cdi-bundle-missing' }, section: 'reading', answers: {} })).status).toBe(404);
@@ -327,10 +327,5 @@ describe('generated mocks', () => {
     expectKeyFree(text, ['because', 'Line 3.', 'ast_0123456789abcdef']);
     expect(text.includes('Why?')).toBe(true);
   });
-
-  it('are redacted on both routes that return one', () => {
-    const server = readFileSync(path.join(originalCwd, 'server.ts'), 'utf8');
-    expect(server).toContain('test:withoutAnswerKeys(result)');
-    expect(server).toContain('return res.json(withoutAnswerKeys(test));');
-  });
+  // The routes that return a stored mock are exercised over HTTP in practiceEligibility.test.ts.
 });

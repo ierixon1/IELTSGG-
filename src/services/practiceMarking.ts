@@ -7,6 +7,7 @@ import { openSitting } from './bundleService';
 import { builtInSittableTest } from './publishedTests';
 import { materialToSittable, sittingToAdaptedTest, toPracticeTest, type AdaptedTest } from './sittingAdapters';
 import { toLearnerMaterial } from './sittingView';
+import { EXAM_CONTENT_REFUSAL, loadExamUse, practiceEligibility } from './practiceEligibility';
 
 /**
  * The practice test a learner opens, and the marking of what they submit.
@@ -17,21 +18,32 @@ import { toLearnerMaterial } from './sittingView';
  * used. Only the place it runs has moved.
  */
 
-export type PracticeFailure = { ok: false; status: number; code: LearnerBundleErrorCode | 'material_not_found' | 'section_not_in_test'; error: string };
+export type PracticeFailure = { ok: false; status: number; code: LearnerBundleErrorCode | 'material_not_found' | 'section_not_in_test' | 'exam_content'; error: string };
 export type PracticeOutcome<T> = { ok: true; value: T } | PracticeFailure;
 
 const notFound = (): PracticeFailure => ({ ok: false, status: 404, code: 'material_not_found', error: 'Published test not found.' });
+const examContent = (): PracticeFailure => ({ ok: false, ...EXAM_CONTENT_REFUSAL });
 
-/** The adapted test, keys included, for a practice source. Server-side only. */
+/**
+ * The adapted test, keys included, for a practice source. Server-side only.
+ *
+ * The one place practice content is resolved — for the practice screen and for
+ * marking alike — so the exam/practice policy (`practiceEligibility`) decides
+ * both before any content, let alone a key, is built.
+ */
 async function adaptedFor(source: PracticeSource): Promise<PracticeOutcome<AdaptedTest>> {
   if (source.kind === 'builtin') return { ok: true, value: { test: builtInSittableTest(), missingSections: [], issues: {} } };
   if (source.kind === 'bundle') {
     const outcome = await openSitting(source.bundleId);
     if (!outcome.ok) return { ok: false, status: outcome.status, code: outcome.code, error: outcome.error };
+    // A bundle that opens is published, so every material it pins is exam content.
+    const use = await loadExamUse();
+    if (outcome.sitting.components.some((component) => !practiceEligibility(component.materialId, use).allowed)) return examContent();
     return { ok: true, value: sittingToAdaptedTest(outcome.sitting) };
   }
   const material = await adminStore.getMaterial(source.section, source.materialId);
   if (!material || material.status !== 'published') return notFound();
+  if (!practiceEligibility(material.id, await loadExamUse()).allowed) return examContent();
   return { ok: true, value: materialToSittable(toLearnerMaterial(material, { keepTranscript: true })) };
 }
 

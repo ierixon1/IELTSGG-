@@ -1,5 +1,6 @@
 import type { AnswerValue, SittingQuestion, SkillType } from '../types';
 import type { SittableTest } from '../services/sittingAdapters';
+import type { PublicMaterialSummary } from '../services/publicMaterialView';
 
 /**
  * Practice marking, done on the server.
@@ -40,6 +41,13 @@ export interface PracticeMarking {
   band: number;
   results: Record<string, PracticeQuestionFeedback>;
 }
+
+/**
+ * A catalog entry for a learner. `practiceAvailable` is false for exam content
+ * (a material a published bundle pins): the screen shows it as unavailable, and
+ * the server refuses to open or mark it whatever the screen does.
+ */
+export type LearnerMaterialSummary = PublicMaterialSummary & { practiceAvailable: boolean };
 
 /** A published test as practice receives it: no key anywhere, plus the sections it could not supply. */
 export interface PracticeTest {

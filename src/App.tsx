@@ -11,12 +11,9 @@ import { MockTest } from './types';
 import {
   SittableTest,
   builtInPracticeTest,
-  fetchPracticeBundle,
   markPracticeSection,
-  fetchLearnerBundles,
   fetchLearnerMaterial,
 } from './services/publishedTests';
-import type { LearnerBundleSummary } from './types/bundle';
 import { SittingQuestion, VocabCard, WritingGradingResult } from './types';
 import type { PracticeSource } from './types/practice';
 import { fetchInitialData, syncDataToServer, fetchVocabCards, saveVocabCards } from './services/api';
@@ -78,10 +75,10 @@ export default function App() {
   const [vocabCards, setVocabCards] = useState<VocabCard[]>([]);
 
   /**
-   * The built-in test plus anything published from the CMS. Selecting one
-   * swaps the material every session screen works from.
+   * The test every practice screen works from: the built-in test, or one
+   * published material opened from the catalog. A published bundle is exam
+   * content and is sat in Exam mode, never practised (`practiceEligibility`).
    */
-  const [publishedTests, setPublishedTests] = useState<LearnerBundleSummary[]>([]);
   const [activeTest, setActiveTest] = useState<SittableTest<SittingQuestion>>(() => builtInPracticeTest());
   const [activeTestId, setActiveTestId] = useState<string>(MOCK_TEST_1.id);
   /** What the server marks a submitted section against: the test on screen, by source. */
@@ -178,9 +175,6 @@ export default function App() {
       }
       if (!data.profile.isOnboarded) setIsOnboardingOpen(true);
       setVocabCards(await fetchVocabCards());
-      const bundles = await fetchLearnerBundles();
-      if (bundles.ok) setPublishedTests(bundles.bundles);
-      else setActiveTestError(bundles.message);
     }
     init();
   }, [authUser]);
@@ -220,29 +214,6 @@ export default function App() {
     }
   };
 
-  const handleSelectTest = async (id: string) => {
-    setActiveTestError(null);
-    if (id === MOCK_TEST_1.id) {
-      setActiveTest(builtInPracticeTest());
-      setActiveTestId(MOCK_TEST_1.id);
-      setPracticeSource({ kind: 'builtin' });
-      setActiveTestGaps([]);
-      return;
-    }
-
-    const load = await fetchPracticeBundle(id);
-    if (!load.ok) {
-      // Not a fallback: the previously loaded test stays visible under its own
-      // name, and the learner is told why this one did not open.
-      setActiveTestError(`That test could not be opened (${id}, ${load.code}): ${load.message}`);
-      return;
-    }
-    setActiveTest(load.test);
-    setActiveTestId(id);
-    setPracticeSource({ kind: 'bundle', bundleId: id });
-    setActiveTestGaps(load.missingSections);
-  };
-
   /**
    * Opens one published material by its exact id.
    *
@@ -256,9 +227,11 @@ export default function App() {
       section as 'listening' | 'reading' | 'writing' | 'speaking',
       id,
     );
-    if (!adapted) {
+    if (!adapted.ok) {
       setActiveTestError(
-        `That material could not be opened (${id}). It may have been unpublished or archived.`,
+        adapted.code === 'exam_content'
+          ? `That material (${id}) is part of a published exam, so it is not available for practice.`
+          : `That material could not be opened (${id}). It may have been unpublished or archived.`,
       );
       return;
     }
@@ -411,7 +384,7 @@ export default function App() {
         className="es-enter flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8"
       >
         {activeTab === 'plan' && <PlanView tasks={tasks} profile={profile} attempts={attempts} onToggleTask={handleToggleTask} onStartTask={handleStartTask} onRecalculatePlan={handleRecalculatePlan} lastRecalc={lastRecalc} />}
-        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onMarkPractice={(section, answers) => markPracticeSection(practiceSource, section, answers)} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} publishedTests={publishedTests} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} onSelectTest={handleSelectTest} missingSections={activeTestGaps} onOpenMaterial={handleOpenMaterial} loadError={activeTestError} />}
+        {activeTab === 'mocks' && <MocksHub mockTest={activeTest} onMarkPractice={(section, answers) => markPracticeSection(practiceSource, section, answers)} onRecordScore={handleRecordScore} initialSelectedSection={targetedMocksSection} onWritingGraded={handleWritingGraded} onSpeakingGraded={handleSpeakingGraded} activeTestId={activeTestId} builtInTestId={MOCK_TEST_1.id} missingSections={activeTestGaps} onOpenMaterial={handleOpenMaterial} loadError={activeTestError} />}
         {activeTab === 'exam' && <ExamMode onCompleteExam={handleCompleteFullExam} onExitExam={() => setActiveTab('plan')} />}
         {activeTab === 'arcade' && <SpeakOrDieArcade />}
         {activeTab === 'vocab' && <VocabTrainer cards={vocabCards} onUpdateCards={persistVocab} />}

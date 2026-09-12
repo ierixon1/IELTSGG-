@@ -7,7 +7,6 @@ import type { Server } from 'node:http';
 import { expect } from './harness';
 import { removeTempRoot } from './tempDir';
 import type { ExamSitting } from '../src/types/bundle';
-import type { PracticeTest } from '../src/types/practice';
 import {
   CUSTOM_TIMING,
   FULL_SLOTS,
@@ -50,6 +49,7 @@ const { assetStore } = await import('../src/services/assetStore');
 const { bundleStore } = await import('../src/services/bundleStore');
 const { buildExamPlan } = await import('../src/services/examRun');
 const { openSitting } = await import('../src/services/bundleService');
+const { sittingToAdaptedTest } = await import('../src/services/sittingAdapters');
 
 let server: Server;
 let origin = '';
@@ -289,19 +289,12 @@ describe('a learner opens exactly what was published', () => {
     expect(text.includes(listeningAnswer(1, 1))).toBe(true);
   });
 
-  it('sends the learner that bundle for practice with every component and no answer key', async () => {
+  it('does not send that bundle for practice: a published bundle is exam content', async () => {
     const response = await learner(`/api/learner/bundles/${bundleId}`);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(403);
     const text = await response.text();
-    const practice = JSON.parse(text) as PracticeTest;
-
-    expect(practice.missingSections).toEqual([]);
-    expect(practice.test.listening?.parts.map((part) => part.questions.map((question) => question.id))).toEqual(
-      [1, 2, 3, 4].map((part) => Array.from({ length: 10 }, (_, index) => `lis-p${part}-q${index + 1}`)),
-    );
-    expect(practice.test.reading?.passages).toHaveLength(3);
-    expect(practice.test.listening?.parts[0].audioUrl).toBe(`/api/assets/${audio[1]}`);
-    for (const withheld of ['correctAnswer', 'acceptableAnswers', 'explanation', 'provenance', 'importRecord', 'generationRecord', 'sourceAssetId', 'needsReview', 'customGradingCriteria']) {
+    expect(JSON.parse(text).code).toBe('exam_content');
+    for (const withheld of ['"test"', 'questions', 'correctAnswer', 'explanation', 'transcript', audio[1]]) {
       expect(text.includes(withheld)).toBe(false);
     }
     for (const part of [1, 2, 3, 4]) for (const index of [1, 2] as const) expect(text.includes(listeningAnswer(part, index))).toBe(false);
@@ -328,6 +321,18 @@ describe('a learner opens exactly what was published', () => {
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The bundle opens again: it passes the gate, is listed as available, and — being
+ * published exam content — is refused as practice rather than sent (`practiceEligibility`).
+ */
+async function expectOpensAgain() {
+  const listed = (await (await learner('/api/learner/bundles')).json()).bundles.find((bundle: { id: string }) => bundle.id === bundleId);
+  expect(listed.available).toBe(true);
+  const practiceView = await learner(`/api/learner/bundles/${bundleId}`);
+  expect(practiceView.status).toBe(403);
+  expect((await practiceView.json()).code).toBe('exam_content');
+}
+
 describe('a published bundle that goes bad is refused, never patched', () => {
   it('refuses it once a component changes, until the new version is pinned on purpose', async () => {
     const edited = readingPayload(2);
@@ -348,9 +353,10 @@ describe('a published bundle that goes bad is refused, never patched', () => {
     expect((await admin(`/api/admin/bundles/${bundleId}`, { method: 'PUT', body: draftBody(await currentPins()) })).status).toBe(200);
     expect((await admin(`/api/admin/bundles/${bundleId}/publish`, { method: 'POST' })).status).toBe(200);
 
-    const reopened = await learner(`/api/learner/bundles/${bundleId}`);
-    expect(reopened.status).toBe(200);
-    const passage2 = ((await reopened.json()) as PracticeTest).test.reading?.passages.find((passage) => passage.passageNumber === 2);
+    await expectOpensAgain();
+    const reopened = await openSitting(bundleId);
+    if (!reopened.ok) throw new Error(`the republished bundle did not resolve: ${reopened.code}`);
+    const passage2 = sittingToAdaptedTest(reopened.sitting).test.reading?.passages.find((passage) => passage.passageNumber === 2);
     expect(passage2?.questions[0].prompt).toBe('An edited first question');
   });
 
@@ -361,7 +367,7 @@ describe('a published bundle that goes bad is refused, never patched', () => {
     expect((await opened.json()).code).toBe('component_unpublished');
 
     await admin(`/api/admin/materials/writing/${ids['writing-1']}/publish`, { method: 'POST' });
-    expect((await learner(`/api/learner/bundles/${bundleId}`)).status).toBe(200);
+    await expectOpensAgain();
   });
 
   it('refuses it when its Listening audio is gone, instead of reading the script aloud', async () => {
@@ -375,7 +381,7 @@ describe('a published bundle that goes bad is refused, never patched', () => {
     } finally {
       writeFileSync(file, before);
     }
-    expect((await learner(`/api/learner/bundles/${bundleId}`)).status).toBe(200);
+    await expectOpensAgain();
   });
 
   it('refuses a published bundle that names a material which does not exist', async () => {

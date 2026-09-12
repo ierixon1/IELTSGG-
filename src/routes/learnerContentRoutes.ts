@@ -8,6 +8,8 @@ import { markPractice, practiceTestFor, type PracticeFailure } from '../services
 import { toLearnerMaterial } from '../services/sittingView';
 import { assetStore } from '../services/assetStore';
 import { sendAsset } from './adminRoutes';
+import { loadExamUse, practiceEligibility } from '../services/practiceEligibility';
+import type { LearnerMaterialSummary } from '../types/practice';
 
 /**
  * Published content for a signed-in learner.
@@ -44,12 +46,12 @@ learnerContentRouter.get('/learner/bundles', async (_req: AuthenticatedRequest, 
 const refuse = (res: Response, failure: PracticeFailure) => res.status(failure.status).json({ error: failure.error, code: failure.code });
 
 /**
- * One published bundle, for section practice: exactly the materials it pinned,
- * adapted for the practice screens, with no answer key anywhere.
+ * A bundle as practice content — which a published bundle never is.
  *
- * Refused — with a code the screen turns into an explanation — when the
- * bundle does not exist, has been withdrawn or retired, or no longer passes the
- * bundle gate. Nothing is substituted for a component that fails.
+ * A bundle that does not exist, has been withdrawn or retired, or no longer
+ * passes the bundle gate is refused with the gate's code, as before. A bundle
+ * that would open is published, so it is exam content and is refused with
+ * `exam_content` (`practiceEligibility`). No response here carries content.
  */
 learnerContentRouter.get('/learner/bundles/:id', async (req: AuthenticatedRequest, res) => {
   try {
@@ -61,24 +63,37 @@ learnerContentRouter.get('/learner/bundles/:id', async (req: AuthenticatedReques
   }
 });
 
-/** Published materials in one section, as summaries — no content, no keys. */
+/**
+ * Published materials in one section, as summaries — no content, no keys.
+ *
+ * Each says whether it can be practised. That flag is for the screen only: the
+ * routes that return content or marking decide again for themselves.
+ */
 learnerContentRouter.get('/learner/materials/:section', async (req: AuthenticatedRequest, res) => {
   if (!isSection(req.params.section)) return res.status(400).json({ error: 'Invalid section.' });
   try {
-    const items = await adminStore.listMaterials(req.params.section, 'published');
-    return res.json({ items: items.map(toPublicMaterialSummary) });
+    const [items, use] = await Promise.all([adminStore.listMaterials(req.params.section, 'published'), loadExamUse()]);
+    const summaries: LearnerMaterialSummary[] = items.map((item) => ({
+      ...toPublicMaterialSummary(item),
+      practiceAvailable: practiceEligibility(item.id, use).allowed,
+    }));
+    return res.json({ items: summaries });
   } catch (error) {
     console.error('[LearnerContent] material list error:', error);
     return res.status(500).json({ error: 'Unable to load materials.' });
   }
 });
 
-/** One published material, adapted for practice, with no answer key anywhere. */
+/**
+ * One published material, adapted for practice, with no answer key anywhere.
+ * Exam content is refused with `exam_content`; anything else not published is a 404.
+ */
 learnerContentRouter.get('/learner/materials/:section/:id', async (req: AuthenticatedRequest, res) => {
   if (!isSection(req.params.section)) return res.status(400).json({ error: 'Invalid section.' });
   try {
     const outcome = await practiceTestFor({ kind: 'material', section: req.params.section, materialId: req.params.id });
-    return outcome.ok ? res.json(outcome.value) : unavailable(res);
+    if (outcome.ok) return res.json(outcome.value);
+    return outcome.code === 'exam_content' ? refuse(res, outcome) : unavailable(res);
   } catch (error) {
     console.error('[LearnerContent] material read error:', error);
     return unavailable(res);

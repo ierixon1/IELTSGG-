@@ -8,6 +8,11 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 
 **Overall status: NOT READY**
 
+> **Update after Phase 18.**
+> - **C1 is resolved.** Exam content (any material a published bundle pins, and a published bundle itself) is no longer practice content, and the server refuses to open or mark it. See the C1 resolution.
+> - **New finding H11.** The same phase's bypass audit found a slower answer-derivation path through exam-session score counts.
+> - **Status is still NOT READY** because of the remaining High findings.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -30,7 +35,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical, 10 High, 14 Medium, 12 Low.
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18), 14 Medium, 12 Low.
 
 ## Method and evidence legend
 
@@ -62,7 +67,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 
 | ID | Severity | Area | Finding | Status | Evidence | Production impact | Recommendation |
 |---|---|---|---|---|---|---|---|
-| C1 | Critical | Answer keys / exam integrity | Practice marking returns the full answer key of any published bundle or material for an empty submission, so exam keys are available before the exam. | reproduced | Probe 1 S9a/S9b | Any learner can get band 9 in Listening/Reading of any published exam; exam results are not trustworthy. | Product decision required (see C1 detail). At minimum, stop revealing keys for exam bundles or their components through practice. |
+| C1 | Critical | Answer keys / exam integrity | Practice marking returns the full answer key of any published bundle or material for an empty submission, so exam keys are available before the exam. | reproduced; **resolved in Phase 18** (no longer reproducible) | Probe 1 S9a/S9b; `tests/practiceEligibility.test.ts` | Any learner can get band 9 in Listening/Reading of any published exam; exam results are not trustworthy. | Product decision required (see C1 detail). At minimum, stop revealing keys for exam bundles or their components through practice. |
 | H1 | High | Runtime / availability | Async route handlers without try/catch plus no process handler: one thrown error exits the process. | reproduced | Probe 1 S17; production boot | Any examiner/admin typo in an id, or a Firestore error on the anonymous `/api/admin/public/materials/:section`, takes the server down for all learners mid-exam. | Wrap every async handler (or add an Express async error wrapper and a JSON error handler); add a process-level `unhandledRejection` log-and-survive policy. |
 | H2 | High | Rate limiting | Global (120/min) and auth limiters are keyed by `req.ip`, with no `trust proxy`, and shared by all users behind one address. | reproduced | Probe 1 S16 | Behind a load balancer every user shares one budget; a classroom behind one NAT gets 429 on exam autosaves and logins. | Configure `trust proxy` for the deployment; key the authenticated limiter by user id; size limits against exam autosave traffic. |
 | H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced | Probe 1 S4 | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
@@ -73,6 +78,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); unverified (Safari/iOS device) | Probe 1 S4b; `ListeningSession.tsx:86-92` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
 | H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`) | `package.json`; `adminRoutes.ts:2,6`; `sourceRoutes.ts:2` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
 | H10 | High | Firestore verification | No real Firestore project has been run, and the fake leaves large paths unexercised. | unverified | Firestore audit below | Production requires Firestore; auth, quotas, sources, Book → Test and contention behaviour are unknown. | Run the full suite and a smoke test against an emulator or staging project before production. |
+| H11 | High | Answer keys / exam integrity | The exam session's run view exposes each closed Listening/Reading section's correct count and band before the exam ends; abandoned sessions can be reopened without limit. | reproduced (counts exposed mid-exam); hypothesis (key derivation) | Probe 1 S9b; `examRun.ts:217-228`; `examSession.test.ts` | Repeated sessions let a learner infer closed-choice keys from count changes; far slower than C1 and bounded by timing when early finish is off. | Withhold objective counts and bands from the run view until the exam is finished; consider limiting abandoned sittings per bundle. Exam session logic was out of Phase 18 scope. |
 | M1 | Medium | Deployment | Port is hard-coded to 3000; `process.env.PORT` is ignored. | confirmed | `server.ts:24,179` | Platforms that assign `PORT` (Heroku, Railway; Cloud Run defaults to 8080) cannot route to the app without extra configuration. | Honour `PORT`. |
 | M2 | Medium | Web security | No CSP, frame protection, HSTS, nosniff or Referrer-Policy on app or API responses; `X-Powered-By: Express`. | reproduced | Probe 1 H1 | The exam and admin UIs can be framed (clickjacking); weaker defence in depth. | Add security headers in production. |
 | M3 | Medium | Admin bootstrap | In Firestore mode `seedInitialAccounts` and `ADMIN_PROMOTE_USERNAME` never run, so there is no supported way to create the first administrator. | confirmed | `authService.ts:39` | Nobody can publish content until a Firestore document is edited by hand. | Provide a production bootstrap path (one-off script or env-gated promote on Firestore). |
@@ -123,6 +129,23 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 - only return feedback for questions the learner actually answered, and never for a bundle that is available as an exam.
 
 Rate limiting alone does not fix it.
+
+**Resolution (Phase 18)**
+
+- **Policy.** A material named by any component of a currently published bundle — any of the nine slots, any section — is exam content and not practice content while that bundle is published. A published bundle itself is never practice content.
+- **Enforcement point.** `src/services/practiceEligibility.ts`: `loadExamUse()` reads the published bundles on every call, and `practiceEligibility(materialId, use)` is the single rule.
+  - It is applied in `practiceMarking.ts` `adaptedFor`, the one resolver behind both practice detail (`GET /api/learner/materials/:section/:id`, `GET /api/learner/bundles/:id`) and marking (`POST /api/learner/practice/mark`), before any content or key is built.
+  - Refusals are 403 `exam_content`, with no content.
+  - The learner catalog carries a `practiceAvailable` hint from the same rule; the UI disables exam content and no longer offers published bundles for practice. The API does not rely on either.
+- **After the bundle is unpublished or archived.** When no published bundle names a material any more, it is ordinary published content and can be practised again. Republishing makes it exam content again; that cannot take back keys seen in between.
+- **Previous practice attempts.** They stay accessible: they store bands only, no keys.
+- **Residual risks.**
+  - A published material is practice content from publication until a bundle that pins it is published.
+  - The rule is by material id, so re-authoring the same questions under another id is not detected (content management).
+  - Exam-session score counts (H11).
+- **Verification.**
+  - `tests/practiceEligibility.test.ts` (10 behavioural tests) and updated `practiceKeys`/`bundleExam` tests; 7/7 mutations caught, including removing the central check.
+  - Browser: exam materials shown as "In an exam" and disabled; forged HTTP requests refused with no answer data; practice available after unpublishing through the admin UI; refused again on republish.
 
 ### H1 — One thrown error in an async route exits the server — High, reproduced
 
@@ -301,6 +324,21 @@ See the Firestore audit. In summary:
 - the fake serialises all transactions, so real optimistic contention is not modelled;
 - the fake lacks `orderBy` (Probe 3 F3: `getRecentGenerations` throws on the fake);
 - authentication, quotas, rate limits, sources, Book → Test ledger and chunks, and user tasks/checklist/vocab never run against it.
+
+### H11 — Exam-session score counts as an answer oracle — High (added in Phase 18)
+
+**Status:** reproduced (exposure); hypothesis (derivation).
+
+- **Route:** `POST /api/learner/exams/:id/events` and `GET /api/learner/exams/:id`.
+- **Code path.** `toRunView` spreads `progressOf(state)`, so each section record's `objective {correct,total,band}` and `band` reach the browser as soon as the section closes (`examRun.ts:217-228`), not when the exam ends. The exam UI hides bands until the end; the API does not.
+- **Reproduction (exposure).**
+  - Phase 17 Probe 1 S9b read `listening {"correct":40,"total":40,"band":9}` from the events response while Reading was still in progress.
+  - `examSession.test.ts` asserts `listening.objective.correct` mid-exam.
+- **Derivation (not executed).**
+  - Open → start → answer a chosen subset → submit and finish Listening → read the count → abandon → reopen a fresh session → repeat. Count changes reveal which candidate answers are correct.
+  - Practical for closed-choice questions (MC, TFNG/YNNG, matching) with automation.
+  - Bounded by the section timer when early finish is disabled, and by rate limits.
+- **Recommendation.** Withhold per-section counts and bands from the run view until the attempt is finished; consider a cap on abandoned sittings per bundle.
 
 ## Security audit
 
@@ -554,7 +592,8 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
 
 These Critical/High issues genuinely block production.
 
-1. **C1** — exam keys obtainable through practice marking.
+1. ~~**C1** — exam keys obtainable through practice marking.~~ Resolved in Phase 18.
+1. **H11** — exam-session score counts usable to derive closed-choice keys (added in Phase 18).
 2. **H1** — server crash on unhandled async errors; health does not reflect storage.
 3. **H2** — IP-keyed shared rate limits.
 4. **H3** — private imported originals downloadable by learners.
@@ -602,7 +641,8 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 
 ### Before beta
 
-- **C1** — decide exam vs practice content policy; stop practice marking from revealing exam keys.
+- ~~**C1**~~ — done in Phase 18 (exam content is not practice content).
+- **H11** — withhold exam-session section counts and bands until the attempt is finished.
 - **H1** — async error handling, JSON error handler, process policy, dependency-aware health.
 - **H2** — `trust proxy`, per-user limits sized for exam autosaves.
 - **H3** — remove imported originals from the learner asset allowlist.
