@@ -27,12 +27,26 @@ interface TaskProps {
    */
   task1Data?: WritingTaskData;
   task2Data?: WritingTaskData;
+  /**
+   * The module of the test the tasks belong to. Task 1 is a different task in
+   * each (ielts.org Writing test format): Academic describes visual information,
+   * General Training is a letter — so it is labelled, and graded, as that module's task.
+   */
+  module: 'academic' | 'general';
+}
+
+/** What a task is called on the task switcher: General Training Task 1 is a letter, not a report. */
+function writingTaskLabelKey(task: 1 | 2, module: 'academic' | 'general'): string {
+  return task === 1 && module === 'general' ? 'writing.task1Letter' : `writing.task${task}`;
+}
+
+/** The structure hint in an empty editor: a General Training Task 1 letter is not shaped like a report or an essay. */
+function writingPlaceholderKey(task: 1 | 2, module: 'academic' | 'general'): string {
+  return task === 1 && module === 'general' ? 'writing.placeholderLetter' : 'writing.placeholder';
 }
 
 interface PracticeProps extends TaskProps {
   examMode?: false;
-  /** The module of the test the tasks belong to; Task 1 is graded as that module's task. */
-  module: 'academic' | 'general';
   onRecordScore?: (taskNumber: 1 | 2, band: number) => void;
   /** Feeds the vocabulary deck with what the examiner flagged. */
   onGraded?: (result: WritingGradingResult, essay: string) => void;
@@ -86,7 +100,7 @@ function formatClock(totalSeconds: number): string {
 }
 
 export const WritingSession: React.FC<WritingSessionProps> = (props) => {
-  const { task1Data, task2Data } = props;
+  const { task1Data, task2Data, module } = props;
   const exam = props.examMode === true ? props : null;
   const practice = props.examMode === true ? null : props;
   const examMode = exam !== null;
@@ -167,7 +181,7 @@ export const WritingSession: React.FC<WritingSessionProps> = (props) => {
         taskType: selectedTask === 1 ? 'task1' : 'task2',
         prompt: `${activeTaskData.title}\n${activeTaskData.prompt}`,
         essay: essayText,
-        module: practice.module,
+        module,
       });
 
       setResult(grading);
@@ -258,6 +272,7 @@ export const WritingSession: React.FC<WritingSessionProps> = (props) => {
         paragraph: targetParagraph,
         prompt: `${activeTaskData.title}
 ${activeTaskData.prompt}`,
+        module,
       });
       setRewrite(result);
       setRewriteFor(targetParagraph);
@@ -297,7 +312,7 @@ ${activeTaskData.prompt}`,
                     : 'text-ink-600 hover:text-ink-900',
                 )}
               >
-                {t(`writing.task${task}`)}
+                {t(writingTaskLabelKey(task, module))}
               </button>
             ))}
           </div>
@@ -443,7 +458,7 @@ ${activeTaskData.prompt}`,
               readOnly={taskLocked}
               data-task={selectedTask}
               onChange={(event) => setEssayText(event.target.value)}
-              placeholder={t('writing.placeholder')}
+              placeholder={t(writingPlaceholderKey(selectedTask, module))}
               className="w-full resize-y rounded-[var(--radius-control)] border border-ink-200 p-4 text-sm leading-relaxed text-ink-900 outline-none focus:border-brand-400"
             />
 

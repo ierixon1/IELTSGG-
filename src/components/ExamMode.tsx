@@ -643,6 +643,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
           <ReadingSession
             examMode
             readingData={paper.reading}
+            module={plan.module}
             initialAnswers={sectionRun.answers}
             submitted={sectionRun.submittedAt !== undefined}
             onAnswersChange={queueAnswers}
@@ -654,6 +655,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
             examMode
             task1Data={paper.writing.task1}
             task2Data={paper.writing.task2}
+            module={plan.module}
             grade={gradeWriting}
             initialDrafts={sectionRun.drafts}
             gradedTasks={sectionRun.writing}

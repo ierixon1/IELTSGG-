@@ -106,6 +106,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
     return (
       <ReadingSession
         readingData={mockTest.reading}
+        module={mockTest.module}
         mark={(answers) => onMarkPractice('reading', answers)}
         onRecordScore={(band, raw) => onRecordScore('reading', band, raw)}
         onBackToMocks={() => setActiveSection(null)}
@@ -153,9 +154,12 @@ export const MocksHub: React.FC<MocksHubProps> = ({
           <Award className="h-7 w-7 text-warning-500" />
           <div>
             <p className="text-[0.625rem] font-bold uppercase tracking-[0.12em] text-ink-400">
-              {t('mocks.difficulty')}
+              {t('mocks.module')}
             </p>
-            <p className="text-sm font-bold text-ink-800">{mockTest.difficulty}</p>
+            {/* The module the test or material actually is, never a fixed label. */}
+            <p className="text-sm font-bold text-ink-800" id="mocks-module" data-module={mockTest.module}>
+              {t(mockTest.module === 'general' ? 'mocks.moduleGeneral' : 'mocks.moduleAcademic')}
+            </p>
           </div>
         </div>
       </Card>
@@ -234,7 +238,7 @@ export const MocksHub: React.FC<MocksHubProps> = ({
                 {t(`mocks.${skill}.title`)}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-ink-500">
-                {t(`mocks.${skill}.body`)}
+                {t(skill === 'reading' && mockTest.module === 'general' ? 'mocks.reading.bodyGeneral' : `mocks.${skill}.body`)}
               </p>
               {!sectionAvailable(mockTest, skill) && (
                 <p

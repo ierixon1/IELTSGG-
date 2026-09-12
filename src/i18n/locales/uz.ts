@@ -89,7 +89,9 @@ export const uz: Dictionary = {
     eyebrow: 'Modulli mashq va diagnostika',
     subtitle:
       'Bitta bo‘limni aniq mashq sifatida yoki butun testni real vaqt hisobi va darhol AI baholashi bilan topshiring.',
-    difficulty: 'Murakkablik',
+    module: 'Modul',
+    moduleAcademic: 'Academic',
+    moduleGeneral: 'General Training',
     start: 'Bo‘limni boshlash',
     chooseTest: 'Qaysi testni topshirish',
     chooseTestHint: 'Admin paneldan chop etilgan testlar shu yerda, o‘rnatilgani yonida chiqadi.',
@@ -105,6 +107,7 @@ export const uz: Dictionary = {
       meta: '60 daqiqa · 3 matn',
       title: 'Reading',
       body: 'Haqiqiy kompyuter formatidagi akademik matnlar, rasmiy xom ball shkalasi bo‘yicha baholanadi.',
+      bodyGeneral: 'Haqiqiy kompyuter formatidagi General Training matnlari, General Training xom ball shkalasi bo‘yicha baholanadi.',
     },
     writing: {
       meta: '60 daqiqa · Task 1 va 2',
@@ -318,6 +321,7 @@ export const uz: Dictionary = {
     subtitle: 'To‘rtta mezon, har biriga ball va matn ichida belgilangan o‘z gaplaringiz.',
     backToHub: 'Testlarga qaytish',
     task1: 'Task 1 · Hisobot',
+    task1Letter: 'Task 1 · Xat',
     task2: 'Task 2 · Esse',
     taskLabel: 'Writing Task {number}',
     recommended: 'Tavsiya etiladi: {minutes} daqiqa',
@@ -329,6 +333,8 @@ export const uz: Dictionary = {
     pauseTimer: 'Pauza',
     placeholder:
       'Javobingizni yozing yoki joylashtiring.\n\nIshlaydigan tuzilma:\n– Kirish: topshiriqni qayta ifodalang, umumiy fikr yoki pozitsiyani bildiring\n– 1-abzats: asosiy tendensiya yoki dalil, misollar bilan\n– 2-abzats: ikkinchi tendensiya yoki qarshi dalil',
+    placeholderLetter:
+      'Xatingizni yozing yoki joylashtiring.\n\nIshlaydigan tuzilma:\n– Oluvchiga mos murojaat\n– Nima uchun yozayotganingiz\n– Topshiriqda so‘ralgan har bir band\n– Xuddi shu uslubda yakunlash: shaxsiy, yarim rasmiy yoki rasmiy',
     photo: {
       action: 'Rasmdan',
       reading: 'O‘qilmoqda…',
@@ -411,7 +417,8 @@ export const uz: Dictionary = {
     transcript: 'To‘liq matn',
     accent: 'Talaffuz: {name}',
     track: 'Trek: {name}',
-    questionsTitle: '1–{count} savollar',
+    questionsTitle: '{first}–{last} savollar',
+    questionTitle: '{number}-savol',
     questionsHint: 'Tushib qolgan so‘zlarni yozing yoki bitta to‘g‘ri variantni tanlang.',
     resultTitle: 'Listening natijasi',
     noSpeech: 'Bu brauzer audioni ovoz chiqarib o‘qiy olmaydi. Skriptni ochib, o‘qib boring.',
@@ -420,6 +427,7 @@ export const uz: Dictionary = {
   reading: {
     title: 'Reading',
     subtitle: 'Uchta akademik matn: True/False/Not Given, moslashtirish va variant tanlash.',
+    subtitleGeneral: 'Uchta General Training bo‘limi: True/False/Not Given, moslashtirish va variant tanlash.',
     passage: '{number}-matn',
     passageLabel: '{number}-matn',
     questionsTitle: '{number}-matnga savollar',

@@ -3,7 +3,6 @@ import {
   ListeningData,
   ReadingData,
   SpeakingData,
-  MockTest,
   Question,
   QuestionBody,
   ReadingPassage,
@@ -40,7 +39,6 @@ import { QuestionIssue, normalizeAuthoredQuestions } from '../schemas/question';
 export interface SittableTest<Q extends QuestionBody = Question> {
   id: string;
   title: string;
-  difficulty: MockTest['difficulty'];
   listening: ListeningData<Q> | null;
   reading: ReadingData<Q> | null;
   writing: { task1: WritingTaskData | null; task2: WritingTaskData | null };
@@ -238,7 +236,6 @@ export function sittingToAdaptedTest(sitting: ExamSitting): AdaptedTest {
     test: {
       id: sitting.bundle.id,
       title: sitting.bundle.title,
-      difficulty: 'Standard Academic',
       listening: listeningParts.length ? { parts: listeningParts.map((part) => part.value) } : null,
       reading: readingPassages.length ? { passages: readingPassages.map((passage) => passage.value) } : null,
       writing: { task1, task2 },
@@ -272,7 +269,6 @@ export function materialToSittable(material: AdminMaterial): AdaptedTest {
   const test: SittableTest = {
     id: material.id,
     title: material.title,
-    difficulty: 'Standard Academic',
     listening: listening ? { parts: [listening.value] } : null,
     reading: reading ? { passages: [reading.value] } : null,
     writing: { task1, task2 },

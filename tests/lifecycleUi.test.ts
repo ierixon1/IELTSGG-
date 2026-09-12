@@ -161,7 +161,6 @@ describe('a learner screen given a section the test does not carry', () => {
   const halfATest: SittableTest<SittingQuestion> = {
     id: 'cdi-half',
     title: 'Half a Test',
-    difficulty: 'Standard Academic',
     listening: null,
     reading: { passages: builtInPracticeTest().reading?.passages ?? [] },
     writing: { task1: null, task2: null },

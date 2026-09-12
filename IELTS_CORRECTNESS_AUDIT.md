@@ -164,15 +164,13 @@ The canonical types are defined in `src/schemas/question.ts`. The CDI parser emi
 | Note completion | L, R | `note_completion` | Supported |
 | Table completion | L, R | `table_completion` | Supported |
 | Form completion | L | `form_completion` | Supported |
-| Flow-chart completion | L, R | `flow_chart_completion` is an alias stored as `diagram_label` | Partial — no distinct type, so a flow chart is authored and rendered as a labelled diagram |
+| Flow-chart completion | L, R | `flow_chart_completion` is stored as `diagram_label`; CDI rubrics "Complete the flow-chart" become `summary_completion` | Supported — a typed gap with the flow chart shown from the source page. Only the stored classification is merged (reviewed in Phase 16) |
 | Diagram label completion | L, R | `diagram_label` | Supported |
-| Plan / map labelling | L | `map_label` | Supported |
+| Plan / map labelling | L | `map_label` | Supported as a typed gap. Whether the answer must be a selection control is unresolved (Phase 16) |
 | Short-answer questions | L, R | `short_answer` | Supported |
 | (generic gap) | — | `fill_in_blank` | Platform type, used by imported content |
 
-No official task family is entirely unsupported. Two gaps remain:
-- `acceptableAnswers` (alternative keys) is stored but not consulted when marking.
-- Flow-chart completion is partial (see the table).
+No official task family is entirely unsupported. One gap remains: `acceptableAnswers` (alternative keys) is stored but not consulted when marking.
 
 ## Unresolved (official sources silent or ambiguous)
 
@@ -183,16 +181,17 @@ No official task family is entirely unsupported. Two gaps remain:
 - **Hyphenated answers.** S2 counts a hyphenated word as one word. `checkAnswer` strips punctuation, including hyphens, before comparing, so "well-known" and "wellknown" are treated alike. Whether that matches official marking is not published.
 - **Question numbering continuity** (1–40 across parts) is not enforced by the gate. The sources do not describe it as a marking rule.
 - **Computer-delivered review, flag and highlight tools** are not described in the sources used.
+- **Listening plan/map/diagram labelling control.** S2 says "You have to select your answers from a list". The player shows a typed gap, where the learner enters the letter or word from the list printed with the picture. The sources do not say what on-screen control computer-delivered IELTS uses, so the control is unchanged (Phase 16).
 
 ## Known limitations
 
 - **Listening part navigation is free**, while computer-delivered IELTS plays the recording continuously.
 - **A reload during a recording cannot resume it.** The part is recorded as started and cannot be replayed, by design.
 - **The audio file itself** remains fetchable through `/api/assets/:id` by an authenticated learner. The once-only rule is enforced on the exam, not on the file.
-- **Presentation labels not changed in this phase** (outside the no-UX-change scope):
-  - The Listening questions heading reads "Questions 1–10" on every part, although the question badges carry their real numbers (11–20 on Part 2).
-  - The practice Writing tab labels Task 1 "Report" for a General Training letter.
-  - The practice header shows "Standard Academic" for a General Training material.
+- **Presentation labels found in Phase 15** — fixed in Phase 16 (see below):
+  - Listening part headings;
+  - "Report" on General Training Task 1;
+  - "Standard Academic" on General Training materials.
 - **The Listening 2-minute computer-delivered review time is not modelled.**
 - **Speaking and Writing bands depend on an external AI model.** When it is unavailable, no band is recorded rather than a fallback.
 
@@ -254,3 +253,82 @@ Real admin and learner sessions were used, with the full-size seed fixture.
   - The model's summary assessed it as "IELTS General Training Task 1".
 
 Local data was restored to its pre-verification state afterwards.
+
+## Phase 16 — fidelity corrections
+
+This phase covers only the terminology and UI items the Phase 15 audit left open. Scoring, band conversion, Book → Test, the CDI parser and the bundle architecture are unchanged.
+
+### Sources re-checked
+
+- **S2 (Listening).**
+  - Form/note/table/flow-chart completion: "fill in gaps in an outline of part or all of the recording".
+  - Plan/map/diagram labelling: "complete labels on a visual … You have to select your answers from a list".
+- **S3 (Academic Reading).**
+  - Summary/note/table/flow-chart completion: complete it "using words taken from the text", with a word limit.
+  - Diagram label completion: "Type the words into the gap", with a word limit.
+  - The page speaks of "texts", not "passages".
+- **S4 (General Training Reading).** "There are three sections of increasing difficulty". The page uses "section" and "text", not "passage".
+- **S6 (General Training Writing).**
+  - Task 1 is "a response of at least 150 words in the form of a letter", which may be "personal, semi-formal or formal in style".
+  - Task 2 is a "semi-formal/neutral discursive essay".
+  - The page never calls Task 1 a report.
+
+### Changed
+
+| Issue | Evidence | Change |
+|---|---|---|
+| Every Listening part was headed "Questions 1–N" | Phase 15 limitation: the questions under the Part 2 heading are numbered 11–20 | The heading uses the first and last question numbers the part carries ("Questions 11–20"; "Question 7" for a single question), in practice and in the exam. `src/utils/questionNumbers.ts` |
+| General Training Task 1 was labelled "Report" | S6 (a letter) | The task switcher reads "Task 1 · Letter" for General Training, in practice and in the exam (the exam now passes the bundle module to Writing). Academic keeps "Task 1 · Report" |
+| Empty-editor hint for General Training Task 1 described a report (overview, trends) | S6 | General Training Task 1 shows a letter-shaped hint: greeting, purpose, the points asked for, closing in a personal, semi-formal or formal style. Task 2 and Academic keep the existing hint |
+| Practice header showed "Difficulty: Standard Academic" for every test and material | Phase 15 limitation; the material/bundle module is known | The header shows "Module: Academic" or "Module: General Training" from the actual material or bundle. The fixed `difficulty` value was removed from `SittableTest` |
+| Reading card and Reading screen said "Academic passages" / "Three academic passages" for General Training | S4 | General Training shows "General Training texts … General Training raw-score bands" on the card and "Three General Training sections …" on the Reading screen, in practice and in the exam. Academic wording unchanged |
+| The "Rewrite at Band 8" tutor was told every paragraph was Academic Writing | S6; the same inconsistency Phase 15 fixed for the grader | The tutor instruction names the module (`paragraphRewriteInstruction`). The route refuses a request without a module (400), and practice sends the material module |
+
+English, Russian and Uzbek strings were all updated.
+
+### Unchanged, and why
+
+- **Flow-chart completion stored as `diagram_label`.**
+  - Not an interaction requirement: S2 and S3 describe filling gaps with words from the recording or text within a word limit. The player does exactly that for both flow-chart and diagram questions (a typed gap), with the visual from the source page.
+  - Marking is identical.
+  - The question type is never shown to the learner; rubric instructions come from the authored content.
+  - The merged classification is a product detail, and changing it would mean changing the CDI parser.
+- **Listening map/plan labelling as a typed gap.** See "Unresolved": S2 describes choosing from a list, not the on-screen control.
+- **"Passage" on the Reading screen for both modules.** Neither S3 nor S4 uses "passage" (both use "text", and S4 "section"), so it is product terminology for both modules, not Academic leakage. The GT subtitle now says "sections".
+- **Learner-profile branding** ("AI band engine for Academic IELTS", "Target: Band X Academic", Academic plan tasks such as "describing a chart"). These describe the product and the learner's plan, which has no module setting. They are not a General Training material or bundle shown in Academic terms.
+- **Material catalog module text** shows the stored module ("academic" / "general") capitalised. It already matches the material's module.
+- **Writing criteria labels** ("Task achievement" for Task 1, "Task response" for Task 2) are the same in both modules.
+- **Speaking and Listening screens** have no module-specific wording, and these tests are the same in both modules (S8).
+
+### Verification
+
+- **Tests.**
+  - `tests/moduleLabels.test.ts` (new, 11 tests) renders the learner screens and checks Academic and General Training separately:
+    - Listening headings for Parts 1, 2, 3 (exam) and 4;
+    - the practice header per module;
+    - the Reading card, practice screen and exam screen per module;
+    - Writing Task 1 label and hint for Academic, General Training practice and the General Training exam, with Task 2 still "Essay".
+  - `tests/writingModule.test.ts` adds the rewrite-tutor instruction per module and its refusal without one.
+- **Mutation checks: 11 of 11 killed.**
+  - Heading counts from 1; range from question count.
+  - Task 1 label ignores module; hint ignores module; "Letter" leaks to Task 2.
+  - Header always Academic; Reading card always Academic; hub does not pass module to Reading; Reading subtitle always Academic.
+  - Rewrite tutor always Academic; rewrite accepts any module.
+- **Browser (Chrome, local server, learner session, Russian interface).**
+  - **Setup.** Full-size fixture, plus General Training copies of it, an Academic bundle and a General Training bundle, all published through the store's gates.
+  - **Practice, Academic Reading.** Module "Academic"; card "Академические тексты…"; screen "Три академических текста…".
+  - **Practice, General Training Reading.**
+    - Module "General Training"; no "Standard Academic".
+    - Card "Тексты General Training… шкале сырых баллов General Training".
+    - Screen "Три секции General Training…"; no "академическ".
+  - **Practice, Academic Writing.** Module "Academic"; switcher "Task 1 · Отчёт" / "Task 2 · Эссе"; the report/essay hint on Task 1.
+  - **Practice, General Training Writing.**
+    - Module "General Training"; switcher "Task 1 · Письмо" / "Task 2 · Эссе"; the letter hint on Task 1; no "Отчёт".
+    - Grading sent `module: "general"` (200).
+    - "Переписать на Band 8" sent `module: "general"` (200) and rendered "Ваш абзац на Band 8.0".
+    - A rewrite request without a module returned 400.
+  - **Exam, Academic bundle.**
+    - Listening headings "Вопросы 1–10", "11–20", "21–30", "31–40" on Parts 1–4; Part 4's questions are numbered 31, 32, 33….
+    - Reading "Три академических текста…"; Writing "Task 1 · Отчёт".
+  - **Exam, General Training bundle.** Reading "Три секции General Training…"; Writing "Task 1 · Письмо" with the letter hint; no "Отчёт".
+  - **Clean-up.** Local data was restored to its pre-verification state afterwards.

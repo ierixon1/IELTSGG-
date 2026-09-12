@@ -89,7 +89,9 @@ export const ru: Dictionary = {
     eyebrow: 'Модульная практика и диагностика',
     subtitle:
       'Пройдите одну секцию как точечное упражнение или весь тест с реальным таймингом и мгновенной проверкой AI.',
-    difficulty: 'Сложность',
+    module: 'Модуль',
+    moduleAcademic: 'Academic',
+    moduleGeneral: 'General Training',
     start: 'Начать секцию',
     chooseTest: 'Какой тест проходить',
     chooseTestHint: 'Тесты, опубликованные через админку, появляются здесь рядом со встроенным.',
@@ -105,6 +107,7 @@ export const ru: Dictionary = {
       meta: '60 мин · 3 текста',
       title: 'Reading',
       body: 'Академические тексты в настоящем компьютерном формате, оценка по официальной шкале сырых баллов.',
+      bodyGeneral: 'Тексты General Training в настоящем компьютерном формате, оценка по шкале сырых баллов General Training.',
     },
     writing: {
       meta: '60 мин · Task 1 и 2',
@@ -318,6 +321,7 @@ export const ru: Dictionary = {
     subtitle: 'Четыре критерия, балл по каждому и ваши предложения с пометками прямо в тексте.',
     backToHub: 'К тестам',
     task1: 'Task 1 · Отчёт',
+    task1Letter: 'Task 1 · Письмо',
     task2: 'Task 2 · Эссе',
     taskLabel: 'Writing Task {number}',
     recommended: 'Рекомендуется {minutes} мин',
@@ -329,6 +333,8 @@ export const ru: Dictionary = {
     pauseTimer: 'Пауза',
     placeholder:
       'Напишите или вставьте свой ответ.\n\nРабочая структура:\n– Введение: перефразируйте задание, обозначьте обзор или позицию\n– Абзац 1: основная тенденция или аргумент с примерами\n– Абзац 2: вторая тенденция или контраргумент',
+    placeholderLetter:
+      'Напишите или вставьте своё письмо.\n\nРабочая структура:\n– Обращение, подходящее адресату\n– Зачем вы пишете\n– Все пункты, которые перечислены в задании\n– Завершение в том же стиле: личном, полуофициальном или официальном',
     photo: {
       action: 'С фото',
       reading: 'Читаем…',
@@ -465,7 +471,8 @@ export const ru: Dictionary = {
     transcript: 'Полная расшифровка',
     accent: 'Акцент: {name}',
     track: 'Дорожка: {name}',
-    questionsTitle: 'Вопросы 1–{count}',
+    questionsTitle: 'Вопросы {first}–{last}',
+    questionTitle: 'Вопрос {number}',
     questionsHint: 'Впишите пропущенные слова или выберите один верный вариант.',
     resultTitle: 'Результат Listening',
     noSpeech: 'Этот браузер не может озвучить аудио. Откройте скрипт и читайте по нему.',
@@ -480,6 +487,7 @@ export const ru: Dictionary = {
     title: 'Reading',
     timeSpent: 'Прошло времени',
     subtitle: 'Три академических текста с True/False/Not Given, сопоставлением и выбором ответа.',
+    subtitleGeneral: 'Три секции General Training с True/False/Not Given, сопоставлением и выбором ответа.',
     passage: 'Текст {number}',
     passageLabel: 'Текст {number}',
     questionsTitle: 'Вопросы к тексту {number}',

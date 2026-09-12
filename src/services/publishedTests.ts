@@ -66,7 +66,6 @@ export function builtInSittableTest(): SittableTest {
   return {
     id: MOCK_TEST_1.id,
     title: MOCK_TEST_1.title,
-    difficulty: MOCK_TEST_1.difficulty,
     listening: MOCK_TEST_1.listening,
     reading: MOCK_TEST_1.reading,
     writing: { task1: MOCK_TEST_1.writing.task1, task2: MOCK_TEST_1.writing.task2 },

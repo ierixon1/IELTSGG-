@@ -21,7 +21,12 @@ import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionB
  * the server, which returns the verdicts, correct answers and explanations
  * shown once the learner has submitted.
  */
-interface PracticeProps {
+interface ModuleProps {
+  /** Academic or General Training: the Reading texts differ (ielts.org Reading test format), so the screen says which it is. */
+  module: 'academic' | 'general';
+}
+
+interface PracticeProps extends ModuleProps {
   examMode?: false;
   readingData: ReadingData<SittingQuestion>;
   mark: (answers: Record<string, AnswerValue>) => Promise<PracticeMarking>;
@@ -34,7 +39,7 @@ interface PracticeProps {
  * the exam session marks the submitted answers on the server, and marks are not
  * shown until the exam is over.
  */
-interface ExamProps {
+interface ExamProps extends ModuleProps {
   examMode: true;
   readingData: ReadingData<SittingQuestion>;
   /** Answers already stored by the session, so a reload does not lose them. */
@@ -132,7 +137,9 @@ export const ReadingSession: React.FC<ReadingSessionProps> = (props) => {
           </div>
           <div>
             <h1 className="text-lg font-bold text-ink-900">{t('reading.title')}</h1>
-            <p className="text-xs text-ink-500">{t('reading.subtitle')}</p>
+            <p className="text-xs text-ink-500" id="reading-subtitle">
+              {t(props.module === 'general' ? 'reading.subtitleGeneral' : 'reading.subtitle')}
+            </p>
           </div>
         </div>
 

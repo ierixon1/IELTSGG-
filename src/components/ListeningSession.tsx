@@ -19,6 +19,7 @@ import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionBlock';
+import { questionNumberRange } from '../utils/questionNumbers';
 
 /**
  * Practice: the questions arrive without keys, and a submission is marked by
@@ -74,6 +75,7 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const currentPart = parts[activePartIndex];
+  const questionRange = questionNumberRange(currentPart.questions);
 
   // Exam recordings: one element per part, kept mounted so moving between parts
   // does not stop a recording that is playing. There are no player controls — no
@@ -396,9 +398,13 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
       <div className="bg-white p-6 sm:p-8 rounded-2xl border border-ink-200 shadow-sm space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-ink-100">
           <div>
-            <h3 className="text-base font-bold text-ink-900">
-              {t('listening.questionsTitle', { count: currentPart.questions.length })}
-            </h3>
+            {questionRange && (
+              <h3 className="text-base font-bold text-ink-900" id={`listening-questions-heading-${currentPart.partNumber}`}>
+                {questionRange.first === questionRange.last
+                  ? t('listening.questionTitle', { number: questionRange.first })
+                  : t('listening.questionsTitle', questionRange)}
+              </h3>
+            )}
             <p className="text-xs text-ink-500">{t('listening.questionsHint')}</p>
           </div>
           <div className="text-xs text-ink-400">

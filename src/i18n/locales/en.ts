@@ -92,7 +92,9 @@ export const en: Dictionary = {
     eyebrow: 'Modular practice & diagnostics',
     subtitle:
       'Take one section for a targeted drill, or sit the whole test under real timing with instant AI scoring.',
-    difficulty: 'Difficulty',
+    module: 'Module',
+    moduleAcademic: 'Academic',
+    moduleGeneral: 'General Training',
     start: 'Start section',
     chooseTest: 'Which test to sit',
     chooseTestHint: 'Tests published from the admin CMS appear here alongside the built-in one.',
@@ -108,6 +110,7 @@ export const en: Dictionary = {
       meta: '60 min · 3 passages',
       title: 'Reading',
       body: 'Academic passages in the authentic computer-delivered format, marked against the official raw-score bands.',
+      bodyGeneral: 'General Training texts in the authentic computer-delivered format, marked against the General Training raw-score bands.',
     },
     writing: {
       meta: '60 min · Task 1 & 2',
@@ -321,6 +324,7 @@ export const en: Dictionary = {
     subtitle: 'Four criteria, a band each, and your own sentences annotated in place.',
     backToHub: 'Back to mocks',
     task1: 'Task 1 · Report',
+    task1Letter: 'Task 1 · Letter',
     task2: 'Task 2 · Essay',
     taskLabel: 'Writing Task {number}',
     recommended: 'Recommended {minutes} min',
@@ -332,6 +336,8 @@ export const en: Dictionary = {
     pauseTimer: 'Pause',
     placeholder:
       'Write or paste your response here.\n\nA workable shape:\n– Introduction: paraphrase the prompt, state your overview or position\n– Body 1: the main trend or argument, with evidence\n– Body 2: the secondary trend or the counter-argument',
+    placeholderLetter:
+      'Write or paste your letter here.\n\nA workable shape:\n– Open with a greeting that suits the reader\n– Say why you are writing\n– Cover every point the task asks for\n– Close in the same style: personal, semi-formal or formal',
     photo: {
       action: 'From a photo',
       reading: 'Reading…',
@@ -468,7 +474,8 @@ export const en: Dictionary = {
     transcript: 'Full transcript',
     accent: 'Accent: {name}',
     track: 'Track: {name}',
-    questionsTitle: 'Questions 1–{count}',
+    questionsTitle: 'Questions {first}–{last}',
+    questionTitle: 'Question {number}',
     questionsHint: 'Fill in the missing words or choose the single best option.',
     resultTitle: 'Listening result',
     noSpeech: 'This browser cannot read the audio aloud. Open the script and read along instead.',
@@ -483,6 +490,7 @@ export const en: Dictionary = {
     title: 'Reading',
     timeSpent: 'Time spent so far',
     subtitle: 'Three academic passages with True/False/Not Given, matching and multiple choice.',
+    subtitleGeneral: 'Three General Training sections with True/False/Not Given, matching and multiple choice.',
     passage: 'Passage {number}',
     passageLabel: 'Reading passage {number}',
     questionsTitle: 'Questions for passage {number}',

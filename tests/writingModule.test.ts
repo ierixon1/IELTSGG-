@@ -12,7 +12,7 @@ import { expect } from './harness';
  * description of a chart. These tests pin what the grading model is told; they
  * never call the model.
  */
-const { gradeWritingSubmission, writingExaminerInstruction } = await import('../src/services/grading');
+const { gradeWritingSubmission, paragraphRewriteInstruction, writingExaminerInstruction } = await import('../src/services/grading');
 
 describe('what the Writing examiner is told', () => {
   it('describes General Training Task 1 as a letter', () => {
@@ -46,5 +46,19 @@ describe('what the Writing examiner is told', () => {
     expect(missing.ok === false && missing.status).toBe(400);
     const wrong = await gradeWritingSubmission({ taskType: 'task1', prompt: 'Write a letter to your landlord.', essay, module: 'gt' });
     expect(wrong.ok === false && wrong.status).toBe(400);
+  });
+});
+
+describe('what the paragraph-rewrite tutor is told', () => {
+  it('tutors General Training Writing as General Training, and Academic as Academic', () => {
+    const general = paragraphRewriteInstruction('general');
+    expect(general).toContain('IELTS General Training Writing');
+    expect(String(general).includes('Academic')).toBe(false);
+    expect(paragraphRewriteInstruction('academic')).toContain('IELTS Academic Writing');
+  });
+
+  it('gives no instruction without a known module, so the request is refused', () => {
+    expect(paragraphRewriteInstruction(undefined)).toBe(null);
+    expect(paragraphRewriteInstruction('gt')).toBe(null);
   });
 });
