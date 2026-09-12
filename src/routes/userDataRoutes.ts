@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { dataStore } from '../services/storage';
 import { MockAttempt, PlanTask, VocabCard } from '../types';
+import { guardAsyncHandlers } from '../http/asyncHandlers';
 
-const router = Router();
+const router = guardAsyncHandlers(Router());
 const profileSchema=z.object({id:z.string().max(128).optional(),targetBand:z.number().min(0).max(9),currentLevel:z.number().min(0).max(9),hoursPerWeek:z.number().min(0).max(168),weakSection:z.enum(['reading','listening','writing','speaking']),isOnboarded:z.boolean()}).strip();
 const translationParams=z.record(z.string().max(64),z.union([z.string().max(200),z.number()])).optional();
 const taskSchema=z.object({id:z.string().max(128),title:z.string().max(500),titleKey:z.string().max(128).optional(),titleParams:translationParams,reasonKey:z.string().max(128).optional(),reasonParams:translationParams,skill:z.enum(['reading','listening','writing','speaking']),taskType:z.enum(['full_mock','section_mock','writing_task1','writing_task2','speaking_part1','speaking_part2','speaking_part3','reading_passage','listening_part','criteria_drill']),dueDate:z.string().max(32),completed:z.boolean(),weight:z.number().min(0).max(100),durationMins:z.number().min(0).max(1440),reason:z.string().max(2000),sectionId:z.string().max(128).optional()}).strip();

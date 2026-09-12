@@ -17,6 +17,10 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **H11 is resolved.** During an exam, every exam-session response carries progress and the learner's own work only; section counts, bands and grading feedback reach the learner only once the whole exam has finished. See the H11 resolution.
 > - **Status is still NOT READY.** H1–H10 are unchanged.
 
+> **Update after Phase 20.**
+> - **H1 is resolved.** A failed API request no longer takes the process down. Every async handler's rejection reaches one JSON error boundary: 400/413/415 for input the server cannot use, 503 when storage is unavailable, 500 otherwise, with nothing internal in the body. A Firestore deployment without credentials answers 503 instead of exiting, and `/api/health` answers 503 when the data backend cannot be used. See the H1 resolution.
+> - **Status is still NOT READY.** H2–H10 are unchanged.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -39,7 +43,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19; 10 open), 14 Medium, 12 Low.
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20; 9 open), 14 Medium, 12 Low.
 
 ## Method and evidence legend
 
@@ -72,7 +76,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | ID | Severity | Area | Finding | Status | Evidence | Production impact | Recommendation |
 |---|---|---|---|---|---|---|---|
 | C1 | Critical | Answer keys / exam integrity | Practice marking returns the full answer key of any published bundle or material for an empty submission, so exam keys are available before the exam. | reproduced; **resolved in Phase 18** (no longer reproducible) | Probe 1 S9a/S9b; `tests/practiceEligibility.test.ts` | Any learner can get band 9 in Listening/Reading of any published exam; exam results are not trustworthy. | Product decision required (see C1 detail). At minimum, stop revealing keys for exam bundles or their components through practice. |
-| H1 | High | Runtime / availability | Async route handlers without try/catch plus no process handler: one thrown error exits the process. | reproduced | Probe 1 S17; production boot | Any examiner/admin typo in an id, or a Firestore error on the anonymous `/api/admin/public/materials/:section`, takes the server down for all learners mid-exam. | Wrap every async handler (or add an Express async error wrapper and a JSON error handler); add a process-level `unhandledRejection` log-and-survive policy. |
+| H1 | High | Runtime / availability | Async route handlers without try/catch plus no process handler: one thrown error exits the process. | reproduced; **resolved in Phase 20** (no longer reproducible over the real `server.ts`) | Probe 1 S17; production boot; `tests/serverStability.test.ts`, `tests/errorBoundary.test.ts` | Any examiner/admin typo in an id, or a Firestore error on the anonymous `/api/admin/public/materials/:section`, takes the server down for all learners mid-exam. | Wrap every async handler (or add an Express async error wrapper and a JSON error handler); add a process-level `unhandledRejection` log-and-survive policy. |
 | H2 | High | Rate limiting | Global (120/min) and auth limiters are keyed by `req.ip`, with no `trust proxy`, and shared by all users behind one address. | reproduced | Probe 1 S16 | Behind a load balancer every user shares one budget; a classroom behind one NAT gets 429 on exam autosaves and logins. | Configure `trust proxy` for the deployment; key the authenticated limiter by user id; size limits against exam autosave traffic. |
 | H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced | Probe 1 S4 | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
 | H4 | High | Publication integrity | Saving a published material keeps it published without re-running the publish gate. | reproduced | Probe 1 D1 | Learners are served content the gate would refuse: no questions, missing classification, stale confirmations of generated questions, missing assets. | Re-run the gate on save of a published material (refuse, or move to draft); or require unpublish before edit, as bundles do. |
@@ -179,6 +183,114 @@ Rate limiting alone does not fix it.
   - Because `/api/health` does not check storage, a misconfigured deployment passes health checks and crash-loops.
 
 **Recommendation.** Add an async error wrapper and a final JSON error handler, a process-level log-and-survive policy, and a startup or health check that exercises storage.
+
+**Resolution (Phase 20)**
+
+- **Crash paths before.** Reproduced by running the real `server.ts` in a child process.
+  - **Local storage.** An admin request to any of these routes, with an encoded traversal id or a 200-character id, exited the process with code 1:
+    - `GET /materials/:section/:id`;
+    - its `publish-check`;
+    - `DELETE /materials/:section/:id`;
+    - `DELETE /materials/:id`.
+    `assertId` threw inside an async handler with no try/catch. Express 4 does not await the handler, so the rejection went unhandled and Node exited. The connection was reset and the next `/api/health` got no answer.
+  - **Firestore with `FIREBASE_PROJECT_ID` set and no credentials.** The first request that reached Firestore exited the process after about 3 s. That covered the admin security check on the anonymous `/api/admin/public/*` routes, learner and admin sign-in, `/api/auth/me`, and `authenticateRequest` on every learner route.
+    - The Firestore client (google-gax) creates promises for its own connection setup that nothing awaits. Each one rejected with "Could not load the default credentials" by itself.
+    - The caller that was actually waiting received the same error only after about 10 s, so no route try/catch could contain the first rejection.
+    - Without a project id the same requests did not crash. They answered 429 "Request could not be validated." or 401.
+    - In both cases `/api/health` said `ok`.
+  - **Uncontrolled but not a crash.** Malformed JSON on any route got Express's HTML error page, with a stack trace and file paths in development. multer upload errors got a 500 HTML page with a stack trace.
+- **Design.**
+  - **`src/http/asyncHandlers.ts`: `guardAsyncHandlers(appOrRouter)`.**
+    - Applied where the app and each router are created: `server.ts` and the admin, auth, source, bundle, user-data, learner-content, exam-session and mock routers.
+    - Every handler registered through it has a returned promise's rejection passed to `next`.
+    - A rejection that is not an `Error` is wrapped, so it can never act as `next('route')`.
+    - Error handlers keep their four parameters.
+    - This is one wrapper. No route was rewritten.
+  - **`src/http/errorBoundary.ts`: `apiErrorBoundary`.** Registered once in `server.ts`, after every `/api` route and before the app shell. It answers `{ error, code }`:
+
+    | Cause | Status and code |
+    |---|---|
+    | `ClientRequestError` | its own status (`invalid_id` 400, `unsupported_file_type` 400) |
+    | body-parser | `invalid_json` 400, `payload_too_large` 413, `unsupported_encoding` 415 |
+    | multer | `file_too_large` 413; `too_many_files`, `unexpected_file`, `invalid_upload` 400 |
+    | storage unavailable | `storage_unavailable` 503 |
+    | anything else | `internal_error` 500 |
+
+    - Storage unavailable is decided by `src/services/storage/availability.ts`: a gRPC error with code 4, 7, 8, 14 or 16 and details, or google-auth's missing-credentials or missing-project message.
+    - The body carries a fixed message for its class, never text taken from the error.
+    - The log carries the method, path, user or admin id, status and code. A 5xx also logs the error with its stack; a 4xx is a one-line warning.
+    - A failure after the response has started closes the connection.
+  - **`src/http/processGuards.ts`: `installProcessGuards()`**, called in `server.ts`.
+    - An `unhandledRejection` is logged and the process keeps serving. The request that caused it still gets its own answer through the boundary.
+    - An uncaught synchronous exception keeps Node's default exit.
+  - **Middleware that turned a failing store into a client error now forwards it:**
+    - `authenticateRequest` (was 401);
+    - `enforceAdminSecurity` (was 429);
+    - `requireAdminAuth` (was 403).
+
+    A cookie that is not valid percent-encoding is still 401 or 403. Learner sign-in, `me`, register, forgot and reset password, and admin sign-in forward only storage-unavailable errors, and keep their own refusals.
+  - **Client errors.** `adminStore.assertId` throws `InvalidIdentifierError`, with the same message, so existing route catches answer as before. The admin upload file filter refuses with a 400 `ClientRequestError`.
+  - **`/api/health`.** `checkStorageHealth()` reads one document through the same Firestore client and collection the rate limiter reads on every request; it never writes. On local storage it checks that the data directory is readable and writable. The check is bounded at 5 s. Answers:
+    - 200 `{ status: 'ok', aiConfigured, storage: { backend, status: 'ok' } }`;
+    - 503 with `status: 'unavailable'`.
+- **Status semantics.**
+  - Malformed input is 400, unauthenticated 401, forbidden 403, a missing resource 404, storage unavailable 503, and a defect 500. Route-level refusals are unchanged.
+  - Routes that already answered their own errors are unchanged, including exam-session routes (500 `invalid_bundle` on an unexpected error).
+  - Routes that answer 404 on any read error are also unchanged: admin and learner assets, and a source by id. With Firestore down they are reached only through the rate limiter, which now answers 503 first.
+- **Security.** Error bodies are tested for:
+  - stack frames and file paths;
+  - `node_modules`;
+  - library names (google-gax, firebase, grpc);
+  - error class names;
+  - the credentials message;
+  - a secret embedded in an error.
+
+  Boundary answers are built only from fixed strings, so no source text, answer key or provenance can reach one.
+- **Not changed.** Scoring, exam-session semantics, practice policy, Book → Test, the CDI parser, H2–H10, logging beyond the boundary's lines, and the port (M1). An unknown `GET /api/*` still falls through to the app shell (the second half of L3).
+- **Verification.**
+  - **`tests/serverStability.test.ts` (6 tests).** Runs the real `server.ts` in a child process; a preload only moves ports 3000 and 24678 to free ports. Every failure is held to one sequence: a JSON error with the right status and nothing internal, the process still running, then a valid request that succeeds.
+    - **Local storage:**
+      - malformed material ids on five routes;
+      - an unsupported upload;
+      - a source upload with two files;
+      - malformed JSON to bundle, exam-session, learner-data and sign-in routes;
+      - failures logged with route, actor and status;
+      - health 200.
+    - **Firestore without credentials:**
+      - health 503;
+      - anonymous public materials, learner data and sign-in 503 `storage_unavailable`;
+      - the process alive and the app shell 200;
+      - health answers again;
+      - the boundary and process-guard lines in the log.
+  - **`tests/errorBoundary.test.ts` (13 tests).**
+    - **Synthetic failures:** a rejection, `next('route')` misuse, a synchronous throw, a client-error status, gRPC unavailable, missing credentials, bad JSON, an oversized body, upload limits, and a failure after the response started.
+    - **Real routers over the in-memory Firestore, failed underneath:**
+      - anonymous public materials 503, then 200 once Firestore answers (the former H1 hypothesis);
+      - a failing rate limiter answers 503 for admin, learner and sign-in requests (was 429 or 401);
+      - a failing session store answers 503;
+      - invalid cookie encoding still 401 or 403;
+      - a malformed id 400;
+      - health ok, unavailable, and unavailable on timeout.
+  - **Suites.** Full suite 590/590. `tsc --noEmit` clean. The two new suites passed three consecutive runs, 19/19 each.
+  - **Mutations: 8/8 caught.** Each of these made the new suites fail:
+    - guard bypassed;
+    - boundary not registered;
+    - process guard not installed;
+    - `authenticateRequest` 401 again;
+    - health not checking storage;
+    - boundary sending the error message;
+    - storage failures not recognised;
+    - a malformed id thrown as a plain `Error`.
+  - **Probe over the real `server.ts` (dev mode), before and after.**
+    - Local cases A1–A5: process exit before; 400 JSON after.
+    - Upload, bundle, session, sign-in and learner cases: HTML errors before; JSON 400 after.
+    - Firestore cases F2–F7: process exit before; 503 JSON with the process alive after.
+    - `/api/health` answers 503 with Firestore unavailable.
+  - **Browser (real admin UI, dev server, the user's own session).**
+    - In the Reading editor, a file named `notes.exe` went to the text-document upload zone. The request got 400 `{"error":"Unsupported file type: .exe","code":"unsupported_file_type"}`, and the zone showed that message; before this phase the response was a 500 HTML page.
+    - A `.txt` file then attached normally (200), and `/api/admin/materials` and `/api/health` answered 200.
+    - The same session's direct request to `/api/admin/materials/reading/<200 characters>` answered 400 `invalid_id`, and the next requests succeeded.
+    - The server log recorded both failures with route, admin id and status.
 
 ### H2 — Rate limits shared by everyone behind one IP — High, reproduced
 
@@ -435,14 +547,14 @@ All requests below were made against the real `server.ts` (Probe 1) unless state
 | Provenance / generation metadata | Not in learner payloads (S10); `withoutAnswerKeys` covers mocks | holds | reproduced / confirmed |
 | Source asset id leakage | Not in learner payloads | holds | reproduced |
 | Path traversal | Encoded `..%2F` on `/api/assets`, `/api/admin/assets`, `/api/admin/sources` | 404, no file content | reproduced — holds |
-| Path traversal on `/api/admin/materials/:section/:id` | Encoded traversal id | no file read, but **process crash** | reproduced — **H1** |
+| Path traversal on `/api/admin/materials/:section/:id` | Encoded traversal id | no file read; was a **process crash**, now 400 `invalid_id` with the process running (Phase 20) | reproduced — **H1**, resolved |
 | Unsafe HTML (`htmlContent`) | script, onerror, `javascript:`, iframe, `url()`, external img | all removed server-side | reproduced — holds |
 | Unsafe HTML (other rendered fields) | `passage.text` with script/onerror | stored raw; client DOMPurify only | reproduced — **M5** |
 | HTML upload sanitisation | Original kept private; derived sanitised copy; served with CSP sandbox and attachment | by code and existing tests | confirmed — holds |
 | CSRF | Admin: Origin/Referer check + SameSite=Strict. Learner: SameSite=Strict only | safe for modern browsers | confirmed |
 | API input validation | Zod on learner, exam, bundle and practice bodies; material schema on save | holds | confirmed |
 | Rate limiting | IP-keyed and shared | **fails** | reproduced — **H2** |
-| Error-message leakage | Dev: HTML stack for malformed JSON (L3). Prod: Express hides stack. Material save returns `error.message` to admins | low | reproduced (dev) / confirmed |
+| Error-message leakage | Dev: HTML stack for malformed JSON (L3), and multer upload errors as HTML with stack and file paths. Since Phase 20 every `/api` failure that reaches the error boundary is JSON with a fixed message and no stack, path or library text (tested for learner, public and admin routes). Material save still returns `error.message` to admins | low | reproduced (dev) / confirmed; `/api` part resolved |
 | Security headers | None; `X-Powered-By: Express` | **missing** | reproduced — **M2** |
 | Session handling | HttpOnly, SameSite=Strict, Secure in production; tokens stored hashed; role/version checked per request | holds | confirmed |
 
@@ -562,8 +674,8 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 | Stale browser state | Session and admin state validated server-side; exam resumes from the server. | tested / browser (Phase 14) |
 | Time handling | UTC ISO timestamps; server clock for exams; daily quotas by UTC date. | confirmed |
 | Cleanup failures | Logged, not retried (M10). | confirmed |
-| Process crashes | H1. | reproduced |
-| Health checks | Health is not dependency-aware (M7). | reproduced (production boot) |
+| Process crashes | H1 — resolved in Phase 20: async failures reach the JSON error boundary; stray library rejections are logged and the process keeps serving; an uncaught synchronous exception still exits (by design). | reproduced; resolved (tested over the real `server.ts`) |
+| Health checks | Health was not dependency-aware (M7). Since Phase 20 `/api/health` reads the data backend and answers 503 when it cannot be used; the rest of M7 (structured logs, audit log) is unchanged. | reproduced (production boot); storage part resolved |
 
 ## Legacy / migration audit
 
@@ -610,7 +722,7 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 | `NODE_ENV` | Must be `production`: selects Firestore auth and rate limits, `Secure` cookies, static `dist/`, disables dev impersonation. Unset means Vite dev middleware and insecure cookies. | **production blocker if wrong** |
 | `STORAGE_BACKEND` | Required; refuses to start without it, and refuses `local` in production. | safe default (fail closed) |
 | `GCS_BUCKET_NAME` | Required with Firestore; throws at boot. | safe default |
-| `FIREBASE_*` / ADC | Missing credentials: server boots and reports healthy, then crashes on the first Firestore request (H1). | **production blocker to verify** |
+| `FIREBASE_*` / ADC | Missing credentials: before Phase 20 the server booted, reported healthy, then crashed on the first Firestore request (H1). Now it boots, `/api/health` answers 503 `unavailable`, and every Firestore-backed request answers 503 `storage_unavailable` (after the client gives up, about 10 s) while the process keeps running. Working credentials against a real project remain unverified (H10). | **production blocker to verify** (credentials must be supplied; misconfiguration is now visible) |
 | `GEMINI_API_KEY` | Missing: AI endpoints return 503; health reports `aiConfigured:false`. | safe default |
 | `APP_URL` | Admin origin allowlist behind a proxy; password-reset links. | required for production |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Production password reset throws; the route still answers "instructions will be sent" and no email goes out. | **production blocker for account recovery** |
@@ -644,7 +756,7 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
 **Gaps that matter**
 
 - **No test mounts the real `server.ts`.** Suites wire their own apps (for example, `materialLifecycle` omits `enforceAdminSecurity`, and suites use 5 MB JSON limits instead of 16 MB). The following are therefore untested:
-  - middleware order, the global limiter, unhandled-error behaviour (H1);
+  - middleware order, the global limiter, unhandled-error behaviour (H1) — the H1 part is now covered: `tests/serverStability.test.ts` runs the real `server.ts` in a child process (Phase 20);
   - `server.ts` inline routes (`/api/grade/*`, `/api/writing/improve`, `/api/writing/transcribe`, `/api/preppy/chat`, `/api/mocks/*`).
 - **Mocks that bypass important code.**
   - Exam tests inject fake graders, so AI timeout, quota and fallback interaction with the exam is untested (H6/H7).
@@ -667,7 +779,7 @@ These Critical/High issues genuinely block production.
 
 1. ~~**C1** — exam keys obtainable through practice marking.~~ Resolved in Phase 18.
 1. ~~**H11** — exam-session score counts usable to derive closed-choice keys (added in Phase 18).~~ Resolved in Phase 19.
-2. **H1** — server crash on unhandled async errors; health does not reflect storage.
+2. ~~**H1** — server crash on unhandled async errors; health does not reflect storage.~~ Resolved in Phase 20.
 3. **H2** — IP-keyed shared rate limits.
 4. **H3** — private imported originals downloadable by learners.
 5. **H4** — published content edited without the gate.
@@ -705,7 +817,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - **Safari/iOS Listening playback** (H8).
 - **Production install with pruned devDependencies** (H9).
 - **Real Gemini behaviour.** Latency distribution, actual 503 frequency, output variance between calls, and calibration against human examiner scores.
-- **Crash on the anonymous public route** under a real Firestore error (H1 hypothesis part).
+- **The anonymous public route under a real Firestore partial outage** (formerly the H1 hypothesis). Since Phase 20 it answers 503 through the error boundary when its query fails behind a working rate limiter — tested against the in-memory Firestore, not a real project (H10).
 - **Load:** Firestore read cost and latency per exam autosave and catalog load (M6).
 - **Intermittent `fetch failed`** in tests, and the first click after reload (unreproduced).
 - **Linux CI run** of the test suite.
@@ -716,7 +828,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 
 - ~~**C1**~~ — done in Phase 18 (exam content is not practice content).
 - ~~**H11**~~ — done in Phase 19 (no marks in exam-session responses until the exam has finished).
-- **H1** — async error handling, JSON error handler, process policy, dependency-aware health.
+- ~~**H1**~~ — done in Phase 20 (async error boundary, process policy for stray rejections, storage-aware health).
 - **H2** — `trust proxy`, per-user limits sized for exam autosaves.
 - **H3** — remove imported originals from the learner asset allowlist.
 - **H4** — re-gate saves of published materials.

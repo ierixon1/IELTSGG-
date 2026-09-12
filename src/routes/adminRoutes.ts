@@ -23,8 +23,12 @@ import {sourceRouter} from './sourceRoutes';
 import {createBundleRouter} from './bundleRoutes';
 import {bundleStore} from '../services/bundleStore';
 import {bundlesReferencing,summarizeBundle} from '../services/bundleService';
+import {guardAsyncHandlers} from '../http/asyncHandlers';
+import {ClientRequestError} from '../http/errors';
+import {isStorageUnavailableError} from '../services/storage/availability';
 
-export const adminRouter=express.Router();
+// A rejection from any async handler below reaches the API error boundary, not the process (H1).
+export const adminRouter=guardAsyncHandlers(express.Router());
 type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:string;role:string};adminSessionToken?:string};
 const ADMIN_AUTH_COOKIE='prep_admin_auth';
 const readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};
@@ -48,21 +52,26 @@ const sanitizeClass=(value:string)=>value.split(/\s+/).filter(v=>SAFE_CLASS_PATT
 const sanitizeStyle=(value:string)=>value.split(';').map(part=>{const [key,...rest]=part.split(':');const prop=key?.trim().toLowerCase();const val=rest.join(':').trim();return prop&&val&&SAFE_STYLE_RULES[prop]?.some(r=>r.test(val))&&!/[()@]|url|expression|javascript/i.test(val)?`${prop}:${val}`:''}).filter(Boolean).join(';');
 export const sanitizeHtmlServer=(rawHtml:string)=>sanitizeHtml(typeof rawHtml==='string'?rawHtml:'',{allowedTags:['h1','h2','h3','h4','h5','h6','p','br','hr','strong','b','em','i','u','s','del','mark','small','sub','sup','span','div','blockquote','q','pre','code','ul','ol','li','dl','dt','dd','table','thead','tbody','tfoot','tr','th','td','caption','col','colgroup','img','a','figure','figcaption','section','article','aside','header','footer','nav','main','details','summary'],allowedAttributes:{'*':['class','id','style','title','lang','dir'],img:['src','alt','width','height','loading'],a:['href','target','rel'],th:['colspan','rowspan','headers','scope'],td:['colspan','rowspan','headers','scope']},allowedStyles:{'*':SAFE_STYLE_RULES},allowedSchemes:['http','https','mailto'],allowedSchemesByTag:{img:['data']},allowProtocolRelative:false,transformTags:{img:(tagName,attribs)=>{const src=(attribs.src||'').trim();const local=src.startsWith('/api/assets/ast_');const inline=/^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(src);if(!local&&!inline)return{tagName:'span',attribs:{class:'cdi-blocked-img text-ink-400 italic text-xs block my-2 p-2 border border-dashed border-ink-300 rounded bg-ink-50'},text:'[External image blocked]'};return{tagName,attribs};},a:(tagName,attribs)=>{const href=String(attribs.href||'').trim();if(href.startsWith('#')){const id=namespaceCdiId(href.slice(1));const out:Record<string,string>={...attribs};if(id)out.href='#'+id;else delete out.href;return{tagName,attribs:out};}return{tagName,attribs:{...attribs,target:'_blank',rel:'noopener noreferrer nofollow'}};},'*':(tagName,attribs)=>{if(typeof attribs.class==='string')attribs.class=sanitizeClass(attribs.class);if(typeof attribs.style==='string')attribs.style=sanitizeStyle(attribs.style);if(typeof attribs.id==='string'){const id=namespaceCdiId(attribs.id);if(id)attribs.id=id;else delete attribs.id;}return{tagName,attribs};}},disallowedTagsMode:'discard'});
 export function deepSanitizeHtml(obj:any):any{if(!obj||typeof obj!=='object')return obj;if(Array.isArray(obj))return obj.map(deepSanitizeHtml);const out:any={};for(const[k,v]of Object.entries(obj))out[k]=(k==='htmlContent'||k==='passageHtml')&&typeof v==='string'?sanitizeHtmlServer(v):v&&typeof v==='object'?deepSanitizeHtml(v):v;return out;}
-export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{const token=readCookie(req,ADMIN_AUTH_COOKIE);if(!token)return res.status(403).json({error:'Forbidden.'});const session=await authService.validateSession(token);if(!session||(session.role!== 'admin'&&session.role!== 'examiner'))return res.status(403).json({error:'Forbidden.'});req.adminSessionToken=token;req.adminUser={id:session.userId,username:session.username,displayName:session.name,role:session.role};return next();}catch{return res.status(403).json({error:'Forbidden.'});}}
+export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{const token=readCookie(req,ADMIN_AUTH_COOKIE);if(!token)return res.status(403).json({error:'Forbidden.'});const session=await authService.validateSession(token);if(!session||(session.role!== 'admin'&&session.role!== 'examiner'))return res.status(403).json({error:'Forbidden.'});req.adminSessionToken=token;req.adminUser={id:session.userId,username:session.username,displayName:session.name,role:session.role};return next();}catch(error){
+  // A cookie that is not valid percent-encoding is a bad credential; a session store that fails is the server's problem.
+  if(error instanceof URIError)return res.status(403).json({error:'Forbidden.'});
+  return next(error);
+ }}
 export function requireAdminRole(req:AdminRequest,res:Response,next:NextFunction){if(req.adminUser?.role!=='admin')return res.status(403).json({error:'Administrator role required.'});return next();}
 // Uploads are held in memory and handed to the asset store, which decides
 // the storage path from a generated id. Nothing is ever written under a
 // caller-supplied filename, and the original bytes are never overwritten.
 const ALLOWED_UPLOAD_EXTENSIONS=Object.keys(EXTENSION_EXPECTATIONS);
 // multer reads the SECOND argument as "accept this file"; cb(null) leaves it
-// undefined, which silently rejects every upload.
+// undefined, which silently rejects every upload. The refusal is the client's
+// doing, so it carries its own 400 to the API error boundary.
 const fileFilter:multer.Options['fileFilter']=(_r,file,cb)=>{
   const ext=path.extname(file.originalname).toLowerCase();
   if(ALLOWED_UPLOAD_EXTENSIONS.includes(ext))return cb(null,true);
-  return cb(new Error(`Unsupported file type: ${ext||'unknown'}`));
+  return cb(new ClientRequestError(400,'unsupported_file_type',`Unsupported file type: ${ext.slice(0,20)||'unknown'}`));
 };
 const upload=multer({storage:multer.memoryStorage(),fileFilter,limits:{fileSize:35*1024*1024,files:1,fields:20,fieldNameSize:100,fieldSize:256*1024,parts:22}});
-adminRouter.post('/login',async(req,res)=>{try{const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch{return res.status(401).json({error:'Invalid credentials.'});}});
+adminRouter.post('/login',async(req,res,next)=>{try{const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch(error){if(isStorageUnavailableError(error))return next(error);return res.status(401).json({error:'Invalid credentials.'});}});
 adminRouter.get('/me',requireAdminAuth,(req:AdminRequest,res)=>res.json({admin:req.adminUser}));
 adminRouter.post('/logout',requireAdminAuth,async(req:AdminRequest,res)=>{try{await authService.logout(req.adminSessionToken||'');}catch{}res.clearCookie(ADMIN_AUTH_COOKIE,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin'});return res.json({success:true});});
 /**

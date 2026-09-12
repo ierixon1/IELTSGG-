@@ -42,7 +42,9 @@ export async function enforceAdminSecurity(req: Request, res: Response, next: Ne
     }
 
     return next();
-  } catch {
-    return res.status(429).json({ error: 'Request could not be validated.' });
+  } catch (error) {
+    // Only the rate limiter can throw here, and only when its store fails. That is
+    // not the caller exceeding a limit, so the API error boundary answers it.
+    return next(error);
   }
 }

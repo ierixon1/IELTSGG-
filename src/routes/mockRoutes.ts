@@ -4,6 +4,7 @@ import { dataStore } from '../services/storage';
 import { mockGeneratorService } from '../services/mockGenerator';
 import { GenerateMockRequestSchema } from '../schemas/mockGeneratorSchema';
 import { withoutAnswerKeys } from '../services/learnerRedaction';
+import { guardAsyncHandlers } from '../http/asyncHandlers';
 
 /**
  * AI-generated mock tests, owned by the learner who generated them.
@@ -15,7 +16,7 @@ import { withoutAnswerKeys } from '../services/learnerRedaction';
  * Mounted behind `authenticateRequest` (moved here from `server.ts` unchanged,
  * so the routes can be exercised by the security tests).
  */
-export const mockRouter = express.Router();
+export const mockRouter = guardAsyncHandlers(express.Router());
 
 const RATE_LIMIT_GENERATIONS = parseInt(process.env.RATE_LIMIT_GENERATIONS || '10', 10);
 

@@ -7,7 +7,7 @@ import { createServer as createViteServer } from 'vite';
 import { Type } from '@google/genai';
 import { authenticateRequest, AuthenticatedRequest } from './src/middleware/authMiddleware';
 import { enforceAdminSecurity } from './src/middleware/adminSecurityMiddleware';
-import { dataStore } from './src/services/storage';
+import { checkStorageHealth, dataStore } from './src/services/storage';
 import { IELTS_THEMES, READING_QUESTION_TYPES, LISTENING_QUESTION_TYPES, WRITING_TASK1_ACADEMIC_TYPES, WRITING_TASK2_TYPES, SPEAKING_PART2_CATEGORIES } from './src/config/ieltsTaxonomy';
 import { executeGeminiWithRetry, AiUnavailableError } from './prompts/geminiRetry';
 import { getGenAI, gradeWithFallback, gradeSpeakingSubmission, gradeWritingSubmission, paragraphRewriteInstruction } from './src/services/grading';
@@ -17,8 +17,13 @@ import { adminRouter } from './src/routes/adminRoutes';
 import { userDataRouter } from './src/routes/userDataRoutes';
 import { learnerContentRouter } from './src/routes/learnerContentRoutes';
 import { authRouter } from './src/routes/authRoutes';
+import { guardAsyncHandlers } from './src/http/asyncHandlers';
+import { apiErrorBoundary } from './src/http/errorBoundary';
+import { installProcessGuards } from './src/http/processGuards';
 
-const app=express();
+installProcessGuards();
+// Every handler registered on the app hands a rejection to the API error boundary below.
+const app=guardAsyncHandlers(express());
 const PORT=3000;
 const MIN_REWRITABLE_WORDS=15;
 /** Roughly 6 MB of image once base64 expands it. */
@@ -33,7 +38,9 @@ app.use(express.json({limit:'16mb'}));
 // data/private_uploads and was unreachable by a learner.
 app.use('/api/auth',authRouter);
 app.use('/api/admin',enforceAdminSecurity,adminRouter);
-app.get('/api/health',(_req,res)=>res.json({status:'ok',aiConfigured:Boolean(process.env.GEMINI_API_KEY)}));
+// 503 when the data backend this process was started with cannot be used, so a
+// deployment without working storage does not pass its health checks.
+app.get('/api/health',async(_req,res)=>{const storage=await checkStorageHealth();return res.status(storage.status==='ok'?200:503).json({status:storage.status==='ok'?'ok':'unavailable',aiConfigured:Boolean(process.env.GEMINI_API_KEY),storage});});
 app.use('/api',authenticateRequest);
 app.use('/api',userDataRouter);
 // Published CMS content for a signed-in learner. Mounted after
@@ -128,6 +135,11 @@ app.post('/api/preppy/chat',async(req:AuthenticatedRequest,res)=>{
     return res.json({reply:result.text});
   }catch(error){console.error('[Preppy]',error);return res.status(500).json({error:'Failed to generate mentor reply.'});}
 });
+
+// The one answer for an API request that failed and was not answered by its route:
+// after every /api route, before the app shell, so a failure never reaches Express's
+// HTML error page or takes the process down.
+app.use('/api',apiErrorBoundary);
 
 async function startServer(){
   if(process.env.NODE_ENV!=='production'){

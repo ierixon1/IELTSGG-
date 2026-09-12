@@ -20,6 +20,7 @@ import { nanoid } from 'nanoid';
 import { questionContentHash } from '../services/bookToTest/questionHash';
 import { MaterialValidationError } from '../services/adminStore';
 import type { StoredGenerationReview } from '../schemas/material';
+import { guardAsyncHandlers } from '../http/asyncHandlers';
 
 /**
  * The source library: ingest a book, see what came of it, search inside it.
@@ -39,7 +40,7 @@ import type { StoredGenerationReview } from '../schemas/material';
  * guards for every admin request that passed through, including the deliberately
  * anonymous `/public/*` routes.
  */
-export const sourceRouter = express.Router();
+export const sourceRouter = guardAsyncHandlers(express.Router());
 
 type AdminRequest = express.Request & {
   adminUser?: { id: string; username: string; displayName: string; role: string };

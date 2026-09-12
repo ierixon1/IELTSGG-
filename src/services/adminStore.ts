@@ -11,6 +11,7 @@ import { publishBlockers } from './publishGate';
 import type { PublishBlocker, PublishGateContext } from './publishGate';
 import type { QuestionIssue } from '../schemas/question';
 import { describeQuestionIssue } from '../schemas/question';
+import { InvalidIdentifierError } from '../http/errors';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'admin_content');
 const PRIVATE_UPLOADS_DIR = path.join(process.cwd(), 'data', 'private_uploads');
@@ -24,7 +25,7 @@ if (!useFirestore()) {
 
 type SectionType = 'speaking' | 'reading' | 'listening' | 'writing';
 type MaterialStatusFilter='all'|'published'|'draft'|'archived';
-const assertId = (v:string) => { if (!/^[A-Za-z0-9_.-]{1,160}$/.test(v)) throw new Error('Invalid identifier.'); };
+const assertId = (v:string) => { if (!/^[A-Za-z0-9_.-]{1,160}$/.test(v)) throw new InvalidIdentifierError(); };
 
 /**
  * A material that could not be made canonical. Carries the per-field reasons so

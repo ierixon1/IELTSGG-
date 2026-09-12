@@ -2,6 +2,7 @@ import express, { Response } from 'express';
 import { z } from 'zod';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { createDefaultExamSessionService, type ExamSessionService, type SessionOutcome } from '../services/examSession';
+import { guardAsyncHandlers } from '../http/asyncHandlers';
 
 /**
  * Full exams for a signed-in learner, sat through a server-held exam session.
@@ -54,7 +55,7 @@ function send<T>(res: Response, outcome: SessionOutcome<T>, status = 200) {
 }
 
 export function createExamSessionRouter(service: ExamSessionService | (() => Promise<ExamSessionService>)) {
-  const router = express.Router();
+  const router = guardAsyncHandlers(express.Router());
   let resolved: Promise<ExamSessionService> | null = null;
   const sessions = () => {
     if (typeof service !== 'function') return Promise.resolve(service);

@@ -23,7 +23,14 @@ export async function authenticateRequest(req:AuthenticatedRequest,res:Response,
   }
   if(!userId)return res.status(401).json({error:'Unauthorized.'});
   req.userId=userId;req.userEmail=email;req.userRole=role||'student';req.userName=name;return requestContext.run({userId},next);
- }catch(error:any){console.error('[AuthMiddleware] Verification error:',error?.message||'unknown error');return res.status(401).json({error:'Unauthorized.'});}
+ }catch(error){
+  // A cookie that is not valid percent-encoding is a bad credential, not a server fault.
+  if(error instanceof URIError)return res.status(401).json({error:'Unauthorized.'});
+  // Anything else is the rate limiter or the session store failing. That is the
+  // server's problem, not the caller's credentials, so the API error boundary
+  // answers it (503 when storage is unavailable) instead of a 401.
+  return next(error);
+ }
 }
 export function requireRole(allowedRoles:UserRole[]){return(req:AuthenticatedRequest,res:Response,next:NextFunction)=>{if(!req.userId)return res.status(401).json({error:'Authentication required.'});if(!allowedRoles.includes(req.userRole||'student'))return res.status(403).json({error:'Forbidden.'});return next();};}
 export function requireAuth(req:AuthenticatedRequest,res:Response,next:NextFunction){if(!req.userId)return res.status(401).json({error:'Authentication required.'});return next();}

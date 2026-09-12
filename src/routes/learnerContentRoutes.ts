@@ -10,6 +10,7 @@ import { assetStore } from '../services/assetStore';
 import { sendAsset } from './adminRoutes';
 import { loadExamUse, practiceEligibility } from '../services/practiceEligibility';
 import type { LearnerMaterialSummary } from '../types/practice';
+import { guardAsyncHandlers } from '../http/asyncHandlers';
 
 /**
  * Published content for a signed-in learner.
@@ -24,7 +25,7 @@ import type { LearnerMaterialSummary } from '../types/practice';
  *
  * Mounted behind `authenticateRequest`, so `req.userId` is always present here.
  */
-export const learnerContentRouter = express.Router();
+export const learnerContentRouter = guardAsyncHandlers(express.Router());
 
 const isSection = (v: unknown): v is 'speaking' | 'reading' | 'listening' | 'writing' =>
   ['speaking', 'reading', 'listening', 'writing'].includes(String(v));

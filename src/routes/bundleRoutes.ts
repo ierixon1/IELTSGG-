@@ -10,6 +10,7 @@ import {
   transitionBundle,
 } from '../services/bundleService';
 import type { BundleLifecycleStatus } from '../types/bundle';
+import { guardAsyncHandlers } from '../http/asyncHandlers';
 
 /**
  * The admin side of Full CDI bundles: the catalog, the builder's data, and the
@@ -47,7 +48,7 @@ function fail(res: Response, error: unknown, context: string) {
 }
 
 export function createBundleRouter(requireAdminRole: RequestHandler) {
-  const router = express.Router();
+  const router = guardAsyncHandlers(express.Router());
 
   router.get('/', async (req, res) => {
     try {
