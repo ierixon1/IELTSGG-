@@ -24,6 +24,7 @@ import {createBundleRouter} from './bundleRoutes';
 import {bundleStore} from '../services/bundleStore';
 import {bundlesReferencing,summarizeBundle} from '../services/bundleService';
 import {guardAsyncHandlers} from '../http/asyncHandlers';
+import {authorizeAssetRead,listAssetsFor} from '../services/assetAccess';
 import {ClientRequestError} from '../http/errors';
 import {isStorageUnavailableError} from '../services/storage/availability';
 
@@ -93,8 +94,11 @@ function sendAsset(res:Response,asset:{mimeType:string;originalName:string},data
   return res.send(data);
 }
 export {sendAsset};
-adminRouter.get('/assets/:id',requireAdminAuth,async(req,res)=>{try{const asset=await assetStore.get(req.params.id);if(!asset)return res.status(404).json({error:'Asset not found.'});return sendAsset(res,asset,await assetStore.readContent(asset));}catch{return res.status(404).json({error:'Asset not found.'});}});
-adminRouter.get('/assets',requireAdminAuth,async(_req,res)=>{try{return res.json({items:await assetStore.list()});}catch{return res.status(500).json({error:'Unable to list assets.'});}});
+// Staff reads go through the same policy as a learner's (`authorizeAssetRead`): an
+// administrator may read any file, an examiner any material's file but not the source library.
+const assetViewerOf=(req:AdminRequest)=>req.adminUser?.role==='admin'?'admin' as const:'examiner' as const;
+adminRouter.get('/assets/:id',requireAdminAuth,async(req:AdminRequest,res)=>{try{const access=await authorizeAssetRead(assetViewerOf(req),req.params.id);if(!access.allowed)return res.status(404).json({error:'Asset not found.'});return sendAsset(res,access.asset,await assetStore.readContent(access.asset));}catch{return res.status(404).json({error:'Asset not found.'});}});
+adminRouter.get('/assets',requireAdminAuth,async(req:AdminRequest,res)=>{try{return res.json({items:await listAssetsFor(assetViewerOf(req))});}catch{return res.status(500).json({error:'Unable to list assets.'});}});
 adminRouter.post('/assets/reap',requireAdminAuth,requireAdminRole,async(_req,res)=>{try{return res.json({removed:await assetStore.reapUnreferenced()});}catch(error){console.error('[Assets] reap failed:',error);return res.status(500).json({error:'Unable to reap assets.'});}});
 adminRouter.get('/stats',requireAdminAuth,async(_req,res)=>{try{return res.json({stats:await adminStore.getStats()});}catch{return res.status(500).json({error:'Unable to load stats.'});}});
 /**

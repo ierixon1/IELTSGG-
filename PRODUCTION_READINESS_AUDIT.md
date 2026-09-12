@@ -25,6 +25,10 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **H4 is resolved.** A save that changes a published material in any way writes it back as a draft in the same write, so learners never see content the publish gate has not passed. Saves through the admin API must name the revision they were opened at. Publishing, reviewer decisions and deletes re-check the row inside the write. See the H4 resolution.
 > - **Status is still NOT READY.** H2, H3 and H5–H10 are unchanged.
 
+> **Update after Phase 22.**
+> - **H3 is resolved.** Every file read — learner or staff — goes through one policy that decides from the role the stored records give the file, not from its id. A learner gets only the audio and images a published material renders, never an imported original or a source-library file, and every refusal is the same 404 as an unknown id. Learner views no longer carry a material's `assetIds` list. See the H3 resolution.
+> - **Status is still NOT READY.** H2 and H5–H10 are unchanged.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -47,7 +51,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21; 8 open), 14 Medium, 12 Low.
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22; 7 open), 14 Medium, 12 Low.
 
 ## Method and evidence legend
 
@@ -82,7 +86,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | C1 | Critical | Answer keys / exam integrity | Practice marking returns the full answer key of any published bundle or material for an empty submission, so exam keys are available before the exam. | reproduced; **resolved in Phase 18** (no longer reproducible) | Probe 1 S9a/S9b; `tests/practiceEligibility.test.ts` | Any learner can get band 9 in Listening/Reading of any published exam; exam results are not trustworthy. | Product decision required (see C1 detail). At minimum, stop revealing keys for exam bundles or their components through practice. |
 | H1 | High | Runtime / availability | Async route handlers without try/catch plus no process handler: one thrown error exits the process. | reproduced; **resolved in Phase 20** (no longer reproducible over the real `server.ts`) | Probe 1 S17; production boot; `tests/serverStability.test.ts`, `tests/errorBoundary.test.ts` | Any examiner/admin typo in an id, or a Firestore error on the anonymous `/api/admin/public/materials/:section`, takes the server down for all learners mid-exam. | Wrap every async handler (or add an Express async error wrapper and a JSON error handler); add a process-level `unhandledRejection` log-and-survive policy. |
 | H2 | High | Rate limiting | Global (120/min) and auth limiters are keyed by `req.ip`, with no `trust proxy`, and shared by all users behind one address. | reproduced | Probe 1 S16 | Behind a load balancer every user shares one budget; a classroom behind one NAT gets 429 on exam autosaves and logins. | Configure `trust proxy` for the deployment; key the authenticated limiter by user id; size limits against exam autosave traffic. |
-| H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced | Probe 1 S4 | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
+| H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced; **resolved in Phase 22** (one asset policy; originals and private files refused to learners like unknown ids) | Probe 1 S4; `tests/assetAccess.test.ts` | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
 | H4 | High | Publication integrity | Saving a published material keeps it published without re-running the publish gate. | reproduced; **resolved in Phase 21** (a changed published material is withdrawn to draft in the same write) | Probe 1 D1; `tests/publishedMaterialProtection.test.ts` | Learners are served content the gate would refuse: no questions, missing classification, stale confirmations of generated questions, missing assets. | Re-run the gate on save of a published material (refuse, or move to draft); or require unpublish before edit, as bundles do. |
 | H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); unverified (real Firestore) | Probe 3 F1/F2 | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
 | H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced | Probe 2 A; `examSession.ts:299-319`, `examRun.ts:299-305` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
@@ -333,6 +337,94 @@ Rate limiting alone does not fix it.
 - **Mitigation:** S10 found the id in no learner payload (practice material, practice bundle), and ids are `nanoid(16)`. Exploitation needs the id from elsewhere (admin UI, logs, a shared link), so this is not Critical.
 
 **Recommendation.** Drop `assetIds` (or source ids) from the learner view before building the allowlist, and add a behavioural test.
+
+**Resolution (Phase 22)**
+
+- **Vulnerable route.**
+  - `GET /api/assets/:id` (`learnerContentRoutes.ts`). Its allowlist was `collectPublishedAssetIds`: `extractAssetIds` run over the learner view of every published material.
+  - The learner view kept `content.assetIds`. The Reading and Listening editors and the import review put `sourceAssetId` in that list, so the untouched original was on the allowlist.
+  - The staff route `GET /api/admin/assets/:id` and its listing also let an examiner read Source Library books.
+- **Asset roles.** A file's role comes from the records that name it, never from its file name alone.
+  - **Original.** Named by `content.sourceAssetId` or `content.importRecord.sourceAssetId` of any material, whatever its status. Admin only.
+  - **Source library.** Named by a stored source's `sourceAssetId` or `extractedTextAssetId`. Admin only.
+  - **Learner media.** What a published material's learner view renders:
+    - Listening `audioAssetId`;
+    - a question's `mediaRef.assetId` (Listening section, Reading passage);
+    - any `/api/assets/<id>` URL inside the view's strings (page images, `task1ImageUrl`, Speaking model-answer audio).
+  - **Private.** Everything else:
+    - files a material only lists in `assetIds`;
+    - the sanitised copy `/api/admin/upload` keeps;
+    - staged uploads;
+    - files of drafts and archived materials;
+    - unreferenced ids.
+- **Policy.** `src/services/assetAccess.ts`, `authorizeAssetRead(viewer, id)`, is the one decision both routes use.
+  - **Learner.** Allowed only for learner media of a published material that is not also an original or a Source Library file anywhere, and is audio or an image. A learner-supplied id alone is never enough.
+  - **Examiner.** Every material file, but not the Source Library.
+  - **Admin.** Every stored file.
+  - **Refusals.** An id that does not exist, is malformed, or is refused all get the same 404 `{"error":"Asset not found."}`: same status, same body, no file headers.
+  - **No enumeration.** The learner route has no listing, and the staff listing goes through the same rules (`listAssetsFor`).
+  - **Timing.** The file lookup and the role scan are both awaited before either outcome.
+- **Learner view.** `toLearnerMaterial` now also drops `assetIds` from Reading and Listening, so no payload built from the view can carry the list or an original id.
+- **Imported HTML.**
+  - The original stays stored, and admins can read it.
+  - Learners get only the sanitised markup inside the material, with the printed answer-key section cut (unchanged).
+  - The learner route refuses both the original and the sanitised copy file, so no learner asset reaches the key.
+- **Tests: `tests/assetAccess.test.ts` (9 tests).**
+  - **The exact Phase 17 reproduction.** A published material names its original in `sourceAssetId` and `assetIds`. The learner gets 404 and never the marker.
+  - **Upload paths.** Originals stored by the import route and by the upload route, and the sanitised copy, are refused.
+  - **Id probing.** A guessed id, a staged file, a malformed id and a traversal id get byte-identical answers.
+  - **Learner media still served.** Published Listening audio, a question image and a passage image.
+  - **Material status.** Files of a draft or archived material, and a file a published material only lists, are refused.
+  - **Cross-role use.** An original referenced as a page image, and an HTML file used as audio, are refused.
+  - **Staff.** An admin reads every file. An examiner reads material files but not the Source Library, and the listing is filtered the same way.
+  - **Image originals.** An original that is an image (a scanned answer sheet) is refused even when a published material renders it.
+  - **Learner views.** Views built by `toLearnerMaterial` carry no `assetIds`, no `sourceAssetId` and no original id.
+  - **Suite.** Full suite 609/609; `tsc --noEmit` clean.
+- **Mutations: 7/7 caught.**
+  - **Mutations.**
+    - original check removed;
+    - learner route bypasses the policy;
+    - learner-media requirement dropped (arbitrary ids);
+    - originals confused with learner media, using name-matched ids over the stored record;
+    - kind restriction removed;
+    - examiner allowed into the Source Library;
+    - learner view keeps `assetIds`.
+  - **Strengthened suite.** The first run let the original-check and `assetIds` mutations survive: every original in the tests was HTML, and no payload was inspected for the list. The last two tests above were added, and both mutations are now caught.
+- **Browser (real admin UI, dev server, the user's own session).**
+  - **Fixture.** Created "P22 Browser Asset Isolation" in the Listening editor.
+    - Imported an HTML page whose printed answer key held `SECRET-KEY-MARKER-P22B`. The upload returned the original and a sanitised copy.
+    - Attached an audio file.
+    - The saved record had `sourceAssetId` set to the original and `assetIds` holding the audio and the original: the Phase 17 shape.
+  - **Draft.** The learner route answered 404 for the original, the copy and the audio.
+  - **Publish.** Check said publishable, and Publish returned 200.
+  - **Learner route, published.**
+    - Original: 404, 28-byte JSON, no marker and no path.
+    - Sanitised copy, guessed id, malformed id and traversal id: the same 404.
+    - Audio: 200 `audio/mpeg`, inline, `nosniff`, CSP `default-src 'none'; sandbox`.
+  - **Learner practice payload.** It carries the audio URL, and no `sourceAssetId`, no `assetIds`, no original or copy id, no marker and no key heading.
+  - **Learner UI.**
+    - The catalog listed and opened the material.
+    - The Listening player rendered the sanitised page (questions 11–12) with no key and no private id.
+    - Its `<audio>` requested `/api/assets/<audio id>` over the learner route and got 206. That first audio was a 131-byte stub the browser could not decode, so it was replaced with a real 0.5 s WAV through the editor.
+  - **Replacing the audio.**
+    - The save returned 200 with `status: draft` (Phase 21 demotion).
+    - Check said publishable, and Publish returned 200.
+    - The stored record held the WAV as `audioAssetId`, the unchanged original as `sourceAssetId`, and the WAV and the original in `assetIds`.
+    - The learner player played the WAV: `readyState` 4, duration 0.5 s, no media error.
+    - Learner route after the replacement:
+      - WAV: 200 `audio/wav`, inline, `nosniff`.
+      - Replaced MP3, now referenced by nothing: 404.
+      - Original: still 404.
+  - **Admin route.** The original returned 200 `application/octet-stream`, attachment, `nosniff`, CSP sandbox, with the marker in the body.
+  - **Session.** No separate learner account was used; the user kept their admin session. The learner route applies the learner policy to every caller whatever their role, so the learner-route results above hold. That same admin role is why `/api/admin/assets` answered in that tab.
+- **Not changed.**
+  - The CDI parser, Book → Test, scoring, practice policy, bundle architecture, and H2, H5–H10.
+  - `sendAsset` headers.
+  - No source asset was deleted.
+- **Residual.**
+  - **Global learner media.** Learner media of any published material can be read by any signed-in learner who has its id, so exam-only Listening audio can be fetched by id outside a sitting. A context-scoped URL would add no authority, because the learner would supply the context.
+  - **Scan cost.** Each learner or examiner asset request scans every material, and examiner requests also scan the sources. That is fine at the current scale; a larger catalog needs an index.
+  - **Examiner access.** Examiners can no longer open Source Library files.
 
 ### H4 — Editing a published material skips the publish gate — High, reproduced
 
@@ -618,7 +710,7 @@ All requests below were made against the real `server.ts` (Probe 1) unless state
 | Learner → admin | Learner token sent as `prep_auth` and as `prep_admin_auth` to materials (GET/POST), sources, assets | all 403 | reproduced — holds |
 | Learner → other learner | B: GET session, POST events, Writing, abandon on A's session; B's session list | all 404; B lists 0 | reproduced — holds |
 | Learner data routes | Scoped by session user id; no client-supplied user id | by code | confirmed — holds |
-| Learner → private source asset | `/api/assets/<imported original>` | **200 with the printed key** | reproduced — **H3** |
+| Learner → private source asset | `/api/assets/<imported original>` | was **200 with the printed key**; since Phase 22 the same 404 `{"error":"Asset not found."}` as an unknown id, for imported originals, source-library files, sanitised copies and files only listed in `assetIds` | reproduced — **H3**, resolved |
 | Draft / archived materials | By id, and via practice marking | all 404 | reproduced — holds |
 | Draft bundles | Learner bundle 409, exam open 409, public summary 404, practice marking 409 | refused | reproduced — holds |
 | Exam session ownership | See above; `getExamSession` is keyed by user | holds | reproduced |
@@ -780,7 +872,7 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 
 | Topic | Current state |
 |---|---|
-| Source asset privacy | Originals of books and imported pages are private assets. They are served to admins as `attachment` with CSP `sandbox`, and to learners only when referenced by published content — broken for imported originals (H3). |
+| Source asset privacy | Originals of books and imported pages are private assets. They are served to staff as `attachment` with CSP `sandbox` (books to administrators only since Phase 22), and to learners never: learners get only the audio and images a published material renders (H3, resolved in Phase 22). |
 | Imported HTML | Original kept untouched and private. Display markup normalised (scripts removed) and sanitised. Printed answer-key sections cut from learner views. |
 | Textbook originals | Kept indefinitely while the source exists. Deleting a source releases its assets to the reaper. Generated materials keep chunk text in their generation record, so provenance text outlives the source. |
 | Audio | Uploaded, sniffed by content, served whole (H8). The once-only rule applies to the exam UI, not the file: the URL remains downloadable by signed-in learners (Phase 15 known limitation). |
@@ -792,7 +884,7 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 - **Book → Test passages are verbatim source text.** `buildPassage` concatenates retrieved textbook chunks unchanged ("the retrieved source text itself, not something written about it", `bookToTest/passage.ts`). Publishing such a material publishes verbatim excerpts of the uploaded book to every learner.
 - **CDI imports are third-party exam-preparation pages** stored and republished verbatim, including their audio where uploaded (e.g. the untracked `data/private_uploads/Listening__Fozilbek_IELTS__17__….html`).
 - **No licence metadata.** There is no rights, licence or permission field on sources, assets or materials, and no publish-gate check for rights clearance. Book → Test and the Source Library explicitly treat textbooks as "licensed material", but the system neither records nor verifies that licence.
-- **Exposure is larger than intended.** The H3 defect lets learners download untouched originals.
+- **Exposure was larger than intended.** The H3 defect let learners download untouched originals; closed in Phase 22, and the source library is now readable by administrators only.
 - **Trademark.** The README carries the IELTS trademark disclaimer. Nothing checks that published material is not official Cambridge/IELTS content.
 
 **Risk:** publishing textbook-derived or third-party CDI content without a recorded licence exposes the operator to copyright claims. This is a legal and product decision, outside code.
@@ -863,7 +955,7 @@ These Critical/High issues genuinely block production.
 1. ~~**H11** — exam-session score counts usable to derive closed-choice keys (added in Phase 18).~~ Resolved in Phase 19.
 2. ~~**H1** — server crash on unhandled async errors; health does not reflect storage.~~ Resolved in Phase 20.
 3. **H2** — IP-keyed shared rate limits.
-4. **H3** — private imported originals downloadable by learners.
+4. ~~**H3** — private imported originals downloadable by learners.~~ Resolved in Phase 22.
 5. ~~**H4** — published content edited without the gate.~~ Resolved in Phase 21.
 6. **H5** — Firestore merge keeps removed fields (production path).
 7. **H6** — exam Writing/Speaking lost at the deadline.
@@ -912,7 +1004,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - ~~**H11**~~ — done in Phase 19 (no marks in exam-session responses until the exam has finished).
 - ~~**H1**~~ — done in Phase 20 (async error boundary, process policy for stray rejections, storage-aware health).
 - **H2** — `trust proxy`, per-user limits sized for exam autosaves.
-- **H3** — remove imported originals from the learner asset allowlist.
+- ~~**H3**~~ — done in Phase 22 (one asset policy for every file read; learners get only rendered media of published materials).
 - ~~**H4**~~ — done in Phase 21 (a changed published material is withdrawn to draft; revisioned saves; publish re-checks the row it gated).
 - **H6 + H7** — timeouts, single quota charge per grading, 429 for quota, submission-time acceptance for Writing/Speaking (or document the limitation explicitly).
 - **H8** — Range support and start-on-playing, then a Safari/iOS check.

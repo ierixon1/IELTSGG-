@@ -41,7 +41,9 @@ export function toLearnerMaterial(source: AdminMaterial, options: { keepTranscri
 
   switch (material.section) {
     case 'reading': {
-      const { importRecord: _i, generationRecord: _g, generationReviews: _r, sourceAssetId: _s, ...content } = material.content;
+      // `assetIds` is the store's list of every file the material keeps, the untouched original included.
+      // A learner renders none of it from there, so none of it goes out.
+      const { importRecord: _i, generationRecord: _g, generationReviews: _r, sourceAssetId: _s, assetIds: _a, ...content } = material.content;
       const cut = cutAnswerKeySection(content.passage.htmlContent ?? content.htmlContent ?? '');
       const passage = withoutKeySection(content.passage, cut);
       return {
@@ -57,7 +59,7 @@ export function toLearnerMaterial(source: AdminMaterial, options: { keepTranscri
       };
     }
     case 'listening': {
-      const { importRecord: _i, generationRecord: _g, generationReviews: _r, sourceAssetId: _s, audioUrl: _url, transcript, ...rest } = material.content;
+      const { importRecord: _i, generationRecord: _g, generationReviews: _r, sourceAssetId: _s, assetIds: _a, audioUrl: _url, transcript, ...rest } = material.content;
       const cut = cutAnswerKeySection(rest.section.htmlContent ?? rest.htmlContent ?? '');
       const content = withoutKeySection(rest, cut);
       const { audioTranscript, ...section } = withoutKeySection(content.section, cut);
