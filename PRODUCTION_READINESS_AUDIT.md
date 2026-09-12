@@ -13,6 +13,10 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **New finding H11.** The same phase's bypass audit found a slower answer-derivation path through exam-session score counts.
 > - **Status is still NOT READY** because of the remaining High findings.
 
+> **Update after Phase 19.**
+> - **H11 is resolved.** During an exam, every exam-session response carries progress and the learner's own work only; section counts, bands and grading feedback reach the learner only once the whole exam has finished. See the H11 resolution.
+> - **Status is still NOT READY.** H1–H10 are unchanged.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -35,7 +39,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18), 14 Medium, 12 Low.
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19; 10 open), 14 Medium, 12 Low.
 
 ## Method and evidence legend
 
@@ -78,7 +82,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); unverified (Safari/iOS device) | Probe 1 S4b; `ListeningSession.tsx:86-92` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
 | H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`) | `package.json`; `adminRoutes.ts:2,6`; `sourceRoutes.ts:2` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
 | H10 | High | Firestore verification | No real Firestore project has been run, and the fake leaves large paths unexercised. | unverified | Firestore audit below | Production requires Firestore; auth, quotas, sources, Book → Test and contention behaviour are unknown. | Run the full suite and a smoke test against an emulator or staging project before production. |
-| H11 | High | Answer keys / exam integrity | The exam session's run view exposes each closed Listening/Reading section's correct count and band before the exam ends; abandoned sessions can be reopened without limit. | reproduced (counts exposed mid-exam); hypothesis (key derivation) | Probe 1 S9b; `examRun.ts:217-228`; `examSession.test.ts` | Repeated sessions let a learner infer closed-choice keys from count changes; far slower than C1 and bounded by timing when early finish is off. | Withhold objective counts and bands from the run view until the exam is finished; consider limiting abandoned sittings per bundle. Exam session logic was out of Phase 18 scope. |
+| H11 | High | Answer keys / exam integrity | The exam session's run view exposes each closed Listening/Reading section's correct count and band before the exam ends; abandoned sessions can be reopened without limit. | reproduced (counts exposed mid-exam); hypothesis (key derivation); **resolved in Phase 19** (no marks in any response before the exam finishes) | Probe 1 S9b; `tests/examOracle.test.ts` | Repeated sessions let a learner infer closed-choice keys from count changes; far slower than C1 and bounded by timing when early finish is off. | Withhold objective counts and bands from the run view until the exam is finished; consider limiting abandoned sittings per bundle. Exam session logic was out of Phase 18 scope. |
 | M1 | Medium | Deployment | Port is hard-coded to 3000; `process.env.PORT` is ignored. | confirmed | `server.ts:24,179` | Platforms that assign `PORT` (Heroku, Railway; Cloud Run defaults to 8080) cannot route to the app without extra configuration. | Honour `PORT`. |
 | M2 | Medium | Web security | No CSP, frame protection, HSTS, nosniff or Referrer-Policy on app or API responses; `X-Powered-By: Express`. | reproduced | Probe 1 H1 | The exam and admin UIs can be framed (clickjacking); weaker defence in depth. | Add security headers in production. |
 | M3 | Medium | Admin bootstrap | In Firestore mode `seedInitialAccounts` and `ADMIN_PROMOTE_USERNAME` never run, so there is no supported way to create the first administrator. | confirmed | `authService.ts:39` | Nobody can publish content until a Firestore document is edited by hand. | Provide a production bootstrap path (one-off script or env-gated promote on Firestore). |
@@ -142,7 +146,7 @@ Rate limiting alone does not fix it.
 - **Residual risks.**
   - A published material is practice content from publication until a bundle that pins it is published.
   - The rule is by material id, so re-authoring the same questions under another id is not detected (content management).
-  - Exam-session score counts (H11).
+  - Exam-session score counts (H11, resolved in Phase 19).
 - **Verification.**
   - `tests/practiceEligibility.test.ts` (10 behavioural tests) and updated `practiceKeys`/`bundleExam` tests; 7/7 mutations caught, including removing the central check.
   - Browser: exam materials shown as "In an exam" and disabled; forged HTTP requests refused with no answer data; practice available after unpublishing through the admin UI; refused again on republish.
@@ -340,6 +344,74 @@ See the Firestore audit. In summary:
   - Bounded by the section timer when early finish is disabled, and by rate limits.
 - **Recommendation.** Withhold per-section counts and bands from the run view until the attempt is finished; consider a cap on abandoned sittings per bundle.
 
+**Resolution (Phase 19)**
+
+- **Leaks found.** Before the change, marks reached the learner in two places:
+  - **Every session view.** `toRunView` spread the stored progress into `run`: each closed section's `objective {correct,total,band}` and `band`, each graded Writing task's `band`, and each graded Speaking part's `band`. This affected open, resume, `GET`, events (answers, submit, finish section, sync, tick) and abandon.
+  - **Writing/Speaking grading responses** (`POST /api/learner/exams/:id/writing/:task`, `/speaking/:part`). These returned the grader's whole `result`: bands, criteria, commentary and annotations.
+- **Policy.** Until the exam has finished, a learner sees only the operational state of the sitting and their own work. Marks appear only once the last section has closed — the learner finished it or its time ran out.
+- **Contract.** `src/types/examSession.ts`, built only by `src/services/examDisclosure.ts`. The builder lists the fields that go out; it never deletes the ones that should not. A field added to the stored run later stays withheld until someone adds it there.
+  - **`run: LearnerRunView`.** Always sent, never a mark. It carries:
+    - the attempt id and the plan (sections, parts and question ids, with no question content);
+    - per section: status, start, deadline, end and who ended it;
+    - the learner's own answers, submission time and drafts;
+    - graded Writing tasks as `{ essay }` and graded Speaking parts as `{ transcript }`;
+    - Listening audio starts;
+    - the current section index and the exam start/finish times.
+  - **`result?: ExamResultView`.** `complete`, `overall`, section `bands`, and Listening/Reading `raw {correct,total}`. Only when the run has `finishedAt`.
+  - **`attempt?`.** Only once the finished attempt is stored (unchanged).
+  - **Grading responses.** `WritingGradedResponse` and `SpeakingGradedResponse` are `{ view }`. The band is recorded in the session; the grader's feedback is not returned in an exam.
+  - **Session list.** `ExamSessionSummary` has no marks (unchanged).
+- **Enforcement points.**
+  - `examSession.ts` `viewOf` is the only place a session view is built for any route.
+  - `gradeWriting`/`gradeSpeaking` return `{ view }` only.
+  - `ExamMode` reads the final screen from `result`.
+  - The client no longer computes a result from the run.
+- **Unchanged.**
+  - Marking still happens on the server when a section closes.
+  - Stored progress still holds `objective`, section bands and task/part bands, and the stored attempt keeps its raw scores and bands.
+  - Scoring rules, practice policy, Book → Test, the CDI parser and the bundle schema are unchanged.
+- **Side channels.**
+  - **HTTP status.** Identical for right and wrong answers; the attack test compares every status across rounds.
+  - **Response body.** Identical for right and wrong answers once session ids, timestamps and the learner's own answers are normalised; asserted by the attack test.
+  - **Event names and error codes.** No event or error depends on correctness. Forged `reveal_score`, `finish_exam`, `writing_graded`, `tick` and `sync` with extra fields are 400 "Invalid exam events." with no marks. Query parameters are ignored, another learner gets 404, and marking has no error of its own.
+  - **Progress.**
+    - A closed Listening/Reading section is `completed` whatever the score.
+    - Finish-section readiness depends on whether answers were submitted and tasks/parts graded, not on correctness.
+    - There are no progress percentages.
+  - **Completion messages.**
+    - Listening/Reading say "Answers submitted. They are marked when the exam ends."
+    - Writing/Speaking say the task was graded and recorded, with bands shown after the exam.
+    - The exam-mode submit button no longer says "Submit and see my band"; it says "Submit answers" (the practice label is unchanged).
+  - **Result summaries.** `/api/data` holds only stored attempts; an active or abandoned sitting stores none (tested). The statistics page reads stored attempts only.
+  - **Timing.** Marking is the same in-memory comparison for right and wrong answers when a section closes. Not measured.
+- **Residual.**
+  - **Finished sittings show marks, by design.** Using that as an oracle costs a whole sitting per probe. Writing and Speaking must be graded (AI quota, 4/hour each by default) or wait out their timers (about 74 minutes under reference timing). Each probe also leaves a stored attempt in the learner's history.
+  - **Abandoned sittings are still unlimited.** They now reveal nothing, so no cap was added.
+- **Verification.**
+  - **`tests/examOracle.test.ts` (8 tests).**
+    - The exact H11 attack: two rounds with right vs wrong answers. The server stores 40 vs 0 correct; every response is mark-free, with identical statuses and identical normalised bodies.
+    - Open/start, closing Listening and closing Reading all return no count or band.
+    - Writing/Speaking grading responses carry no band or feedback, while the stored bands are 7.
+    - Resume by reopen, `GET` and list returns no marks.
+    - Forged, foreign and query-parameter requests reveal nothing.
+    - The finished exam returns `result`, and it matches the stored attempt (raw score and bands).
+  - **Updated tests.** `tests/examSession.test.ts` now reads mid-exam marks from stored progress and asserts the responses carry none.
+  - **Mutations: 6/6 caught.**
+    - Section `objective` back in the view.
+    - Section `band` back in the view.
+    - Writing task band back in the view.
+    - `result` before finish.
+    - Grading response returning the grader's result.
+    - Stored progress spread into `run`.
+  - **Browser (real learner UI, fetch responses recorded in the page).** Every learner response before the finish carried no marks, while the stored progress held them.
+    - Answered a Listening subset (one right, one wrong); submitted and finished Listening; did the same for Reading. Server stored 1/40 for each.
+    - Reloaded the page and resumed from the catalog (`resumed: true`).
+    - Graded both Writing tasks and all three Speaking parts with real Gemini. Stored bands: 7.5/6.5 and 8/8/8.5.
+    - Finishing Speaking returned `result` (overall 5.0; L 2.5, R 2.0, W 7.0, S 8.0; raw 1/40 and 1/40) and the stored attempt, and the results screen showed them.
+    - Then repeated the attack in the UI: new sitting, a wrong Listening answer, finish Listening, abort, reopen. Stored 0/40 vs the earlier 1/40; every response had no marks.
+    - Speaking Part 3 first answered 500 `grading_failed` twice because the learner's hourly Speaking quota was used up. Fallback models had charged quota for Part 2 (H7, unchanged). It graded once the hour rolled over.
+
 ## Security audit
 
 All requests below were made against the real `server.ts` (Probe 1) unless stated.
@@ -359,6 +431,7 @@ All requests below were made against the real `server.ts` (Probe 1) unless state
 | Attempt ownership / forging | Exam-shaped attempt via `/api/data/attempts` 403; practice attempt accepted, visible only to its owner | holds (L6) | reproduced |
 | Answer-key leakage | Practice payloads (material, bundle) and exam paper: none | holds | reproduced (S10) plus Phase 14.1 tests |
 | Answer-key leakage via marking | Empty practice submission | **keys returned** | reproduced — **C1** |
+| Answer oracle via exam-session marks | Section counts/bands and grading feedback in session and grading responses before the exam ends | withheld until the exam finishes (Phase 19) | resolved — **H11** |
 | Provenance / generation metadata | Not in learner payloads (S10); `withoutAnswerKeys` covers mocks | holds | reproduced / confirmed |
 | Source asset id leakage | Not in learner payloads | holds | reproduced |
 | Path traversal | Encoded `..%2F` on `/api/assets`, `/api/admin/assets`, `/api/admin/sources` | 404, no file content | reproduced — holds |
@@ -593,7 +666,7 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
 These Critical/High issues genuinely block production.
 
 1. ~~**C1** — exam keys obtainable through practice marking.~~ Resolved in Phase 18.
-1. **H11** — exam-session score counts usable to derive closed-choice keys (added in Phase 18).
+1. ~~**H11** — exam-session score counts usable to derive closed-choice keys (added in Phase 18).~~ Resolved in Phase 19.
 2. **H1** — server crash on unhandled async errors; health does not reflect storage.
 3. **H2** — IP-keyed shared rate limits.
 4. **H3** — private imported originals downloadable by learners.
@@ -642,7 +715,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 ### Before beta
 
 - ~~**C1**~~ — done in Phase 18 (exam content is not practice content).
-- **H11** — withhold exam-session section counts and bands until the attempt is finished.
+- ~~**H11**~~ — done in Phase 19 (no marks in exam-session responses until the exam has finished).
 - **H1** — async error handling, JSON error handler, process policy, dependency-aware health.
 - **H2** — `trust proxy`, per-user limits sized for exam autosaves.
 - **H3** — remove imported originals from the learner asset allowlist.

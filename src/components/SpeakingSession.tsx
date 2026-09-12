@@ -51,7 +51,7 @@ interface ExamProps {
   examMode: true;
   speakingData: SpeakingData;
   /** Grades and records one part. Rejects with a `GradingError` when no band could be given. */
-  grade: (part: 1 | 2 | 3, answer: SpokenAnswer) => Promise<SpeakingGradingResult>;
+  grade: (part: 1 | 2 | 3, answer: SpokenAnswer) => Promise<void>;
   /** Parts the session has already recorded. */
   gradedParts: Partial<Record<1 | 2 | 3, { transcript: string }>>;
 }

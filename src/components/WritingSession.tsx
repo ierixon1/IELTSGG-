@@ -61,7 +61,7 @@ interface PracticeProps extends TaskProps {
 interface ExamProps extends TaskProps {
   examMode: true;
   /** Grades and records one task. Rejects with a `GradingError` when no band could be given. */
-  grade: (task: 1 | 2, essay: string) => Promise<WritingGradingResult>;
+  grade: (task: 1 | 2, essay: string) => Promise<void>;
   /** What the session stored of each draft, so a reload does not lose it. */
   initialDrafts: Partial<Record<1 | 2, string>>;
   /** Tasks the session has already recorded, with the essay it recorded. */

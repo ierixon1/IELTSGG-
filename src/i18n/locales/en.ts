@@ -420,6 +420,7 @@ export const en: Dictionary = {
     missingTask: 'submit Task {task}',
     missingPart: 'submit Part {part}',
     earlyFinishDisabled: 'This section closes when its time is up.',
+    submitAnswers: 'Submit answers',
     answersSubmitted: 'Answers submitted. They are marked when the exam ends.',
     incompleteTitle: 'Exam incomplete',
     incompleteBody: 'Time ran out before every section was done, so no overall band is given. Completed sections are shown below.',

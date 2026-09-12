@@ -5,12 +5,10 @@ import type {
   ReadingData,
   SittingQuestion,
   SpeakingData,
-  SpeakingGradingResult,
-  WritingGradingResult,
   WritingTaskData,
 } from '../types';
-import type { ExamRunView, RunProgress } from '../services/examRun';
-import type { BundleComponentRef, LearnerBundleErrorCode } from './bundle';
+import type { PlanShape, RunProgress, SectionStatus, SectionView } from '../services/examRun';
+import type { BundleComponentRef, BundleSection, LearnerBundleErrorCode } from './bundle';
 
 /**
  * A full exam sitting, held by the server.
@@ -60,13 +58,70 @@ export interface ExamSessionRecord {
   attemptSavedAt?: string;
 }
 
+/**
+ * One section as a learner sees it: where it stands, and the learner's own work.
+ *
+ * Nothing here says whether any of that work was right. A mark shown while the
+ * exam is still going is an answer oracle: answer a few questions, finish the
+ * section, read the count, leave, open a fresh sitting and try other answers —
+ * repeated, it gives up the multiple-choice key without ever touching practice.
+ * Correct counts, raw scores, section and task bands and grading output stay on
+ * the server until the exam is over, and then arrive only in `ExamResultView`.
+ */
+export interface LearnerSectionView {
+  status: SectionStatus;
+  startedAt?: number;
+  deadline?: number;
+  endedAt?: number;
+  endedBy?: 'learner' | 'time';
+  /** The learner's own answers. */
+  answers: Record<string, AnswerValue>;
+  /** Listening/Reading: when the answers were submitted — "answers submitted", not a mark. */
+  submittedAt?: number;
+  /** Writing: what the learner has typed so far. */
+  drafts: Partial<Record<1 | 2, string>>;
+  /** Writing tasks the session has recorded, with the essay recorded. No band. */
+  writing: Partial<Record<1 | 2, { essay: string }>>;
+  /** Speaking parts the session has recorded, with their transcript. No band. */
+  speaking: Partial<Record<1 | 2 | 3, { transcript: string }>>;
+  /** Listening: when each part's recording was started. */
+  audioStarted?: Partial<Record<number, number>>;
+}
+
+/** The run as the learner sees it: the plan without questions or keys, and progress without marks. */
+export interface LearnerRunView {
+  attemptId: string;
+  plan: PlanShape<SectionView>;
+  sections: Record<BundleSection, LearnerSectionView>;
+  currentIndex: number;
+  startedAt?: number;
+  finishedAt?: number;
+}
+
+/** The marks of a sitting, disclosed once the exam is over and not before. */
+export interface ExamResultView {
+  /** Every section closed with a band. */
+  complete: boolean;
+  /** Present only when complete. */
+  overall?: number;
+  bands: Partial<Record<BundleSection, number>>;
+  /** Listening and Reading raw scores, for the sections that were marked. */
+  raw: Partial<Record<'listening' | 'reading', { correct: number; total: number }>>;
+}
+
+/**
+ * The only shape a learner receives for a sitting, from every exam-session route.
+ * Built by `toLearnerSessionView`; `result` and `attempt` exist only once the exam has finished.
+ */
 export interface ExamSessionView {
   sessionId: string;
   bundleId: string;
   status: ExamSessionStatus;
   /** The server's clock when this view was built, so the browser can correct its own. */
   serverNow: number;
-  run: ExamRunView;
+  run: LearnerRunView;
+  /** The sitting's marks. Present once the exam has finished; absent while it is in progress. */
+  result?: ExamResultView;
   /** Present once the session is finished and its attempt is stored. */
   attempt?: MockAttempt;
   attemptSaved: boolean;
@@ -115,12 +170,15 @@ export interface ExamSessionError {
   code: ExamSessionErrorCode;
 }
 
+/**
+ * A Writing task or Speaking part recorded by the session. The grading itself —
+ * band, criteria, annotations — stays on the server with the attempt: during an
+ * exam the learner is told only that the work was recorded.
+ */
 export interface WritingGradedResponse {
   view: ExamSessionView;
-  result: WritingGradingResult;
 }
 
 export interface SpeakingGradedResponse {
   view: ExamSessionView;
-  result: SpeakingGradingResult;
 }

@@ -60,7 +60,7 @@ const { adminStore } = await import('../src/services/adminStore');
 const { bundleStore } = await import('../src/services/bundleStore');
 const { materialContentHash } = await import('../src/services/materialVersion');
 const { questionsOf } = await import('../src/services/publishGate');
-const { sectionReadiness, examResult } = await import('../src/services/examRun');
+const { sectionReadiness } = await import('../src/services/examRun');
 const { calculateOverallBand, objectiveSectionScore, speakingSectionBand, writingSectionBand } = await import('../src/utils/ieltsScoring');
 
 /* ------------------------------------------------------------ injected world */
@@ -252,6 +252,18 @@ function expectNoKey(text: string, given: string[] = []) {
   for (const field of WITHHELD) expect(text.includes(field)).toBe(false);
 }
 
+/** Fields a mark travels in. None may reach the learner while the exam is in progress. */
+const MARK_FIELDS = ['"objective"', '"band"', '"bands"', '"overall"', '"correct"', '"rawScore"', '"raw"', '"result"', '"band_overall"', '"criteria"', '"scores"', '"attempt"'];
+function expectNoMarks(text: string) {
+  for (const field of MARK_FIELDS) expect([field, text.includes(field)]).toEqual([field, false]);
+}
+/** What the server holds for a session: the marks it keeps for the attempt. Never sent as it is. */
+async function storedProgress(id: string) {
+  const record = await dataStore.getExamSession(learners.ana.id, id);
+  if (!record) throw new Error(`session ${id} is not stored`);
+  return record.progress;
+}
+
 const ESSAY_1 = 'Energy use rose steadily across the period, with coal falling and wind rising sharply after 2010.';
 const ESSAY_2 = 'Cities should restrict private cars in their centres, because cleaner air benefits everyone who lives there.';
 
@@ -388,8 +400,9 @@ describe('the server runs the exam, in order and on its own clock', () => {
     const listening = submitted.body.run.sections.listening;
     expect(listening.status).toBe('completed');
     expect(listening.endedBy).toBe('learner');
-    expect(listening.objective?.total).toBe(40);
-    expect(listening.objective?.correct).toBe(2);
+    // Marked on the server, for the attempt; the learner is told only that the section is done.
+    expect((await storedProgress(sessionId)).sections.listening.objective).toEqual({ correct: 2, total: 40, band: (await storedProgress(sessionId)).sections.listening.band ?? -1 });
+    expectNoMarks(JSON.stringify(submitted.body));
     expect(submitted.body.run.sections.reading.status).toBe('in_progress');
 
     // A submitted section is closed to further answers.
@@ -410,7 +423,9 @@ describe('the server runs the exam, in order and on its own clock', () => {
       { type: 'finish_section' },
     ]);
     expect(done.body.run.sections.reading.status).toBe('completed');
-    expect(done.body.run.sections.reading.objective).toEqual({ correct: 4, total: 40, band: done.body.run.sections.reading.band ?? -1 });
+    const reading = (await storedProgress(sessionId)).sections.reading;
+    expect(reading.objective).toEqual({ correct: 4, total: 40, band: reading.band ?? -1 });
+    expectNoMarks(JSON.stringify(done.body));
     expect(done.body.run.sections.writing.status).toBe('in_progress');
     expectNoKey(JSON.stringify(done.body), [
       listeningAnswer(1, 1),
@@ -432,12 +447,14 @@ describe('the server runs the exam, in order and on its own clock', () => {
   it('grades Writing against the pinned prompts and needs both tasks before it can end', async () => {
     const task1 = await writeTask(sessionId, 1, ESSAY_1);
     expect(task1.status).toBe(200);
-    expect(task1.body.result.band_overall).toBe(WRITING_BANDS.task1);
+    // Recorded with its band; the band and the model's feedback are not returned during the exam.
+    expect((await storedProgress(sessionId)).sections.writing.writing[1]?.band).toBe(WRITING_BANDS.task1);
+    expectNoMarks(JSON.stringify(task1.body));
     // The pinned task exactly as the paper shows it: the same prompt text practice grades against.
     const { paper } = (await getSession(sessionId)).body;
     expect(paper.writing.task1.prompt).toBe('Summarise the chart of energy use.');
     expect(grader.writingCalls[0]).toEqual({ taskType: 'task1', prompt: `${paper.writing.task1.title}\n${paper.writing.task1.prompt}`, essay: ESSAY_1, module: 'academic' });
-    expect(task1.body.view.run.sections.writing.writing).toEqual({ 1: { band: WRITING_BANDS.task1, essay: ESSAY_1 } });
+    expect(task1.body.view.run.sections.writing.writing).toEqual({ 1: { essay: ESSAY_1 } });
 
     const early = await events(sessionId, [{ type: 'finish_section' }]);
     expect(early.body.run.sections.writing.status).toBe('in_progress');
@@ -455,7 +472,7 @@ describe('the server runs the exam, in order and on its own clock', () => {
     expect(refused.body.code).toBe('ai_unavailable');
     const { body } = await getSession(sessionId);
     expect(body.run.sections.writing.writing[2]).toBe(undefined);
-    expect(body.run.sections.writing.band).toBe(undefined);
+    expect((await storedProgress(sessionId)).sections.writing.band).toBe(undefined);
     expect(body.run.sections.writing.status).toBe('in_progress');
 
     grader.writing = 'available';
@@ -463,7 +480,8 @@ describe('the server runs the exam, in order and on its own clock', () => {
     expect(graded.status).toBe(200);
     const finished = await events(sessionId, [{ type: 'finish_section' }]);
     expect(finished.body.run.sections.writing.status).toBe('completed');
-    expect(finished.body.run.sections.writing.band).toBe(writingSectionBand(WRITING_BANDS.task1, WRITING_BANDS.task2) ?? -1);
+    expect((await storedProgress(sessionId)).sections.writing.band).toBe(writingSectionBand(WRITING_BANDS.task1, WRITING_BANDS.task2) ?? -1);
+    expectNoMarks(JSON.stringify(finished.body));
     expect(finished.body.run.sections.speaking.status).toBe('in_progress');
   });
 
@@ -492,7 +510,11 @@ describe('the server runs the exam, in order and on its own clock', () => {
     expect(finished.body.status).toBe('finished');
     expect(finished.body.attemptSaved).toBe(true);
     expect(finished.body.attempt?.id).toBe(sessionId);
-    expect(examResult(finished.body.run).complete).toBe(true);
+    // Once the exam is over, the marks are disclosed: the same ones the attempt stores.
+    expect(finished.body.result?.complete).toBe(true);
+    expect(finished.body.result?.overall).toBe(finished.body.attempt?.scores.overall);
+    expect(finished.body.result?.bands.listening).toBe(finished.body.attempt?.scores.listening?.band);
+    expect(finished.body.result?.raw.reading).toEqual({ correct: 4, total: 40 });
   });
 
   it('stores one attempt that reconstructs exactly what was sat', async () => {
@@ -591,7 +613,8 @@ describe('time is the server’s, and the bundle’s', () => {
     expect(listening.status).toBe('completed');
     expect(listening.endedBy).toBe('time');
     expect(listening.endedAt).toBe(startedAt + CUSTOM_TIMING.listeningMinutes * 60_000);
-    expect(listening.objective?.correct).toBe(1);
+    expect((await storedProgress(timedId)).sections.listening.objective?.correct).toBe(1);
+    expectNoMarks(JSON.stringify(body));
     expect(body.run.sections.reading.startedAt).toBe(clock);
     expect(body.run.sections.reading.deadline).toBe(clock + CUSTOM_TIMING.readingMinutes * 60_000);
   });
@@ -603,7 +626,7 @@ describe('time is the server’s, and the bundle’s', () => {
 
     const afterWriting = await getSession(timedId);
     expect(afterWriting.body.run.sections.writing.status).toBe('expired');
-    expect(afterWriting.body.run.sections.writing.band).toBe(undefined);
+    expect((await storedProgress(timedId)).sections.writing.band).toBe(undefined);
     const tooLate = await writeTask(timedId, 2, ESSAY_2);
     expect(tooLate.status).toBe(409);
     expect(tooLate.body.code).toBe('section_closed');
@@ -613,7 +636,8 @@ describe('time is the server’s, and the bundle’s', () => {
     }
     const finished = await events(timedId, [{ type: 'finish_section' }]);
     expect(finished.body.status).toBe('finished');
-    expect(examResult(finished.body.run).complete).toBe(false);
+    expect(finished.body.result?.complete).toBe(false);
+    expect(finished.body.result?.overall).toBe(undefined);
 
     const attempt = (await storedAttempts()).find((entry) => entry.id === timedId);
     expect(attempt?.status).toBe('incomplete');

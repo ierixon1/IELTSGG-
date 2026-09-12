@@ -23,11 +23,11 @@ import {
   ExamPlanError,
   progressOf,
   toExamAttempt,
-  toRunView,
   type ExamEvent,
   type ExamRunState,
 } from './examRun';
 import { sittingToAdaptedTest, toExamPaper } from './sittingAdapters';
+import { toExamResultView, toLearnerRunView } from './examDisclosure';
 import type { GradeOutcome, SpeakingSubmission, WritingSubmission } from './grading';
 
 /**
@@ -139,13 +139,19 @@ export function createExamSessionService(deps: ExamSessionDeps) {
     return ok({ record, sitting: sitting.value, paper: prepared.value.paper, state: { ...record.progress, plan: prepared.value.state.plan } });
   }
 
+  /**
+   * The learner's view of a session — the one shape every route here returns.
+   * Marks are disclosed only once the exam has finished (`examDisclosure`).
+   */
   function viewOf(record: ExamSessionRecord, state: ExamRunState): ExamSessionView {
+    const result = toExamResultView(state);
     return {
       sessionId: record.id,
       bundleId: record.bundleId,
       status: record.status,
       serverNow: deps.now(),
-      run: toRunView(state),
+      run: toLearnerRunView(state),
+      ...(result ? { result } : {}),
       attemptSaved: Boolean(record.attemptSavedAt),
       ...(record.attemptSavedAt ? { attempt: toExamAttempt(state) } : {}),
     };
@@ -315,7 +321,8 @@ export function createExamSessionService(deps: ExamSessionDeps) {
         if (!still.ok) return still;
         return ok({ state: examReducer(loaded.state, { type: 'writing_graded', task, band: graded.result.band_overall, essay }) });
       });
-      return committed.ok ? ok({ view: committed.value.view, result: graded.result }) : committed;
+      // The band and the model's feedback are recorded, not returned: the learner sees them with the result.
+      return committed.ok ? ok({ view: committed.value.view }) : committed;
     },
 
     /** Grades one Speaking part against the pinned part and records the band the model returned. */
@@ -346,7 +353,7 @@ export function createExamSessionService(deps: ExamSessionDeps) {
         if (!still.ok) return still;
         return ok({ state: examReducer(loaded.state, { type: 'speaking_graded', part, band: graded.result.band_overall, transcript }) });
       });
-      return committed.ok ? ok({ view: committed.value.view, result: graded.result }) : committed;
+      return committed.ok ? ok({ view: committed.value.view }) : committed;
     },
 
     /** Leaves the exam. Nothing is recorded for a sitting the learner walked away from. */

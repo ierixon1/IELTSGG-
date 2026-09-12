@@ -269,7 +269,7 @@ export const ReadingSession: React.FC<ReadingSessionProps> = (props) => {
                   disabled={isMarking}
                   className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-ink-900 hover:bg-ink-800 text-white font-semibold text-xs transition-all shadow-md ml-auto cursor-pointer disabled:opacity-60"
                 >
-                  <span>{t('session.submit')}</span>
+                  <span>{t(examMode ? 'exam.submitAnswers' : 'session.submit')}</span>
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </>

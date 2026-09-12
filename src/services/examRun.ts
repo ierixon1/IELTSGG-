@@ -182,8 +182,18 @@ export interface RunShape<S extends SectionShape = SectionShape> extends RunProg
 /** The server's full state: the plan carries the answer keys marking needs. */
 export type ExamRunState = RunShape<SectionPlan>;
 
-/** The browser's state: the same progress, over a plan with no questions in it. */
-export type ExamRunView = RunShape<SectionView>;
+/**
+ * What the progress helpers below read of a run: the plan, the clock and whether
+ * each section's content is in — never a mark. The server's full state and the
+ * learner's view (`LearnerRunView`, built by `examDisclosure`) both satisfy it.
+ */
+export interface ProgressShape<S extends SectionShape = SectionShape> {
+  plan: PlanShape<S>;
+  sections: Record<BundleSection, { deadline?: number; submittedAt?: number; writing: Partial<Record<1 | 2, object>>; speaking: Partial<Record<1 | 2 | 3, object>> }>;
+  currentIndex: number;
+  startedAt?: number;
+  finishedAt?: number;
+}
 
 export type ExamEvent =
   | { type: 'start'; now: number }
@@ -213,21 +223,7 @@ export function progressOf(state: RunShape): RunProgress {
   return progress;
 }
 
-/** What the browser may hold of a run: every question id, no question. */
-export function toRunView(state: ExamRunState): ExamRunView {
-  return {
-    ...progressOf(state),
-    plan: {
-      ...state.plan,
-      sections: state.plan.sections.map(({ questions, ...section }) => ({
-        ...section,
-        questionIds: questions.map((entry) => entry.question.id),
-      })),
-    },
-  };
-}
-
-export function currentSection<S extends SectionShape>(state: RunShape<S>): S | null {
+export function currentSection<S extends SectionShape>(state: ProgressShape<S>): S | null {
   if (state.startedAt === undefined || state.finishedAt !== undefined) return null;
   return state.plan.sections[state.currentIndex] ?? null;
 }
@@ -237,7 +233,7 @@ const isBand = (value: number) => Number.isFinite(value) && value >= 0 && value 
 export type MissingItem = { kind: 'answers' } | { kind: 'writing_task'; task: 1 | 2 } | { kind: 'speaking_part'; part: 1 | 2 | 3 };
 
 /** Whether a section's configured content is done, and what is not. */
-export function sectionReadiness(state: RunShape, section: BundleSection): { ready: boolean; missing: MissingItem[] } {
+export function sectionReadiness(state: ProgressShape, section: BundleSection): { ready: boolean; missing: MissingItem[] } {
   const plan = state.plan.sections.find((entry) => entry.section === section);
   const run = state.sections[section];
   if (!plan) return { ready: false, missing: [] };
@@ -254,7 +250,7 @@ export function sectionReadiness(state: RunShape, section: BundleSection): { rea
 
 /** Whether the learner may end the current section now, and if not, why. */
 export function canFinishSection(
-  state: RunShape,
+  state: ProgressShape,
   now: number,
 ): { allowed: true } | { allowed: false; reason: 'not_running' | 'not_ready' | 'early_finish_disabled' } {
   const plan = currentSection(state);
@@ -265,7 +261,7 @@ export function canFinishSection(
   return { allowed: true };
 }
 
-export function remainingSeconds(state: RunShape, now: number): number {
+export function remainingSeconds(state: ProgressShape, now: number): number {
   const plan = currentSection(state);
   if (!plan) return 0;
   const deadline = state.sections[plan.section].deadline ?? now;

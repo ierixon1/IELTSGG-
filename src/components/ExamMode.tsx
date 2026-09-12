@@ -4,7 +4,7 @@ import confetti from 'canvas-confetti';
 import type { AnswerValue, MockAttempt } from '../types';
 import { BUNDLE_SECTIONS, minutesKey, type BundleSection, type LearnerBundleSummary } from '../types/bundle';
 import type { ExamClientEvent, ExamPaper, ExamSessionSummary, ExamSessionView } from '../types/examSession';
-import { canFinishSection, currentSection, examResult, remainingSeconds, sectionReadiness, type MissingItem } from '../services/examRun';
+import { canFinishSection, currentSection, remainingSeconds, sectionReadiness, type MissingItem } from '../services/examRun';
 import { fetchLearnerBundles } from '../services/publishedTests';
 import {
   abandonExamSession,
@@ -275,8 +275,8 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
       else void send([{ type: 'sync' }]);
       throw new GradingError(graded.code, graded.message, graded.details);
     }
+    // Recorded by the session; the band is part of the result once the exam is over.
     adopt(graded.value.view);
-    return graded.value.result;
   };
 
   const gradeSpeaking = async (part: 1 | 2 | 3, answer: SpokenAnswer) => {
@@ -290,7 +290,6 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
       throw new GradingError(graded.code, graded.message, graded.details);
     }
     adopt(graded.value.view);
-    return graded.value.result;
   };
 
   const retrySave = async () => {
@@ -460,8 +459,10 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
   }
 
   /* ---------------------------------------------------------- finished */
-  if (current.status === 'finished' || run.finishedAt !== undefined) {
-    const result = examResult(run);
+  // The server sends the marks once the exam has finished, and only then; nothing is derived from the run.
+  // A finished run without them falls through to the refusal below rather than a made-up result.
+  const result = current.result;
+  if (result) {
     return (
       <div
         className="mx-auto max-w-3xl"

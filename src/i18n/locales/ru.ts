@@ -417,6 +417,7 @@ export const ru: Dictionary = {
     missingTask: 'сдайте задание {task}',
     missingPart: 'сдайте часть {part}',
     earlyFinishDisabled: 'Секция закроется, когда истечёт время.',
+    submitAnswers: 'Отправить ответы',
     answersSubmitted: 'Ответы отправлены. Они будут проверены в конце экзамена.',
     incompleteTitle: 'Экзамен не завершён',
     incompleteBody: 'Время истекло раньше, чем были выполнены все секции, поэтому общий балл не выставляется. Завершённые секции показаны ниже.',
