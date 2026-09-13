@@ -14,6 +14,10 @@ const UNAVAILABLE_GRPC_CODES = new Set([
   4, // DEADLINE_EXCEEDED
   7, // PERMISSION_DENIED
   8, // RESOURCE_EXHAUSTED
+  // ABORTED reaches the app only after the Firestore client has run a transaction
+  // again on every conflict it allows and lost each time to concurrent writes. The
+  // request was sound; its data could not be written right now.
+  10, // ABORTED
   14, // UNAVAILABLE
   16, // UNAUTHENTICATED
 ]);

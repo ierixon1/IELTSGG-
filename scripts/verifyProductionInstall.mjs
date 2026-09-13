@@ -31,7 +31,8 @@
  *   --undeclare-dependency=<name>  remove a runtime package from dependencies in the copy
  *   --skip-declared-check          skip step 2, so the installed server itself shows the gap
  *
- * The server's port is fixed at 3000 (audit M1), so nothing else may listen there.
+ * The server is started on PORT below — deliberately not 3000, so a server that
+ * ignored PORT (audit M1) fails here. Nothing else may listen there.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -43,7 +44,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = 3000;
+const PORT = 3217;
 const BASE = `http://127.0.0.1:${PORT}`;
 const BUN_VERSION = '1.4.2';
 /** Dev-only tooling that no runtime package depends on: present in a production tree only if devDependencies were installed. */
@@ -65,7 +66,7 @@ const tail = (text, lines = 30) => String(text ?? '').trim().split(/\r?\n/).slic
 function childEnv(extra = {}) {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
-    if (/^(GEMINI_|FIREBASE_|GOOGLE_|GCLOUD|GCS_|FIRESTORE_|GRADING_|SEED_|ADMIN_|EXAMINER_|npm_)|^(APP_URL|NODE_OPTIONS|NODE_ENV|STORAGE_BACKEND|EXPLICIT_DEV_AUTH|RESEND_API_KEY|EMAIL_FROM)$/i.test(key)) {
+    if (/^(GEMINI_|FIREBASE_|GOOGLE_|GCLOUD|GCS_|FIRESTORE_|GRADING_|SEED_|ADMIN_|EXAMINER_|npm_)|^(APP_URL|NODE_OPTIONS|NODE_ENV|STORAGE_BACKEND|EXPLICIT_DEV_AUTH|RESEND_API_KEY|EMAIL_FROM|PORT|TRUST_PROXY)$/i.test(key)) {
       delete env[key];
     }
   }
@@ -124,7 +125,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Starts dist/server.cjs from the install and waits until it answers HTTP. */
 async function boot(installDir, env, label) {
-  if (await portInUse(PORT)) fail(`${label}: port ${PORT} is already in use; the server's port is fixed (M1).`);
+  if (await portInUse(PORT)) fail(`${label}: port ${PORT} is already in use; stop whatever listens there first.`);
   let output = '';
   let exited = null;
   const child = spawn(process.execPath, ['dist/server.cjs'], { cwd: installDir, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -318,8 +319,30 @@ function fileForm(filename, content, type) {
 /* -------------------------------------------------------------- the checks */
 
 async function productionModeChecks(installDir) {
-  // A production deployment names its bucket; this one names a bucket nothing can reach, and carries no credentials.
-  const server = await boot(installDir, { NODE_ENV: 'production', STORAGE_BACKEND: 'gcs_firestore', GCS_BUCKET_NAME: 'everstudy-prodcheck-unreachable' }, 'production mode');
+  // Production refuses to start without its configuration, and says what is missing.
+  const refused = spawnSync(process.execPath, ['dist/server.cjs'], { cwd: installDir, env: childEnv({ NODE_ENV: 'production', PORT: String(PORT) }), encoding: 'utf8', timeout: 60_000 });
+  const refusal = `${refused.stdout}\n${refused.stderr}`;
+  if (refused.status !== 1 || !refusal.includes('[Config] The server cannot start') || !refusal.includes('TRUST_PROXY must be set')) {
+    fail(`production mode without its configuration should exit 1 naming what is missing, got ${refused.status}:\n${tail(refusal)}`);
+  }
+  pass('production mode: refuses to start without its configuration', `${refusal.split('\n').filter((line) => line.startsWith('[Config] ') && !line.includes('cannot start')).length} problems named`);
+
+  // A complete production configuration. The bucket is one nothing can reach, there are no Firestore
+  // credentials, and the email settings are placeholders: nothing is sent.
+  const server = await boot(
+    installDir,
+    {
+      NODE_ENV: 'production',
+      PORT: String(PORT),
+      TRUST_PROXY: '1',
+      STORAGE_BACKEND: 'gcs_firestore',
+      GCS_BUCKET_NAME: 'everstudy-prodcheck-unreachable',
+      RESEND_API_KEY: 're_prodcheck_placeholder',
+      EMAIL_FROM: 'Ever Study <no-reply@prodcheck.invalid>',
+      APP_URL: 'https://prodcheck.invalid',
+    },
+    'production mode',
+  );
   try {
     const shell = await call('GET', '/');
     expectStatus('production mode: app shell', shell, 200);
@@ -341,7 +364,7 @@ async function runtimePathChecks(installDir) {
   const password = `Pc-${randomBytes(12).toString('hex')}-A1`;
   const server = await boot(
     installDir,
-    { NODE_ENV: 'development', STORAGE_BACKEND: 'local', SEED_DEFAULT_ACCOUNTS: 'true', ADMIN_USER: adminUser, ADMIN_PASSWORD: password },
+    { NODE_ENV: 'development', PORT: String(PORT), STORAGE_BACKEND: 'local', SEED_DEFAULT_ACCOUNTS: 'true', ADMIN_USER: adminUser, ADMIN_PASSWORD: password },
     'local storage',
   );
   try {
@@ -379,8 +402,8 @@ async function runtimePathChecks(installDir) {
 
     const pdfUpload = await call('POST', '/api/admin/upload', { cookie: admin, form: fileForm('page.pdf', pdf(), 'application/pdf') });
     expectStatus('upload: PDF', pdfUpload, 200);
-    const pdfUploadText = String(pdfUpload.body?.file?.extractedText ?? '');
-    pass('upload: multipart PDF stored', pdfUploadText.includes(MARKER) ? 'text extracted' : 'no text extracted on the upload route (see the audit)');
+    if (!String(pdfUpload.body?.file?.extractedText ?? '').includes(MARKER)) fail(`upload: PDF text was not extracted (L15): ${pdfUpload.text.slice(0, 400)}`);
+    pass('upload: multipart PDF stored, text extracted (pdf-parse)');
 
     // Source ingestion: DOCX (mammoth) and PDF (pdf-parse), chunked and searchable.
     for (const [label, filename, content, type] of [

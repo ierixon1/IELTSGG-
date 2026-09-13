@@ -17,7 +17,10 @@
     "smoke:book-to-test": "tsx scripts/smokeBookToTest.ts",
     "test": "tsx --test \"tests/**/*.test.ts\"",
     "seed:exam-fixture": "tsx scripts/seedExamFixture.ts",
-    "verify:production-install": "node scripts/verifyProductionInstall.mjs"
+    "verify:production-install": "node scripts/verifyProductionInstall.mjs",
+    "admin:promote": "tsx scripts/promoteAccount.ts",
+    "e2e:listening-audio": "tsx scripts/e2eListeningAudio.ts",
+    "verify:firestore": "tsx scripts/verifyFirestore.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

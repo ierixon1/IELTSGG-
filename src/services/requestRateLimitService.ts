@@ -9,7 +9,8 @@ import { getFirestoreDb } from './firebaseAdmin';
  *
  * The caller chooses the key, and with it who shares an allowance (src/http/rateLimit.ts):
  *   - `api_user`, `staff_api`: one signed-in account, from its validated session;
- *   - `api_anonymous`, `admin_anonymous` and the sign-in flows: one client address.
+ *   - `api_anonymous`, `admin_anonymous` and the sign-in flows: one client address;
+ *   - `login_account`: one account name tried from one client address.
  *
  * Both stores decide a request on the current count and write the new count as
  * one step, so concurrent requests cannot both take the last slot. Firestore does
@@ -28,6 +29,7 @@ import { getFirestoreDb } from './firebaseAdmin';
 export type RateLimitOperation =
   | 'register'
   | 'login'
+  | 'login_account'
   | 'forgot_password'
   | 'reset_password'
   | 'api_anonymous'
@@ -38,11 +40,23 @@ export type RateLimitOperation =
 export interface RateLimitDecision {
   allowed: boolean;
   retryAfterMs: number;
+  /** When the window this request was counted in (or refused by) opened; `release` needs it. */
+  windowStart: number;
 }
 
 export const RATE_LIMITS: Record<RateLimitOperation, { windowMs: number; max: number }> = {
-  register: { windowMs: 15 * 60 * 1000, max: 10 },
+  // Account creation per address. The same sustained rate as the earlier 10 per
+  // 15 minutes (40 an hour, 960 a day), taken as one window so a class of up to
+  // 40 can register together (M16).
+  register: { windowMs: 60 * 60 * 1000, max: 40 },
+  // Failed sign-ins per address. Every attempt is counted before the password is
+  // checked, and one that succeeds is given back, so a class signing in does not
+  // spend it and concurrent guesses cannot overrun it (M16).
   login: { windowMs: 10 * 60 * 1000, max: 20 },
+  // Failed sign-ins for one account name from one address, counted the same way.
+  // Matches the account lockout (5 failures, 15 minutes), and keeps one person
+  // retrying one account from spending the whole address's allowance.
+  login_account: { windowMs: 15 * 60 * 1000, max: 5 },
   forgot_password: { windowMs: 15 * 60 * 1000, max: 5 },
   reset_password: { windowMs: 15 * 60 * 1000, max: 10 },
   // One learner's own allowance. The exam client sends one request at a time —
@@ -76,9 +90,14 @@ function readWindow(data: unknown): Window | undefined {
 
 /** The decision on one request, and the window to store after it (null: nothing changes). */
 function decide(current: Window | undefined, limit: { windowMs: number; max: number }, now: number): { decision: RateLimitDecision; next: Window | null } {
-  if (!current || current.windowStart + limit.windowMs <= now) return { decision: { allowed: true, retryAfterMs: 0 }, next: { count: 1, windowStart: now } };
-  if (current.count >= limit.max) return { decision: { allowed: false, retryAfterMs: current.windowStart + limit.windowMs - now }, next: null };
-  return { decision: { allowed: true, retryAfterMs: 0 }, next: { count: current.count + 1, windowStart: current.windowStart } };
+  if (!current || current.windowStart + limit.windowMs <= now) return { decision: { allowed: true, retryAfterMs: 0, windowStart: now }, next: { count: 1, windowStart: now } };
+  if (current.count >= limit.max) return { decision: { allowed: false, retryAfterMs: current.windowStart + limit.windowMs - now, windowStart: current.windowStart }, next: null };
+  return { decision: { allowed: true, retryAfterMs: 0, windowStart: current.windowStart }, next: { count: current.count + 1, windowStart: current.windowStart } };
+}
+
+/** The window after giving one counted request back, or null when there is nothing to give back in that window. */
+function giveBack(current: Window | undefined, windowStart: number): Window | null {
+  return current && current.windowStart === windowStart && current.count > 0 ? { count: current.count - 1, windowStart } : null;
 }
 
 class RequestRateLimitService {
@@ -139,6 +158,34 @@ class RequestRateLimitService {
         fs.writeFileSync(LOCAL_FILE, JSON.stringify(entries), 'utf8');
       }
       return decision;
+    });
+  }
+
+  /**
+   * Gives back one request `check` counted in the window that opened at
+   * `windowStart` — a sign-in that succeeded, which was no guess. Nothing is given
+   * back once that window has closed and another opened, and never more than was
+   * counted. Throws when the store fails, like `check`.
+   */
+  async release(key: string, operation: RateLimitOperation, windowStart: number): Promise<void> {
+    const limit = RATE_LIMITS[operation];
+    const id = keyHash(operation, key);
+    if (useFirestore()) {
+      const db = getFirestoreDb();
+      const ref = db.collection('rate_limits').doc(id);
+      await db.runTransaction(async (tx) => {
+        const next = giveBack(readWindow((await tx.get(ref)).data()), windowStart);
+        if (next) tx.set(ref, { ...next, operation, expiresAt: new Date(windowStart + limit.windowMs) });
+      });
+      return;
+    }
+    await this.withLock(id, async () => {
+      const entries = this.readLocal();
+      const next = giveBack(readWindow(entries[id]), windowStart);
+      if (next) {
+        entries[id] = { ...next, expiresAt: windowStart + limit.windowMs };
+        fs.writeFileSync(LOCAL_FILE, JSON.stringify(entries), 'utf8');
+      }
     });
   }
 }

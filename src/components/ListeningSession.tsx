@@ -20,7 +20,7 @@ import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionBlock';
 import { questionNumberRange } from '../utils/questionNumbers';
-import { createExamAudioPlayer, type ClaimOutcome, type ExamAudioPlayer, type PartPlayback, type PlaybackProblem } from '../services/examAudioPlayer';
+import { createExamAudioPlayer, mediaElementOutlet, type ClaimOutcome, type ExamAudioPlayer, type PartPlayback, type PlaybackProblem } from '../services/examAudioPlayer';
 
 /**
  * Practice: the questions arrive without keys, and a submission is marked by
@@ -101,15 +101,8 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
     playerRef.current = createExamAudioPlayer({
       outlet: (part) => {
         const element = examAudio.current[part];
-        if (!element) return null;
-        return {
-          play: () => element.play(),
-          pause: () => {
-            element.pause();
-            // A start that failed leaves the recording at its beginning for the next try.
-            element.currentTime = 0;
-          },
-        };
+        // A recording that failed to load is loaded again before it plays, so a retry can succeed.
+        return element ? mediaElementOutlet(element) : null;
       },
       claim: (part) => examRef.current?.claimAudio(part) ?? Promise.resolve('failed'),
       confirm: (part) => examRef.current?.confirmAudio(part),

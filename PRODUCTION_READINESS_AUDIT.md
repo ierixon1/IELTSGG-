@@ -84,6 +84,29 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **Added.** M16: sign-up and sign-in are still limited per address, so a class signing in together from one network can be refused.
 > - **Status is still NOT READY.** H10 remains `UNVERIFIED — real Firestore unavailable`. H8 still awaits a browser check, and the deployment must set `TRUST_PROXY`.
 
+> **Update after Phase 28.**
+> - **H8 is VERIFIED in Chromium; Safari/iOS is UNVERIFIED.**
+>   - The real exam screen was driven against the real `server.ts` in headless Chrome 152 and Edge 153: 42/42 checks each (`npm run e2e:listening-audio`).
+>   - The run found a defect, now fixed: a Listening part whose recording failed to load could not be retried without reloading the page.
+>   - See the H8 resolution.
+> - **H10 stays UNVERIFIED — real Firestore unavailable.** There are no credentials, project, emulator, `gcloud`, `java` or `docker` on this machine.
+>   - Added: `npm run verify:firestore` for a dedicated project; its scenarios pass on the in-memory Firestore.
+>   - Contention-exhausted transactions (`ABORTED`) now answer 503.
+>   - The exact blocker and setup are in the H10 detail.
+> - **Resolved:**
+>   - **M1:** `PORT` is honoured, and production refuses to start without its port, proxy, storage, credential and email settings.
+>   - **M3:** the first administrator is promoted on either store.
+>   - **M16:** sign-in counts only failures, per address and per account name; registration is windowed for a class.
+>   - **L2/L15:** admin PDF uploads return their text.
+> - **Added.** L16: a refused staff sign-in leaves an unused session document.
+> - **Checks:**
+>   - `tsc --noEmit` clean.
+>   - Full suite 769/769.
+>   - The changed-area suites (102 tests) passed 3 consecutive runs.
+>   - The production-install check passed from a clean `npm ci --omit=dev`.
+>   - 17 of 17 mutations were caught. Three were caught only after their tests were strengthened: the registration limit, the startup exit, and session deletion on promotion.
+> - **Status is still NOT READY.** H10 is open, Safari/iOS playback is unverified, and a deployment must still supply its configuration, enable the `rate_limits` TTL policy and promote its first administrator.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -106,7 +129,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24, H8 resolved in Phase 25 on the server and learner path, H9 resolved in Phase 26, H2 resolved in Phase 27; 1 open, H10, as `UNVERIFIED — real Firestore unavailable`), 16 Medium (M15 split from H6 in Phase 24, M16 split from H2 in Phase 27), 15 Low (L13 split from H7 in Phase 24, L14 added in Phase 25, L15 added in Phase 26).
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24, H8 resolved in Phase 25 on the server and learner path and verified in Chromium in Phase 28, H9 resolved in Phase 26, H2 resolved in Phase 27; 1 open, H10, as `UNVERIFIED — real Firestore unavailable`), 16 Medium (M15 split from H6 in Phase 24, M16 split from H2 in Phase 27; M1, M3 and M16 resolved in Phase 28), 16 Low (L13 split from H7 in Phase 24, L14 added in Phase 25, L15 added in Phase 26; L2 and L15 resolved and L16 added in Phase 28).
 
 ## Method and evidence legend
 
@@ -146,13 +169,13 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); **resolved in Phase 23** (materials and sources replace the stored document; the profile replaces its map inside a merged user document; proven on the in-memory Firestore, real Firestore unverified — H10) | Probe 3 F1/F2; `tests/firestoreStaleFields.test.ts`, `tests/storageParity.test.ts` | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
 | H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced; **resolved in Phase 24** (accepted and stored at submission, graded separately; a band after the deadline completes the section; drafts at the deadline split out as M15) | Probe 2 A; `tests/examGrading.test.ts`, `tests/examRun.test.ts` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
 | H7 | High | AI reliability | Grading, rewrite, transcribe and mentor calls have no timeout; each fallback model consumes a quota unit; at the limit the learner gets 500 instead of a quota message. | reproduced; **resolved in Phase 24** (one bounded policy on `callWithRetryPolicy`; one allowance unit per grading; 429 at the limit; residual L13) | Probe 2 B1/B2/C; `tests/gradingPolicy.test.ts` | One outage burns ~3 units per grading (default 4/hour); a hung call holds the request indefinitely; exams can become impossible to finish. | Add per-attempt and total timeouts; charge quota once per grading; map quota refusal to 429 with a clear code. |
-| H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); **resolved in Phase 25** on the server and learner path (byte ranges; a part counts as heard only once its playback started); not verified in a real browser, Safari/iOS unverified | Probe 1 S4b; `tests/assetRange.test.ts`, `tests/examAudio.test.ts`, `tests/examAudioPlayer.test.ts` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
+| H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); **resolved in Phase 25** on the server and learner path (byte ranges; a part counts as heard only once its playback started). **Verified in Phase 28** in Chrome 152 and Edge 153, 42/42 checks each. One defect found there was fixed: a part whose recording failed to load could not be retried without a reload. **Safari/iOS unverified.** | Probe 1 S4b; `tests/assetRange.test.ts`, `tests/examAudio.test.ts`, `tests/examAudioPlayer.test.ts`, `tests/examAudioOutlet.test.ts`; `scripts/e2eListeningAudio.ts` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
 | H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`); **resolved in Phase 26** (runtime packages declared, `engines` pinned, `bun.lock` in step; a clean `npm ci --omit=dev` and `bun install --production` install boots and serves the runtime paths) | `package.json`; `tests/runtimeDependencies.test.ts`; `scripts/verifyProductionInstall.mjs` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
-| H10 | High | Firestore verification | No real Firestore project has been run. | **`UNVERIFIED — real Firestore unavailable`**. Phase 23 found no credentials, project or emulator on this machine. The adapter parity, race and outage tests pass against the in-memory Firestore. | Firestore audit below; H10 detail; `tests/storageParity.test.ts`, `tests/firestoreTransactions.test.ts` | Production requires Firestore. Real contention and locking, composite indexes, batch limits and cost are unknown. The Firestore-only defects the parity and race tests found are fixed (H10 detail). | Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project (never one holding production data), clean up, and define composite indexes. |
+| H10 | High | Firestore verification | No real Firestore project has been run. | **`UNVERIFIED — real Firestore unavailable`**. Phases 23 and 28 found no credentials, project, emulator, `gcloud`, `java` or `docker` on this machine. The adapter parity, race, contention and outage tests pass against the in-memory Firestore. Phase 28 added `npm run verify:firestore` for a dedicated project; its scenarios pass on the in-memory Firestore, but it has not been run against a real project. | Firestore audit below; H10 detail (Phase 28: the exact blocker and setup); `tests/storageParity.test.ts`, `tests/firestoreTransactions.test.ts`, `tests/rateLimitContention.test.ts`, `tests/firestoreVerification.test.ts` | Production requires Firestore. Real contention and locking, composite indexes, batch limits and cost are unknown. The Firestore-only defects the parity and race tests found are fixed (H10 detail). | Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project (never one holding production data), clean up, and define composite indexes. |
 | H11 | High | Answer keys / exam integrity | The exam session's run view exposes each closed Listening/Reading section's correct count and band before the exam ends; abandoned sessions can be reopened without limit. | reproduced (counts exposed mid-exam); hypothesis (key derivation); **resolved in Phase 19** (no marks in any response before the exam finishes) | Probe 1 S9b; `tests/examOracle.test.ts` | Repeated sessions let a learner infer closed-choice keys from count changes; far slower than C1 and bounded by timing when early finish is off. | Withhold objective counts and bands from the run view until the exam is finished; consider limiting abandoned sittings per bundle. Exam session logic was out of Phase 18 scope. |
-| M1 | Medium | Deployment | Port is hard-coded to 3000; `process.env.PORT` is ignored. | confirmed | `server.ts:24,179` | Platforms that assign `PORT` (Heroku, Railway; Cloud Run defaults to 8080) cannot route to the app without extra configuration. | Honour `PORT`. |
+| M1 | Medium | Deployment | Port is hard-coded to 3000; `process.env.PORT` is ignored. | confirmed; **resolved in Phase 28**. `PORT` is honoured, an unreadable value stops the start, and production requires it. The production startup check also covers `TRUST_PROXY`, storage, credentials and email. | `src/config/startupConfig.ts`; `tests/startupConfig.test.ts` (unit, and the real `server.ts` refusing or starting); both browser runs started `server.ts` on the free port `PORT` gave it | Platforms that assign `PORT` (Heroku, Railway; Cloud Run defaults to 8080) cannot route to the app without extra configuration. | Honour `PORT`. |
 | M2 | Medium | Web security | No CSP, frame protection, HSTS, nosniff or Referrer-Policy on app or API responses; `X-Powered-By: Express`. | reproduced | Probe 1 H1 | The exam and admin UIs can be framed (clickjacking); weaker defence in depth. | Add security headers in production. |
-| M3 | Medium | Admin bootstrap | In Firestore mode `seedInitialAccounts` and `ADMIN_PROMOTE_USERNAME` never run, so there is no supported way to create the first administrator. | confirmed | `authService.ts:39` | Nobody can publish content until a Firestore document is edited by hand. | Provide a production bootstrap path (one-off script or env-gated promote on Firestore). |
+| M3 | Medium | Admin bootstrap | In Firestore mode `seedInitialAccounts` and `ADMIN_PROMOTE_USERNAME` never run, so there is no supported way to create the first administrator. | confirmed; **resolved in Phase 28**. `promoteAccount` promotes a registered account on either store, in a transaction on Firestore, and ends its sessions. It is applied by `ADMIN_PROMOTE_USERNAME` before the server listens, or by `npm run admin:promote`. Not run against a real Firestore project (H10). | `tests/adminBootstrap.test.ts` (in-memory Firestore through the real routers; the script against a local store) | Nobody can publish content until a Firestore document is edited by hand. | Provide a production bootstrap path (one-off script or env-gated promote on Firestore). |
 | M4 | Medium | Local storage integrity | An unreadable or corrupt JSON file is read as empty and overwritten on the next write. | reproduced | Probe 1 D2 | Local mode only (production refuses local storage), but any local or demo deployment can lose a whole collection. | Fail loudly on parse or read errors; never write over a file that failed to read. |
 | M5 | Medium | Stored HTML | The server sanitises only `htmlContent`/`passageHtml`; `passage.text` and a Writing `prompt` are rendered as HTML by `CdiHtmlViewer` and stored raw. | reproduced (storage); confirmed (render path) | Probe 1 S13; `ReadingSession.tsx:208-209` (text that looks like HTML), `WritingSession.tsx` (`promptLooksLikeHtml`) | Client-side DOMPurify is the only defence for those fields. | Sanitise every field the client renders as HTML on the server too. |
 | M6 | Medium | Performance / cost | Every exam event re-resolves the whole bundle; the learner catalog runs the full gate per bundle; each asset request scans all published materials. | confirmed (unmeasured) | `examSession.ts:131`, `bundleService.ts:38-72,213-225`, `learnerContentRoutes.ts:179-187` | Firestore reads per autosave grow with material and asset count; latency and cost scale with concurrent learners. | Cache the resolved sitting per request or revision; index published asset ids. Measure before launch. |
@@ -160,14 +183,14 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | M8 | Medium | Attempt reconstruction | Attempts pin `materialId` + `contentHash`, but materials are edited in place. | confirmed | `attemptVerification.ts:81-86`; `materialVersion.ts` | After any edit, what a learner actually sat cannot be reconstructed. | Snapshot sat content (or immutable material versions) with the attempt. |
 | M9 | Medium | Exam operations | Any edit to a pinned material stops every in-progress sitting (`component_changed`); republishing supersedes them and learners lose their progress. | confirmed (designed); covered by tests | `examSession.test.ts` "a sitting that cannot go on…" | A typo fix during an exam window ends all live exams. | Operational rule (no edits during live windows) until immutable versions exist. |
 | M10 | Medium | Firestore write limits and atomicity | Source delete puts every chunk in one batch (Firestore caps at 500); multi-step operations are not atomic. | confirmed | `sourceStore.ts:94-104`, `assetStore.ts:143-150`, `adminRoutes.ts:240-276` | A large book cannot be deleted; partial failure leaves assets mis-staged or orphaned (logged only). | Chunked batches; retries or reconciliation for multi-step operations. |
-| M11 | Medium | Configuration | `EXPLICIT_DEV_AUTH` impersonation is guarded only by `NODE_ENV !== 'production'`. | confirmed | `authMiddleware.ts:8` | A staging host with `NODE_ENV` unset and the flag on allows impersonating any user via `x-user-id`. | Remove the flag from any hosted environment; fail boot if set outside local. |
+| M11 | Medium | Configuration | `EXPLICIT_DEV_AUTH` impersonation is guarded only by `NODE_ENV !== 'production'`. | confirmed; narrowed in Phase 28: with `NODE_ENV=production` the server refuses to start while `EXPLICIT_DEV_AUTH=true` (it had no effect there already). A host with `NODE_ENV` unset and the flag on still allows impersonation — **open**. | `authMiddleware.ts:8`; `src/config/startupConfig.ts`; `tests/startupConfig.test.ts` | A staging host with `NODE_ENV` unset and the flag on allows impersonating any user via `x-user-id`. | Remove the flag from any hosted environment; fail boot if set outside local. |
 | M12 | Medium | Migration / deploy artefacts | No local→Firestore migration script; no Firestore index or rules files; no deployment descriptor. | confirmed | repo listing | Existing local content cannot be moved to production; deployment is undocumented. | Write the migration and deployment runbook before production. |
 | M13 | Medium | Auth performance | `bcrypt.hashSync`/`compareSync` (cost 12) run on the request thread. | confirmed | `authService.ts:44,74,75` | Each login or register blocks the event loop for all learners for hundreds of milliseconds. | Use the async bcrypt API. |
 | M14 | Medium | Test quality | `security.test.ts` (15 tests) only asserts source text; no test mounts `server.ts`; its inline routes, rate limiting and crash behaviour are untested. | confirmed | Test audit below | Green tests did not catch H1, H2 or H7. | Add behavioural tests on the real app wiring for the confirmed findings when fixing them. |
 | M15 | Medium | Exam policy | Split from H6 (Phase 24): a Writing draft left unsubmitted at the deadline is not submitted for the learner, and work below the grading floor (40 words; 15 typed words or 10 s of speech) cannot be submitted, so the section expires. | confirmed | `tests/examGrading.test.ts`; `gradingInput.ts` | A learner who types until the last second without pressing submit gets no Writing band and no overall. | Product decision: submit drafts at the deadline (graded, or recorded without a band), or keep the rule and state it on the exam screen. |
-| M16 | Medium | Sign-in capacity | Split from H2 (Phase 27): sign-up (10 per 15 minutes) and sign-in (20 per 10 minutes, successful sign-ins included) are still counted per client address. There is no account to count them against yet, and the limits were kept as they were. Signed-in traffic is per account. | confirmed (by design) | `RATE_LIMITS` in `requestRateLimitService.ts`; `tests/rateLimitStorage.test.ts` | More than 20 learners signing in, or more than 10 registering, from one school network within the window get 429 until it closes. Learner sessions last 7 days, so this mostly affects first sign-in, onboarding a class, and new devices. | Count only failed sign-ins per address, or key sign-in by address and username under a higher address ceiling, alongside the per-account lockout already in place; decide how a class is onboarded. |
+| M16 | Medium | Sign-in capacity | Split from H2 (Phase 27): sign-up (10 per 15 minutes) and sign-in (20 per 10 minutes, successful sign-ins included) are still counted per client address. There is no account to count them against yet, and the limits were kept as they were. Signed-in traffic is per account. | confirmed (by design); **resolved in Phase 28**. A sign-in is counted before its password is checked and given back if it succeeds, so only failures stay counted: 20 per address in 10 minutes, and 5 per account name per address in 15 minutes, beside the unchanged account lockout. Registration allows 40 an hour per address, the same sustained rate, in one window a class fits. Password recovery is unchanged. Residual: a sprayer's 20 failures still refuse sign-in to everyone at that address until the window closes. | `RATE_LIMITS` in `requestRateLimitService.ts`; `countSignIn` in `src/http/rateLimit.ts`; `tests/authSignInPolicy.test.ts` (the real `server.ts`), `tests/rateLimitContention.test.ts` | More than 20 learners signing in, or more than 10 registering, from one school network within the window get 429 until it closes. Learner sessions last 7 days, so this mostly affects first sign-in, onboarding a class, and new devices. | Count only failed sign-ins per address, or key sign-in by address and username under a higher address ceiling, alongside the per-account lockout already in place; decide how a class is onboarded. |
 | L1 | Low | Assets | Download filename sanitiser `/[^w. -]/g` is missing its backslash, so names become underscores. | reproduced | Probe 1 S4 (`filename="____-____.____"`) | Cosmetic. | Fix the pattern to `\w`. |
-| L2 | Low | Admin upload | PDF text extraction on `/api/admin/upload` calls the pdf-parse v2 class without `new`, so it always fails. | reproduced | Direct call: "Class constructor PDFParse cannot be invoked without 'new'" | PDF uploads never pre-fill text (the Source Library path uses `new PDFParse` correctly). | Use the same call as `sourceIngest/extract.ts`. |
+| L2 | Low | Admin upload | PDF text extraction on `/api/admin/upload` calls the pdf-parse v2 class without `new`, so it always fails. | reproduced; **resolved in Phase 28** (the same finding as L15) | Direct call: "Class constructor PDFParse cannot be invoked without 'new'"; `tests/uploadPdfText.test.ts` | PDF uploads never pre-fill text (the Source Library path uses `new PDFParse` correctly). | Use the same call as `sourceIngest/extract.ts`. |
 | L3 | Low | Error handling | Malformed JSON returns Express's HTML error page (stack trace in development); unknown `GET /api/*` returns `index.html` in production. | reproduced (dev); confirmed (prod) | Probe 1 S15; `server.ts:177` | Non-JSON errors confuse clients. | JSON error handler; 404 for unknown `/api`. |
 | L4 | Low | Copy | The `mocks.incompleteBody` text says built-in material is shown instead, but nothing is substituted. | confirmed | `en.ts:102` | Misleading message. | Update the copy. |
 | L5 | Low | Docs | README says grading returns a fixed sample response without a key; the code returns 503. | confirmed | `README.md`; `grading.ts:194` | Misleading documentation. | Update the README. |
@@ -180,7 +203,8 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | L12 | Low | Local runtime | Local stores read and rewrite whole JSON files synchronously per request; the rate-limit file grows without pruning. | confirmed; the rate-limit file is pruned of closed windows on every write since Phase 27 | `requestRateLimitService.ts`; `authService.ts:40-43` | Local mode only. | None unless local mode is used beyond development. |
 | L13 | Low | AI reliability | Split from H7 (Phase 24): the mentor chat's SDK call (`chats.create(...).sendMessage`) is not given the abort signal, so an attempt abandoned at its timeout stops being waited for but keeps running. | confirmed | `server.ts` `/api/preppy/chat` | A hung chat request can hold an upstream connection past its budget; the learner still gets an answer or a 503 on time. | Pass the attempt's signal through the chat config. |
 | L14 | Low | Asset delivery cost | Added in Phase 25: a byte-range response is sliced from the whole file, and on Cloud Storage the whole object is downloaded for every range request. | confirmed | `assetStore.readContent`; `src/http/sendAsset.ts` | A player that fetches a recording in many ranges downloads it from Cloud Storage as many times: cost and latency, not correctness. | Read only the requested range from storage, keeping the policy check in front of it. |
-| L15 | Low | Upload extraction | Added in Phase 26: `POST /api/admin/upload` calls `pdf-parse` 2.x the version-1 way (`fn(buffer)`). The export is a class, so the call throws `TypeError: Class constructor PDFParse cannot be invoked without 'new'`, the catch swallows it, and an uploaded PDF is stored with no extracted text. Source ingestion uses the v2 API and extracts the same PDF. | confirmed (production-install smoke test; module probe) | `adminRoutes.ts:138` | An admin uploading a PDF gets no pre-filled text; nothing is lost and nothing wrong is stored. | Use `new PDFParse({ data }).getText()` as `sourceIngest/extract.ts` does, and report a failed extraction instead of swallowing it. |
+| L15 | Low | Upload extraction | Added in Phase 26: `POST /api/admin/upload` calls `pdf-parse` 2.x the version-1 way (`fn(buffer)`). The export is a class, so the call throws `TypeError: Class constructor PDFParse cannot be invoked without 'new'`, the catch swallows it, and an uploaded PDF is stored with no extracted text. Source ingestion uses the v2 API and extracts the same PDF. | confirmed (production-install smoke test; module probe); **resolved in Phase 28**. The upload route uses `extractPdfText` (`sourceIngest/extract.ts`), the same pdf-parse 2 API as Source Library, and returns every page's text. A PDF that cannot be parsed is still stored and reports `extractionError`. | `adminRoutes.ts` upload route; `tests/uploadPdfText.test.ts` (the real admin router; the same PDF still ingests through Source Library; `sourceIngest.test.ts` unchanged and passing) |
+| L16 | Low | Sessions | Added in Phase 28: `POST /api/admin/login` signs the account in through `authService.login` and only then refuses a non-staff account with 403. The session that sign-in created is never handed out, but stays stored until it expires (7 days for a learner). | confirmed (`tests/adminBootstrap.test.ts` counts it) | `adminRoutes.ts` staff sign-in route | Unused session documents accumulate, one per refused staff sign-in with a correct learner password; nothing can use them. | Check the role before creating the session, or delete it when the role is refused. | An admin uploading a PDF gets no pre-filled text; nothing is lost and nothing wrong is stored. | Use `new PDFParse({ data }).getText()` as `sourceIngest/extract.ts` does, and report a failed extraction instead of swallowing it. |
 
 ## Detailed findings
 
@@ -981,6 +1005,48 @@ Rate limiting alone does not fix it.
   - **Pages on the previous build:** a page still running the previous build sends `audio_started`, which is now refused with 400. That page shows a save error until it is reloaded.
   - **Failures after playback starts:** once playback has started, a network failure mid-recording ends the part. The part has been heard once, by design.
 
+**Phase 28: verified in Chromium — Chrome 152 and Edge 153. Safari and iOS are not verified.**
+
+- **How it was run.** `npm run e2e:listening-audio -- --browser=chrome|edge` (`scripts/e2eListeningAudio.ts`, over `scripts/e2e/cdp.ts`).
+  - **Why a new harness.** There was no automated browser infrastructure (see Test quality audit), and in Phases 24 and 25 the in-app browser had no signed-in session. So this builds on the existing `seed:exam-fixture` and drives a browser already installed on the machine over the DevTools protocol. Nothing was downloaded.
+  - **Server.** The real `server.ts` runs on local storage, with Vite serving the real app, on a free port passed through `PORT`. `data/` is moved aside and the fixture seeded; afterwards `data/` is put back and checked byte-identical by hash.
+  - **Accounts.** Staff publish a full bundle over the API. A learner account is created in that temporary store, and its session cookie is set in a headless browser with a throwaway profile. No password is typed into any browser, and no personal browser profile is used.
+  - **The learner's path.** The learner opens and starts the exam, and plays the recordings with the exam screen's own buttons.
+- **Result: 42/42 checks in Chrome 152.0.7977.83 and 42/42 in Edge 153.0.4234.32** (headless, Windows). The first Chrome run passed 37/39; its two failures are described below.
+  - **Initial playback and byte ranges.** The browser fetched the recording with `Range: bytes=0-`, got `206` with `Content-Range: bytes 0-64043/64044`, and played it to its end.
+  - **One play.**
+    - Part 1 was recorded as heard only once it was playing.
+    - After the end its button was disabled, and clicking again did nothing.
+    - A new `audio_starting` claim sent through the session API was not granted.
+  - **Failed playback.** Part 2's recording request was refused through the DevTools protocol, leaving the element in its error state.
+    - Play failed and said so.
+    - The part stayed playable, nothing was recorded as heard, and the claim was released.
+    - In the first run the claim check read the session before the tab's release request had landed; the harness now waits for it.
+  - **Defect found and fixed: retry after a failed load.**
+    - With the network back, pressing Play again failed every time, because `play()` on an element in error rejects at once. A learner had to reload the page to hear the part.
+    - `mediaElementOutlet` (`src/services/examAudioPlayer.ts`) now loads an element in error again before playing it.
+    - After the fix, the retry played to the end and part 2 was recorded as heard.
+    - `tests/examAudioOutlet.test.ts`: an element in error is loaded before it is played; through the player, a part that failed while the network was down plays on the next try once it is back.
+  - **One part at a time.** While part 2 played, part 3's button was disabled.
+  - **Reload during playback.** The page was reloaded while part 3 played. Afterwards part 3 was heard and could not be played again, nothing was playing, and part 1 stayed heard.
+  - **Requests from the learner's page.**
+
+    | Request | Answer |
+    |---|---|
+    | whole file | `200`, `Accept-Ranges: bytes`, a strong ETag, `Cache-Control: private, no-cache` |
+    | `Range: bytes=0-99` | `206`, 100 bytes |
+    | `Range: bytes=-10` | `206`, the last 10 bytes |
+    | `If-Range` with the current ETag | `206` |
+    | `If-Range` with a stale ETag | `200`, the whole file |
+    | `Range: bytes=99999999-` | `416`, `Content-Range: bytes */64044` |
+    | `Range: items=0-5` | `200`, the whole file |
+
+  - **Access.** An imported page's untouched original, its unpublished derived copy and an unknown id each got `404`. The staff asset route got `403`.
+- **Not verified.**
+  - Safari on macOS, and iOS: there is no Apple browser or device on this machine.
+  - A visible browser with real audio output: the runs were headless with `--mute-audio`.
+  - A network drop in the middle of a recording.
+
 ### H9 — Runtime dependencies misdeclared — High
 
 **Status:** confirmed (manifest and imports); hypothesis (boot failure when devDependencies are pruned).
@@ -1091,6 +1157,48 @@ See the Firestore audit. In summary:
 - **To resolve H10.**
   - Use a dedicated Firestore project. Collection names are fixed (`admin_content`, `users`, `auth_users`, …), so a verification run must never share a project with production data.
   - Run the parity, race, stale-field and outage scenarios against it with generated ids, then delete everything they created.
+
+**Phase 28: still `UNVERIFIED — real Firestore unavailable`. Not resolved.**
+
+- **The blocker, checked again** (variable names and file presence only; no secret value read).
+  - The process environment has none of `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` or `FIRESTORE_EMULATOR_HOST`.
+  - `.env` defines only `GEMINI_API_KEY` and `STORAGE_BACKEND`.
+  - There is no application-default credentials file, either under `%APPDATA%\gcloud` or under `~/.config/gcloud`.
+  - `gcloud`, `firebase`, `java` and `docker` are not installed, so neither a real project nor the emulator can be reached. Nothing was installed or downloaded.
+- **Exactly what verifying it needs.**
+  1. A Firestore project, in Native mode with the `(default)` database, that holds no production data. The collection names are fixed.
+  2. A service account with Cloud Datastore User. Reading the TTL policy also needs Cloud Datastore Index Admin, or Owner.
+  3. Its key in `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY`, or Application Default Credentials.
+  4. The TTL policy: `gcloud firestore fields ttls update expiresAt --collection-group=rate_limits --enable-ttl --project=<project>`.
+  5. `STORAGE_BACKEND=gcs_firestore FIRESTORE_VERIFY_PROJECT=<project> npm run verify:firestore -- --confirm-dedicated-project`.
+  6. An outage and recovery, by hand: block the running server's access to `firestore.googleapis.com`; API requests must answer 503 `storage_unavailable`, then succeed once access returns.
+- **Added in Phase 28, proven on the in-memory Firestore only.**
+  - **`npm run verify:firestore`** (`scripts/verifyFirestore.ts`; the scenarios are in `scripts/firestoreVerification.ts`). It goes through the application's own services, and refuses to run without `--confirm-dedicated-project` and a matching `FIRESTORE_VERIFY_PROJECT`. It checks:
+    - a read;
+    - register, sign-in and session validation;
+    - a profile written and read back;
+    - a transactional promotion that ends the account's sessions;
+    - 40 concurrent requests on one rate-limit key letting through no more than the allowance of 20, with the stored count matching;
+    - any transaction that fails under contention classified as storage unavailable;
+    - attempts given back concurrently with new ones counted, leaving the right count;
+    - `expiresAt` equal to the end of the window;
+    - the TTL policy's state, read through the Firestore Admin API.
+
+    It deletes every document it wrote. `tests/firestoreVerification.test.ts` runs the same scenarios on the in-memory Firestore: every step passes and nothing is left behind, and without Admin API access the TTL step fails as "not checked" rather than passing. That proves the scenarios, not Firestore.
+  - **Contention exhausted is now 503, not 500.** A transaction the client gives up on after five conflicts fails `ABORTED` (gRPC 10), and `isStorageUnavailableError` now counts that as storage unavailable. The boundary therefore answers 503 `storage_unavailable` — never 500, and never 429.
+    - `tests/rateLimitContention.test.ts`: a learner request whose limiter transaction loses every attempt to a concurrent writer gets 503 after exactly five conflicts, and the same request succeeds once the writes stop.
+  - **`expiresAt`.** The `api_user`, `login` and `login_account` documents carry `expiresAt` as a date exactly at `windowStart + windowMs` (tested). The Admin SDK stores a JavaScript `Date` as a Firestore `Timestamp`, which is the type a TTL policy acts on; that is unverified on a real project.
+  - **Given-back attempts** (M16).
+    - A give-back racing a new count collides with it, both land, and the stored count is right.
+    - Nothing is given back from a window that has closed, and a count never goes below zero.
+- **Still unverified on a real project:**
+  - real locking, retries and how often `ABORTED` occurs;
+  - TTL deletion, which happens some time after `expiresAt`, when Firestore chooses;
+  - register uniqueness under concurrent registrations;
+  - composite indexes (`getUsageLogs`);
+  - batch limits, cost and latency;
+  - server timestamps;
+  - an outage and recovery.
 
 ### H11 — Exam-session score counts as an answer oracle — High (added in Phase 18)
 
@@ -1258,8 +1366,9 @@ Since Phase 23, "tested on fake" means the production adapter ran against `FakeF
 | `sourceStore.saveChunks` / `getChunks` / `delete` | Replace file / sort / remove file | Batches ≤400 / `orderBy('ordinal')` / one batch of chunks plus the document | Yes, except that a `delete` of more than 500 chunks exceeds one batch (M10) | tested on fake (`storageParity`); M10 confirmed |
 | `generationLog` ledger | File + lock | Transactions; entries written whole, so a dropped `materialId` is removed | Yes | tested on fake, including concurrent claims (`firestoreTransactions`, `storageParity`) |
 | `authService` register / login / reset | JSON files | Register: transaction with queries + `create`. Login: failures and lockout in a transaction with `FieldValue.delete`; success `update`. Reset: token checked on the row the transaction reads (Phase 23); fields removed with `FieldValue.delete`. | Yes since Phase 23. Before, one reset token could be used by two concurrent requests, and a sign-in answered with the account as read before its own write. | tested on fake (`storageParity`, `firestoreTransactions`); register uniqueness under concurrency depends on real Firestore query locking — unverified |
-| Admin bootstrap | Seeds or promotes from env | Not implemented (M3) | **No** | confirmed |
-| Request rate limit / AI quota | JSON file + lock | Transaction on a bucket document; counts written with merge (by intent) | Yes within a window. Buckets are clock-aligned rather than reset from the first request. | tested on fake, including a race for the last allowed slot |
+| Admin bootstrap | Seeds (local only) or promotes from env | Since Phase 28 (M3): `promoteAccount` finds the account by username and changes its role and session version in a transaction, then deletes its sessions. It is applied by `ADMIN_PROMOTE_USERNAME` before the server listens, or by `npm run admin:promote`. | Yes since Phase 28 | tested on fake, through the real auth and admin routers (`adminBootstrap`) |
+| Request rate limit | JSON file + lock | Since Phase 27, one document per key, decided and written in a transaction, with `expiresAt` for TTL. Since Phase 28 a sign-in attempt can be given back in a transaction, and a transaction exhausted by contention (`ABORTED`) answers 503. | Yes. Both open a window with a key's first request. | tested on fake, including races for the last slot, a give-back racing a count, and contention exhaustion (`firestoreTransactions`, `rateLimitStorage`, `rateLimitContention`) |
+| AI quota | JSON file + lock | Transaction on a bucket document; counts written with merge (by intent) | Yes within a window. Buckets are clock-aligned rather than reset from the first request. | tested on fake |
 | Undefined values | JSON drops them | `ignoreUndefinedProperties: true`; arrays with undefined still refused | Yes | tested on fake |
 | Queries / filtering | In-memory filters | `where('status','==')`, `where('sourceId','==')`, `orderBy` | Yes; no composite index needed by the current callers | tested on fake; real index requirements unverified |
 | Storage outage during a write | — | gRPC UNAVAILABLE and the other storage codes go to the boundary's 503 `storage_unavailable`. Since Phase 23 the admin material save and lifecycle, bundle and learner-data routes no longer answer them with 400/500 themselves. | — | tested on fake (`firestoreStaleFields`, `firestoreRouteOutage`) |
@@ -1376,18 +1485,21 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 
 | Setting | Behaviour | Classification |
 |---|---|---|
-| `NODE_ENV` | Must be `production`: selects Firestore auth and rate limits, `Secure` cookies, static `dist/`, disables dev impersonation. Unset means Vite dev middleware and insecure cookies. | **production blocker if wrong** |
+| Startup check (Phase 28) | `src/config/validateStartup.ts` runs before anything else loads and exits 1, listing every problem, when the configuration below is unreadable or — in production — incomplete. Verified by `tests/startupConfig.test.ts` (unit, and the real `server.ts` refusing and starting) and by `npm run verify:production-install`. The built server from a clean `npm ci --omit=dev` refused to start with 6 problems named, then booted with a complete placeholder configuration on `PORT=3217` and served every runtime path. | safe default (fail closed) |
+| `NODE_ENV` | Must be `production`: selects Firestore auth and rate limits, `Secure` cookies, static `dist/`, disables dev impersonation, and turns on the production checks. Unset means Vite dev middleware and insecure cookies. | **production blocker if wrong** |
 | `STORAGE_BACKEND` | Required; refuses to start without it, and refuses `local` in production. | safe default (fail closed) |
-| `GCS_BUCKET_NAME` | Required with Firestore; throws at boot. | safe default |
-| `FIREBASE_*` / ADC | Missing credentials: before Phase 20 the server booted, reported healthy, then crashed on the first Firestore request (H1). Now it boots, `/api/health` answers 503 `unavailable`, and every Firestore-backed request answers 503 `storage_unavailable` (after the client gives up, about 10 s) while the process keeps running. Working credentials against a real project remain unverified (H10). | **production blocker to verify** (credentials must be supplied; misconfiguration is now visible) |
+| `GCS_BUCKET_NAME` | Required with Firestore; production refuses to start without it (Phase 28). | safe default |
+| `TRUST_PROXY` | Phase 27 policy. Required in production since Phase 28: a hop count, proxy addresses, or `false`. `true` is refused in every mode. | required for production (checked at start) |
+| `FIREBASE_*` / ADC | Missing credentials: before Phase 20 the server booted, reported healthy, then crashed on the first Firestore request (H1). Now it boots, `/api/health` answers 503 `unavailable`, and every Firestore-backed request answers 503 `storage_unavailable` (after the client gives up, about 10 s) while the process keeps running. Working credentials against a real project remain unverified (H10). | **production blocker to verify** (credentials must be supplied; misconfiguration is now visible). Since Phase 28 production also refuses to start with a partial service-account key, a key that is not PEM, or a `GOOGLE_APPLICATION_CREDENTIALS` naming a missing file; no message repeats a secret. |
 | `GEMINI_API_KEY` | Missing: AI endpoints return 503; health reports `aiConfigured:false`. | safe default |
-| `APP_URL` | Admin origin allowlist behind a proxy; password-reset links. | required for production |
-| `RESEND_API_KEY`, `EMAIL_FROM` | Production password reset throws; the route still answers "instructions will be sent" and no email goes out. | **production blocker for account recovery** |
-| `EXPLICIT_DEV_AUTH` | Header impersonation when not production (M11). | development-only |
-| `SEED_DEFAULT_ACCOUNTS`, `ADMIN_*`, `ADMIN_PROMOTE_*` | Local mode only; no Firestore equivalent (M3). | development-only / **production gap** |
+| `APP_URL` | Admin origin allowlist behind a proxy; password-reset links. Production refuses to start without an `https://` value (Phase 28). | required for production (checked at start) |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Before Phase 28 a production password reset threw, and the route still answered "instructions will be sent" with no email sent. Production now refuses to start without them. Delivery through Resend itself is unverified. | required for production (checked at start) |
+| `EXPLICIT_DEV_AUTH` | Header impersonation when not production (M11). Production refuses to start with it `true` (Phase 28); a host with `NODE_ENV` unset is not detected. | development-only |
+| `SEED_DEFAULT_ACCOUNTS`, `ADMIN_USER`, `ADMIN_PASSWORD`, `EXAMINER_*` | Seed the local store only; production refuses to start with `SEED_DEFAULT_ACCOUNTS=true` (Phase 28). | development-only |
+| `ADMIN_PROMOTE_USERNAME`, `ADMIN_PROMOTE_ROLE` | Since Phase 28 they promote an existing account on either store before the server listens (M3); the same is done by `npm run admin:promote`. An invalid role stops the start. | bootstrap (tested on the in-memory Firestore) |
 | `RATE_LIMIT_*` | Positive-integer overrides; defaults 10 generations/day, 4 grades/hour. | safe default |
 | `BOOK_TO_TEST_*` | Bounded overrides; fixture model refused in production. | safe default |
-| `PORT` | Ignored; always 3000 (M1). | **production blocker on PORT-assigning platforms** |
+| `PORT` | Honoured since Phase 28 (M1). An unreadable value stops the start. Required in production; 3000 outside production when unset. Verified by the production-install check (the built server on 3217) and the browser runs (a free port). | required for production (checked at start) |
 | CORS | None configured; same-origin only. | safe default |
 | File paths | `data/` and `dist/` relative to the working directory; `adminStore` creates `data/private_uploads` at import even in production (needs a writable FS at boot). | deployment assumption |
 | Upload limits | JSON 16 MB global; admin upload 35 MB; source upload 60 MB, all in memory. | acceptable; review memory sizing |
@@ -1408,7 +1520,7 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
 | Unit / pure | Scoring tables (mutation-checked), exam state machine, CDI parser, question schema/engine, sanitiser, bundle gate. |
 | Render tests | `lifecycleUi`, `moduleLabels` (renderToStaticMarkup). |
 | Static text assertions | **`security.test.ts` (15 tests) only checks source text.** It would pass with the behaviour broken: it asserted the IP-keyed limiter string that H2 showed was defective. Since Phase 27 its limiter test pins the per-account wiring, and the behaviour is held by `userRateLimits.test.ts` (the real `server.ts`), `rateLimitStorage.test.ts` and `clientAddress.test.ts`. |
-| Browser | Manual only (Phases 14–16); no automated browser tests. |
+| Browser | Manual only (Phases 14–16) until Phase 28. Since Phase 28 `npm run e2e:listening-audio` drives headless Chrome or Edge over the DevTools protocol through the real exam screen against the real `server.ts` (H8). It needs an installed Chromium browser, so it is not part of `npm test`. No other flow has an automated browser test. |
 
 **Gaps that matter**
 
@@ -1451,6 +1563,11 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
     - Safari/iOS.
     The server and client logic behind each is tested over HTTP and without a DOM (see the H8 resolution).
   - **Cleanup.** The server was stopped, `data/` restored from its backup, and the temporary launch configuration removed.
+- **Phase 28: H8 in real Chromium browsers.**
+  - **Run:** `npm run e2e:listening-audio -- --browser=chrome` and `-- --browser=edge`, driving headless Chrome 152 and Edge 153 over the DevTools protocol against the real `server.ts` (see the H8 resolution).
+  - **Result:** 42/42 checks in each. The run found one defect — a Listening part whose recording had failed to load could not be played again without reloading the page — which was fixed and re-verified.
+  - **How it signs in:** the learner exists only in the temporary store the run creates. Its session cookie is set in a throwaway browser profile, and no password is typed into a browser.
+  - **Not verified:** Safari/iOS (no Apple browser or device), and audible playback in a visible browser.
 - **Phase 27: HTTP-level verification instead of two browser sessions.**
   - **Why not a browser.** The brief asked for two learner sessions on one address if possible. A browser keeps one session cookie per host, so that takes two browsers, or `localhost` and `127.0.0.1` side by side, each signed in to a different learner account. In Phases 24 and 25 the in-app browser had no signed-in session, and the agent does not create accounts or sign in in a browser.
   - **What was run instead.** The real `server.ts`, over HTTP from one address (see the H2 resolution):
@@ -1475,11 +1592,19 @@ These Critical/High issues genuinely block production.
 6. ~~**H5** — Firestore merge keeps removed fields (production path).~~ Resolved in Phase 23 (proven on the in-memory Firestore).
 7. ~~**H6** — exam Writing/Speaking lost at the deadline.~~ Resolved in Phase 24 (drafts at the deadline split out as M15).
 8. ~~**H7** — AI timeout, quota and error-mapping defects.~~ Resolved in Phase 24.
-9. ~~**H8** — Listening audio range support and once-only start on playback failure.~~ Resolved in Phase 25 on the server and learner path. Playback in a real browser (Chrome, Safari/iOS) is still unverified.
+9. ~~**H8** — Listening audio range support and once-only start on playback failure.~~ Resolved in Phase 25 on the server and learner path.
+   - **Phase 28:** verified in real Chromium browsers, Chrome 152 and Edge 153, 42/42 checks each. A retry-after-failed-load defect found there was fixed.
+   - **Safari/iOS:** still unverified.
 10. ~~**H9** — runtime dependencies misdeclared.~~ Resolved in Phase 26: a clean production install boots the built server and serves its runtime paths.
-11. **H10** — Firestore production path `UNVERIFIED — real Firestore unavailable`. Adapter parity, race and outage tests pass on the in-memory Firestore (Phase 23).
+11. **H10** — Firestore production path `UNVERIFIED — real Firestore unavailable`.
+    - Adapter parity, race and outage tests pass on the in-memory Firestore (Phases 23, 27 and 28).
+    - Phase 28 added `npm run verify:firestore` for a dedicated project.
+    - It still has to be run against a real project; the exact blocker and setup are in the H10 detail.
 
-M1 (port), M3 (admin bootstrap) and the email configuration are deployment prerequisites rather than code defects, but a production launch cannot proceed without them.
+M1 (`PORT`) and M3 (first administrator) are resolved in code since Phase 28. Production now refuses to start without its port, proxy, storage, credential and email settings. What remains are deployment steps:
+- supply those settings;
+- enable the `rate_limits.expiresAt` TTL policy;
+- promote the first administrator.
 
 ## Known limitations (deliberate deviations)
 
@@ -1503,21 +1628,32 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 
 ## Unverified areas
 
-- **Real Firestore** (H10): `UNVERIFIED — real Firestore unavailable`. There are no credentials, project or emulator on this machine.
+- **Real Firestore** (H10): `UNVERIFIED — real Firestore unavailable`. There are no credentials, project, emulator, `gcloud`, `java` or `docker` on this machine; checked again in Phase 28.
   - Since Phase 23, every store runs against the in-memory Firestore with parity, race and outage tests.
+  - Phase 28 added `npm run verify:firestore` for a dedicated project. Its scenarios pass on the in-memory Firestore; it has not been run against a real project.
   - Still unverified against a real project:
     - real locking and retries under contention;
     - register uniqueness under concurrent registrations;
     - composite indexes (`getUsageLogs`);
     - batch limits, cost and latency;
-    - server timestamps.
+    - server timestamps;
+    - TTL deletion of `rate_limits`;
+    - an outage and recovery.
 - **Rate limits behind a real proxy and on real Firestore** (H2, H10).
-  - `TRUST_PROXY=1` was verified behind a simulated proxy: X-Forwarded-For written by the test.
-  - Not verified behind Cloud Run, a load balancer or nginx.
-  - Not verified on a real Firestore project: contention on one key, and the `rate_limits.expiresAt` TTL policy.
-  - A limiter transaction that exhausts its retries under contention (`ABORTED`) would be a 500, not a 503.
+  - `TRUST_PROXY=1` was verified behind a simulated proxy, with X-Forwarded-For written by the test. It was not verified behind Cloud Run, a load balancer or nginx.
+  - On a real Firestore project, contention on one key and the `rate_limits.expiresAt` TTL policy are not verified.
+  - A limiter transaction that exhausts its retries (`ABORTED`) answers 503 since Phase 28, on the in-memory Firestore; before, it would have been a 500.
 - **Real Cloud Storage:** upload, download and delete are stubbed in tests.
-- **Listening playback in a real browser** (H8). Phase 25's byte ranges and playback states are tested over HTTP and without a DOM. Neither Chrome nor Safari/iOS playback was run.
+- **Listening playback on Safari and iOS** (H8). Verified in Phase 28 in headless Chrome 152 and Edge 153 on Windows. Not verified:
+  - Safari on macOS, and iOS, where no Apple browser or device was available;
+  - audible playback in a visible browser;
+  - a network drop in the middle of a recording.
+- **Deployment configuration on a real platform** (M1, M3).
+  - The Phase 28 startup checks were tested by unit tests and by starting the real `server.ts`.
+  - Not verified on Cloud Run or another platform:
+    - `PORT` assignment;
+    - Resend email delivery;
+    - promotion of the first administrator on a real Firestore project.
 - **Production install on the target platform** (H9).
   - Phase 26 verified `npm ci --omit=dev` and `bun install --production --frozen-lockfile` on Windows, with Node 24.15.
   - The new CI step (Linux, Node 22.12) has not been seen to run.
@@ -1535,15 +1671,16 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - ~~**C1**~~ — done in Phase 18 (exam content is not practice content).
 - ~~**H11**~~ — done in Phase 19 (no marks in exam-session responses until the exam has finished).
 - ~~**H1**~~ — done in Phase 20 (async error boundary, process policy for stray rejections, storage-aware health).
-- ~~**H2**~~ — done in Phase 27 (per-account limits after the session is read, per-address only without one, strict `TRUST_PROXY`, 429 `rate_limited`, one Firestore document per key). Still to do: set `TRUST_PROXY` for the target deployment's proxy, enable the `rate_limits.expiresAt` TTL policy, and decide M16 (sign-in and sign-up per address) before onboarding classes.
+- ~~**H2**~~ — done in Phase 27 (per-account limits after the session is read, per-address only without one, strict `TRUST_PROXY`, 429 `rate_limited`, one Firestore document per key). Still to do: set `TRUST_PROXY` for the target deployment's proxy and enable the `rate_limits.expiresAt` TTL policy. M16 was decided in Phase 28.
 - ~~**H3**~~ — done in Phase 22 (one asset policy for every file read; learners get only rendered media of published materials).
 - ~~**H4**~~ — done in Phase 21 (a changed published material is withdrawn to draft; revisioned saves; publish re-checks the row it gated).
 - ~~**H6 + H7**~~ — done in Phase 24: submission-time acceptance, bounded grading, one allowance unit per grading, 429 for quota. Still to do: decide M15 (drafts at the deadline), and run browser scenarios A–D with a signed-in session.
-- ~~**H8**~~ — done in Phase 25 on the server and learner path: byte ranges, and a part is heard only once playback started. Still to do: the browser check in Chrome (206 in the network panel, a failed play staying playable, no replay after a reload) and on a Safari/iOS device.
+- ~~**H8**~~ — done in Phase 25 on the server and learner path, and verified in Phase 28 in Chrome 152 and Edge 153 (`npm run e2e:listening-audio`). Still to do: the same scenarios on Safari (macOS) and an iOS device.
 - ~~**H9**~~ — done in Phase 26: runtime dependencies declared, `engines` pinned, `bun.lock` in step, production install verified.
-- **M1, M3** — `PORT` and admin bootstrap for the target deployment.
+- ~~**M1, M3**~~ — done in Phase 28: `PORT` honoured and required in production; the first administrator promoted on either store. Still to do: configure the target deployment (README, Deployment).
+- ~~**M16**~~ — done in Phase 28: successful sign-ins are given back, a per-account sign-in count added, and registration windowed for a class.
 - **M2** — security headers.
-- **M11** — ensure no hosted environment runs with `EXPLICIT_DEV_AUTH`.
+- **M11** — ensure no hosted environment runs with `EXPLICIT_DEV_AUTH`. Since Phase 28 production refuses it at start; a host running with `NODE_ENV` unset is still not detected.
 - Short manual check of the first-click issue in a visible browser.
 
 If the beta runs on production infrastructure, **H10** belongs here too (H5 was resolved in Phase 23).
@@ -1551,7 +1688,7 @@ If the beta runs on production infrastructure, **H10** belongs here too (H5 was 
 ### Before production
 
 - ~~**H5**~~ — done in Phase 23. Canonical documents are replaced rather than merged, and the intended partial writes keep their merge.
-- **H10** — still `UNVERIFIED — real Firestore unavailable`. Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project that holds no production data, clean up afterwards, and define composite indexes (`getUsageLogs`). The adapter-level work was done in Phase 23.
+- **H10** — still `UNVERIFIED — real Firestore unavailable`. Provide a dedicated Firestore project that holds no production data, with credentials. Then enable the TTL policy, run `npm run verify:firestore -- --confirm-dedicated-project`, and exercise an outage by hand (H10 detail). Define composite indexes (`getUsageLogs`). The adapter-level work was done in Phases 23, 27 and 28.
 - **M4** — local store fail-loud (if any non-dev local use remains).
 - **M5** — server-side sanitisation of every HTML-rendered field.
 - **M6** — measure and reduce per-event Firestore reads.

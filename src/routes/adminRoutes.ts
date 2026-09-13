@@ -29,7 +29,7 @@ import {authorizeAssetRead,listAssetsFor} from '../services/assetAccess';
 import {ClientRequestError} from '../http/errors';
 import {isStorageUnavailableError} from '../services/storage/availability';
 import {ADMIN_AUTH_COOKIE,staffSessionOf} from '../middleware/staffSession';
-import {admitRequest} from '../http/rateLimit';
+import {countSignIn,releaseSignIn} from '../http/rateLimit';
 import {clientAddressKey} from '../http/clientAddress';
 
 // A rejection from any async handler below reaches the API error boundary, not the process (H1).
@@ -78,8 +78,8 @@ const fileFilter:multer.Options['fileFilter']=(_r,file,cb)=>{
   return cb(new ClientRequestError(400,'unsupported_file_type',`Unsupported file type: ${ext.slice(0,20)||'unknown'}`));
 };
 const upload=multer({storage:multer.memoryStorage(),fileFilter,limits:{fileSize:35*1024*1024,files:1,fields:20,fieldNameSize:100,fieldSize:256*1024,parts:22}});
-// Staff sign-in is limited per address like learner sign-in (authRoutes), with a count of its own.
-adminRouter.post('/login',async(req,res,next)=>{try{if(!await admitRequest(res,`staff:${clientAddressKey(req)}`,'login'))return;const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch(error){if(isStorageUnavailableError(error))return next(error);return res.status(401).json({error:'Invalid credentials.'});}});
+// Staff sign-in is counted like learner sign-in (authRoutes, countSignIn), apart from it.
+adminRouter.post('/login',async(req,res,next)=>{try{const username=String(req.body?.username||'');const counted=await countSignIn(res,`staff:${clientAddressKey(req)}`,username);if(!counted)return;const r=await authService.login(username,String(req.body?.password||''));await releaseSignIn(counted);if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch(error){if(isStorageUnavailableError(error))return next(error);return res.status(401).json({error:'Invalid credentials.'});}});
 adminRouter.get('/me',requireAdminAuth,(req:AdminRequest,res)=>res.json({admin:req.adminUser}));
 adminRouter.post('/logout',requireAdminAuth,async(req:AdminRequest,res)=>{try{await authService.logout(req.adminSessionToken||'');}catch{}res.clearCookie(ADMIN_AUTH_COOKIE,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin'});return res.json({success:true});});
 // Staff reads go through the same policy as a learner's (`authorizeAssetRead`): an
@@ -141,7 +141,8 @@ adminRouter.post('/upload',requireAdminAuth,requireAdminRole,upload.single('file
       try{const r=await mammoth.extractRawText({buffer:file.buffer});summary.extractedText=(r.value||'').trim()||undefined;}
       catch(error){console.warn('[Upload] DOCX text extraction failed:',error);summary.extractionError='Text could not be extracted from this document.';}
     }else if(extension==='.pdf'){
-      try{const mod=await import('pdf-parse');const fn=(mod as any).default||(mod as any).PDFParse||mod;if(typeof fn==='function'){const r=await fn(file.buffer);summary.extractedText=(r.text||'').trim()||undefined;}}
+      // pdf-parse 2 exports a class; calling it the version-1 way threw on every PDF (L15).
+      try{const {extractPdfText}=await import('../services/sourceIngest/extract');summary.extractedText=(await extractPdfText(file.buffer))||undefined;}
       catch(error){console.warn('[Upload] PDF text extraction failed:',error);summary.extractionError='Text could not be extracted from this PDF.';}
     }
 

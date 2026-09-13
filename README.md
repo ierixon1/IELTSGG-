@@ -71,9 +71,11 @@ are all enforced server-side.
   only and is never trusted for access.
 - Request rate limits count a signed-in learner or staff member against their
   own account, so people sharing an address (a classroom, an office NAT) do not
-  spend each other's allowance. Requests without a session — sign-up, sign-in,
-  password recovery, anonymous API calls — are counted per client address. Over
-  a limit is `429` with `code: "rate_limited"` and `Retry-After`.
+  spend each other's allowance. Requests without a session are counted per client
+  address: anonymous API calls, sign-up (40 an hour) and password recovery.
+  Sign-in keeps only failures counted — 20 per address in 10 minutes, and 5 per
+  account name per address in 15 minutes — so a class signing in together is not
+  refused. Over a limit is `429` with `code: "rate_limited"` and `Retry-After`.
 - The client address is the connection's own unless `TRUST_PROXY` says which
   proxies sit in front (a hop count, or their addresses); `X-Forwarded-For` is
   otherwise ignored. Set it to `1` behind one load balancer or reverse proxy.
@@ -87,6 +89,51 @@ a public deployment.
 Never commit `.env` files, service-account keys, API keys or administrator
 credentials. `data/users.json`, `data/sessions.json` and `data/db.json` are
 runtime state and are git-ignored.
+
+## Deployment
+
+Production runs the built server (`npm run build`, then `npm start`) from a
+production install (`npm ci --omit=dev`) with `NODE_ENV=production`. Before
+anything else loads, the server checks its configuration and refuses to start —
+listing every problem — unless all of these hold:
+
+| Setting | Required |
+|---|---|
+| `PORT` | the port the platform sends traffic to (Cloud Run sets it) |
+| `TRUST_PROXY` | the proxy hops in front (`1` behind Cloud Run or one load balancer), their addresses, or `false` when clients connect directly |
+| `STORAGE_BACKEND` | `gcs_firestore` |
+| `GCS_BUCKET_NAME` | the Cloud Storage bucket for uploaded files |
+| Firestore credentials | `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` together, or none of the key's parts to use Application Default Credentials; a `GOOGLE_APPLICATION_CREDENTIALS` file, if named, must exist |
+| `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL` | password-reset email; `APP_URL` is the `https://` address learners use |
+| `EXPLICIT_DEV_AUTH`, `SEED_DEFAULT_ACCOUNTS` | not `true` |
+
+Once per Firestore project:
+
+- Let Firestore delete expired rate-limit documents. Each carries `expiresAt`,
+  the moment its window closes; the limiter never relies on the deletion, which
+  Firestore performs some time after that moment:
+
+  ```
+  gcloud firestore fields ttls update expiresAt --collection-group=rate_limits --enable-ttl --project=<project>
+  ```
+
+- The service account the server runs as needs Firestore read and write (Cloud
+  Datastore User) and object read and write on the bucket (Storage Object Admin).
+- Before launch, run `npm run verify:firestore` against a dedicated project that
+  holds no production data (see the script's header). It exercises accounts,
+  sessions, profiles, promotion and the request limiter under concurrency against
+  real Firestore, checks `expiresAt` and the TTL policy, and removes what it wrote.
+
+The first administrator is an account that registered normally, then promoted:
+
+- start the server once with `ADMIN_PROMOTE_USERNAME=<username>` (and
+  `ADMIN_PROMOTE_ROLE=admin`, the default), then remove the variable; or
+- from a checkout with the deployment's environment, run
+  `npm run admin:promote -- <username> admin`.
+
+The account's sessions end, and it signs in again with the new role.
+`npm run verify:production-install` checks that a clean production install boots
+and serves its runtime paths.
 
 ## API
 

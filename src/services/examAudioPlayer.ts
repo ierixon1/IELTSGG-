@@ -48,6 +48,38 @@ export interface ExamAudioPorts {
 
 export const AUDIO_START_TIMEOUT_MS = 20_000;
 
+/** What `mediaElementOutlet` needs from an `<audio>` element. */
+export interface MediaElementLike {
+  readonly error: unknown;
+  currentTime: number;
+  load(): void;
+  play(): Promise<void>;
+  pause(): void;
+}
+
+/**
+ * A part's `<audio>` element as the player's outlet.
+ *
+ * A recording that failed to load — a dropped connection, a refused request —
+ * leaves the element in its error state, and `play()` on such an element rejects
+ * at once however the network recovers: a learner told to try again could never
+ * succeed without reloading the page (found in Chromium, Phase 28). So a start on
+ * an element in error loads its source again first. A failed start leaves the
+ * recording at its beginning for the next try.
+ */
+export function mediaElementOutlet(element: MediaElementLike): AudioOutlet {
+  return {
+    play: () => {
+      if (element.error) element.load();
+      return element.play();
+    },
+    pause: () => {
+      element.pause();
+      element.currentTime = 0;
+    },
+  };
+}
+
 interface Attempt {
   part: number;
   outlet: AudioOutlet;

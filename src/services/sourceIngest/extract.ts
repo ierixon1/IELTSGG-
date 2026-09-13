@@ -145,6 +145,34 @@ function blocksFromText(text: string, page?: number): TextBlock[] {
   return blocks;
 }
 
+/**
+ * The whole text layer of a PDF, page by page, for the text an admin upload hands
+ * back to the editors. The same pdf-parse 2 API as Source Library ingestion
+ * (`extractPdf`); an empty string for a PDF with no text layer. Throws
+ * `ExtractionError` when the file cannot be read.
+ */
+export async function extractPdfText(buffer: Buffer): Promise<string> {
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  try {
+    const result = await parser.getText();
+    return result.pages
+      .map((page) => (page.text || '').trim())
+      .filter(Boolean)
+      .join('\n\n');
+  } catch (error) {
+    throw new ExtractionError(
+      error instanceof Error ? `The PDF could not be read: ${error.message}` : 'The PDF could not be read.',
+    );
+  } finally {
+    try {
+      await parser.destroy();
+    } catch {
+      // The parse already produced its result or threw.
+    }
+  }
+}
+
 async function extractPdf(buffer: Buffer): Promise<ExtractedDocument> {
   const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: new Uint8Array(buffer) });

@@ -1,7 +1,10 @@
 // Must come first: modules imported below read process.env while they are
 // being evaluated, and ES imports all run before this file's own body.
 import 'dotenv/config';
+// Next: a missing or unreadable setting stops the process before anything else loads.
+import { startupConfig } from './src/config/validateStartup';
 import express from 'express';
+import { authService } from './src/services/authService';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { Type } from '@google/genai';
@@ -20,17 +23,15 @@ import { authRouter } from './src/routes/authRoutes';
 import { guardAsyncHandlers } from './src/http/asyncHandlers';
 import { apiErrorBoundary } from './src/http/errorBoundary';
 import { installProcessGuards } from './src/http/processGuards';
-import { trustProxySetting, TrustProxyConfigError, type TrustProxySetting } from './src/http/clientAddress';
 
 installProcessGuards();
-// Which X-Forwarded-For hops to believe when working out a client's address (src/http/clientAddress.ts).
-// Unset: none, and req.ip is the connection's own address. A value that cannot be read stops the server.
-let trustProxy:TrustProxySetting;
-try{trustProxy=trustProxySetting(process.env.TRUST_PROXY);}catch(error){if(!(error instanceof TrustProxyConfigError))throw error;console.error(`[Config] ${error.message}`);process.exit(1);}
+// Which X-Forwarded-For hops to believe when working out a client's address (src/http/clientAddress.ts),
+// and the port: both read and checked with the rest of the startup configuration (src/config/startupConfig.ts).
+const trustProxy=startupConfig.trustProxy;
 // Every handler registered on the app hands a rejection to the API error boundary below.
 const app=guardAsyncHandlers(express());
 app.set('trust proxy',trustProxy);
-const PORT=3000;
+const PORT=startupConfig.port;
 const MIN_REWRITABLE_WORDS=15;
 /** Roughly 6 MB of image once base64 expands it. */
 const MAX_IMAGE_BASE64=8_000_000;
@@ -148,6 +149,9 @@ app.post('/api/preppy/chat',async(req:AuthenticatedRequest,res)=>{
 app.use('/api',apiErrorBoundary);
 
 async function startServer(){
+  // ADMIN_PROMOTE_USERNAME on Firestore (the local store applies it when it loads). A store that
+  // cannot be reached is logged and the server still starts: /api/health then reports it (M3).
+  try{await authService.applyConfiguredPromotion();}catch(error){console.error('[Auth] ADMIN_PROMOTE_USERNAME could not be applied:',error);}
   if(process.env.NODE_ENV!=='production'){
     const vite=await createViteServer({server:{middlewareMode:true},appType:'spa'});
     app.use(vite.middlewares);

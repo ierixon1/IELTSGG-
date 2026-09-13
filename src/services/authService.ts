@@ -50,20 +50,70 @@ class AuthService{
   * one until it expires.
   */
  private promoteFromEnv(){
+  const request=AuthService.configuredPromotion();
+  if(!request)return;
+  AuthService.logPromotion(request,this.promoteLocal(request.username,request.role));
+ }
+ /** The promotion `ADMIN_PROMOTE_USERNAME` / `ADMIN_PROMOTE_ROLE` ask for, or null when none (or an invalid role, which is logged). */
+ private static configuredPromotion():{username:string;role:'admin'|'examiner'}|null{
   const username=(process.env.ADMIN_PROMOTE_USERNAME||'').trim().toLowerCase();
-  if(!username)return;
+  if(!username)return null;
   const role=(process.env.ADMIN_PROMOTE_ROLE||'admin').trim().toLowerCase();
-  if(role!=='admin'&&role!=='examiner'){console.error(`[Auth] ADMIN_PROMOTE_ROLE must be admin or examiner, got: ${role}`);return;}
+  if(role!=='admin'&&role!=='examiner'){console.error(`[Auth] ADMIN_PROMOTE_ROLE must be admin or examiner, got: ${role}`);return null;}
+  return {username,role};
+ }
+ private static logPromotion(request:{username:string;role:string},result:{outcome:'promoted'|'unchanged'|'not_found'}){
+  if(result.outcome==='not_found')console.error(`[Auth] ADMIN_PROMOTE_USERNAME set to "${request.username}" but no such account exists.`);
+  else if(result.outcome==='unchanged')console.log(`[Auth] ${request.username} already has role ${request.role}.`);
+  else console.log(`[Auth] Promoted ${request.username} to ${request.role}. Sign in again to pick up the new role.`);
+ }
+ private promoteLocal(username:string,role:'admin'|'examiner'):{outcome:'promoted'|'unchanged'|'not_found';userId?:string}{
   const users=this.readUsers();
   const user=users.find(u=>u.username===username);
-  if(!user){console.error(`[Auth] ADMIN_PROMOTE_USERNAME set to "${username}" but no such account exists.`);return;}
-  if(user.role===role){console.log(`[Auth] ${username} already has role ${role}.`);return;}
-  user.role=role as UserRole;
+  if(!user)return{outcome:'not_found'};
+  if(user.role===role)return{outcome:'unchanged',userId:user.id};
+  user.role=role;
   user.sessionVersion=(user.sessionVersion||0)+1;
   user.updatedAt=new Date().toISOString();
   this.writeUsers(users);
   this.invalidateLocalSessions(user.id);
-  console.log(`[Auth] Promoted ${username} to ${role}. Sign in again to pick up the new role.`);
+  return{outcome:'promoted',userId:user.id};
+ }
+ /**
+  * Grants `role` to the existing account `username`, on whichever store this
+  * process uses (M3): the first administrator of a Firestore deployment is an
+  * account that registered normally and is promoted this way. Bumps the session
+  * version and ends the account's sessions, so the new role takes effect at the
+  * next sign-in. The role change is decided on the stored account in a
+  * transaction. Throws when the store fails.
+  */
+ public async promoteAccount(usernameInput:string,role:'admin'|'examiner'):Promise<{outcome:'promoted'|'unchanged'|'not_found';userId?:string}>{
+  const username=String(usernameInput||'').trim().toLowerCase();
+  if(!useFirestoreAuth())return this.promoteLocal(username,role);
+  const db=getFirestoreDb();
+  const found=await db.collection('auth_users').where('username','==',username).limit(1).get();
+  if(found.empty)return{outcome:'not_found'};
+  const ref=found.docs[0].ref;
+  const outcome=await db.runTransaction(async tx=>{
+   const current=(await tx.get(ref)).data() as UserAccount|undefined;
+   if(!current)return 'not_found' as const;
+   if(current.role===role)return 'unchanged' as const;
+   tx.update(ref,{role,sessionVersion:(current.sessionVersion||0)+1,updatedAt:new Date().toISOString()});
+   return 'promoted' as const;
+  });
+  if(outcome==='promoted')await this.invalidateFirestoreSessions(ref.id);
+  return outcome==='not_found'?{outcome}:{outcome,userId:ref.id};
+ }
+ /**
+  * `ADMIN_PROMOTE_USERNAME` on Firestore, where the constructor cannot apply it
+  * (it is synchronous). Awaited by `server.ts` before it listens. Throws when the
+  * store fails; the local store applies the promotion in the constructor instead.
+  */
+ public async applyConfiguredPromotion():Promise<void>{
+  if(!useFirestoreAuth())return;
+  const request=AuthService.configuredPromotion();
+  if(!request)return;
+  AuthService.logPromotion(request,await this.promoteAccount(request.username,request.role));
  }
  private seedInitialAccounts(){if(process.env.SEED_DEFAULT_ACCOUNTS!=='true')return;const username=(process.env.ADMIN_USER||'').trim().toLowerCase();const password=process.env.ADMIN_PASSWORD||'';if(!username||password.length<12)throw new Error('SEED_DEFAULT_ACCOUNTS=true requires ADMIN_USER and ADMIN_PASSWORD (minimum 12 characters).');const users=this.readUsers();let changed=false;if(!users.some(u=>u.username===username||u.role==='admin')){users.push(this.makeUser({id:`usr_admin_${nanoid(8)}`,username,email:process.env.ADMIN_EMAIL||'admin@prepielts.local',name:'Administrator',password,role:'admin'}));changed=true;}if(process.env.EXAMINER_SEED_PASSWORD&&!users.some(u=>u.username==='examiner')){users.push(this.makeUser({id:`usr_exam_${nanoid(8)}`,username:'examiner',email:process.env.EXAMINER_EMAIL||'examiner@prepielts.local',name:'IELTS Examiner',password:process.env.EXAMINER_SEED_PASSWORD,role:'examiner'}));changed=true;}if(changed)this.writeUsers(users);}
  private publicUser(user:UserAccount):Omit<UserAccount,'passwordHash'>{const{passwordHash:_passwordHash,...safe}=user;return safe;}

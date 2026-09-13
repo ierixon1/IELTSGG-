@@ -176,7 +176,9 @@ describe('the request limiter on Firestore', () => {
 
   it('staff sign-in is limited per address, like learner sign-in, and counted apart from it', async () => {
     const { max, windowMs } = RATE_LIMITS.login;
-    const staffSignIn = () => send('POST', '/api/admin/login', {}, { username: 'nobody_here', password: 'not-a-real-password' });
+    // A different account name each time: one name is also held to its own, lower count (M16).
+    let attempt = 0;
+    const staffSignIn = () => send('POST', '/api/admin/login', {}, { username: `nobody_${(attempt += 1)}`, password: 'not-a-real-password' });
     expect(await statuses(max, staffSignIn)).toEqual(all(max, 401));
     expectRateLimited('staff sign-in, over the address allowance', await staffSignIn(), windowMs);
     // Learner sign-in from the same address has its own count (the previous test made one attempt).

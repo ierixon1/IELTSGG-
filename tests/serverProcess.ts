@@ -54,6 +54,12 @@ const STRIPPED = [
   'ADMIN_PASSWORD',
   'EXPLICIT_DEV_AUTH',
   'TRUST_PROXY',
+  'PORT',
+  'APP_URL',
+  'RESEND_API_KEY',
+  'EMAIL_FROM',
+  'ADMIN_PROMOTE_USERNAME',
+  'ADMIN_PROMOTE_ROLE',
 ];
 
 export interface ServerProcess {
