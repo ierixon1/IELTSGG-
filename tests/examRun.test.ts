@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect } from './harness';
 import type { ExamSitting } from '../src/types/bundle';
 import {
+  AUDIO_START_LEASE_MS,
   buildExamPlan,
   canFinishSection,
   claimGrading,
@@ -444,17 +445,62 @@ describe('IELTS rules the run applies', () => {
     expect(generalListening.sections.listening.objective).toEqual(academicListening.sections.listening.objective);
   });
 
-  it('lets each Listening recording start once only, and only during Listening', () => {
-    let state = run(fresh(), { type: 'start', now: T0 }, { type: 'audio_started', part: 2, now: T0 + 1_000 });
-    state = run(state, { type: 'audio_started', part: 2, now: T0 + 90_000 });
-    expect(state.sections.listening.audioStarted).toEqual({ 2: T0 + 1_000 });
+  it('counts a Listening recording as heard only when the tab that claimed it confirms it started, once, and only during Listening', () => {
+    const claim = (part: number, token: string, now: number): ExamEvent => ({ type: 'audio_starting', part, claim: token, now, leaseUntil: now + AUDIO_START_LEASE_MS });
+    let state = run(fresh(), { type: 'start', now: T0 });
+
+    // A claim is not a play.
+    state = run(state, claim(2, 'tab-a-000001', T0 + 1_000));
+    expect(state.sections.listening.audioStarted).toBe(undefined);
+    expect(state.sections.listening.audioClaims).toEqual({ 2: { claim: 'tab-a-000001', claimedAt: T0 + 1_000, leaseUntil: T0 + 1_000 + AUDIO_START_LEASE_MS } });
+
+    // A failed start releases the claim and consumes nothing: the part can be claimed again at once.
+    state = run(state, { type: 'audio_failed', part: 2, claim: 'tab-a-000001' });
+    expect([state.sections.listening.audioStarted, state.sections.listening.audioClaims]).toEqual([undefined, {}]);
+    state = run(state, claim(2, 'tab-b-000001', T0 + 2_000));
+    expect(state.sections.listening.audioClaims?.[2]?.claim).toBe('tab-b-000001');
+
+    // While B's claim is live, A can neither take the part, confirm it nor release it.
+    state = run(state, claim(2, 'tab-a-000001', T0 + 3_000), { type: 'audio_playing', part: 2, claim: 'tab-a-000001', now: T0 + 3_000 }, { type: 'audio_failed', part: 2, claim: 'tab-a-000001' });
+    expect([state.sections.listening.audioStarted, state.sections.listening.audioClaims?.[2]?.claim]).toEqual([undefined, 'tab-b-000001']);
+
+    // B's recording started: the part is heard, and nothing plays it again.
+    state = run(state, { type: 'audio_playing', part: 2, claim: 'tab-b-000001', now: T0 + 4_000 });
+    expect([state.sections.listening.audioStarted, state.sections.listening.audioClaims]).toEqual([{ 2: T0 + 4_000 }, {}]);
+    state = run(
+      state,
+      claim(2, 'tab-c-000001', T0 + 90_000),
+      { type: 'audio_playing', part: 2, claim: 'tab-c-000001', now: T0 + 90_000 },
+      { type: 'audio_playing', part: 2, claim: 'tab-b-000001', now: T0 + 91_000 },
+    );
+    expect([state.sections.listening.audioStarted, state.sections.listening.audioClaims]).toEqual([{ 2: T0 + 4_000 }, {}]);
+
     // A part the plan does not have is not recorded.
-    state = run(state, { type: 'audio_started', part: 7, now: T0 + 2_000 });
-    expect(state.sections.listening.audioStarted).toEqual({ 2: T0 + 1_000 });
+    state = run(state, claim(7, 'tab-a-000001', T0 + 5_000));
+    expect(state.sections.listening.audioClaims).toEqual({});
 
     state = run(state, { type: 'submit_answers', now: T0 + MINUTE }, { type: 'finish_section', now: T0 + MINUTE });
-    const afterListening = run(state, { type: 'audio_started', part: 3, now: T0 + 2 * MINUTE });
-    expect(afterListening.sections.listening.audioStarted).toEqual({ 2: T0 + 1_000 });
+    const afterListening = run(state, claim(3, 'tab-a-000001', T0 + 2 * MINUTE), { type: 'audio_playing', part: 3, claim: 'tab-a-000001', now: T0 + 2 * MINUTE });
+    expect([afterListening.sections.listening.audioStarted, afterListening.sections.listening.audioClaims]).toEqual([{ 2: T0 + 4_000 }, {}]);
+  });
+
+  it('lets a claim lapse after its lease, lets the claiming tab take its own claim again after a reload, and counts a slow start nobody displaced', () => {
+    const lease = AUDIO_START_LEASE_MS;
+    let state = run(fresh(), { type: 'start', now: T0 }, { type: 'audio_starting', part: 1, claim: 'tab-a-000001', now: T0, leaseUntil: T0 + lease });
+    // The same tab, reloaded before its recording started, claims again and renews its lease.
+    state = run(state, { type: 'audio_starting', part: 1, claim: 'tab-a-000001', now: T0 + 5_000, leaseUntil: T0 + 5_000 + lease });
+    expect(state.sections.listening.audioClaims?.[1]?.leaseUntil).toBe(T0 + 5_000 + lease);
+    // Another tab waits until the lease has passed.
+    state = run(state, { type: 'audio_starting', part: 1, claim: 'tab-b-000001', now: T0 + 5_000 + lease - 1, leaseUntil: T0 + 5_000 + 2 * lease - 1 });
+    expect(state.sections.listening.audioClaims?.[1]?.claim).toBe('tab-a-000001');
+    // A start confirmed after the lease still counts while no other tab has claimed the part.
+    const slow = run(state, { type: 'audio_playing', part: 1, claim: 'tab-a-000001', now: T0 + 5_000 + lease + 2_000 });
+    expect(slow.sections.listening.audioStarted).toEqual({ 1: T0 + 5_000 + lease + 2_000 });
+
+    state = run(state, { type: 'audio_starting', part: 1, claim: 'tab-b-000001', now: T0 + 5_000 + lease, leaseUntil: T0 + 5_000 + 2 * lease });
+    expect(state.sections.listening.audioClaims?.[1]?.claim).toBe('tab-b-000001');
+    state = run(state, { type: 'audio_playing', part: 1, claim: 'tab-a-000001', now: T0 + 5_000 + lease + 1 });
+    expect(state.sections.listening.audioStarted).toBe(undefined);
   });
 });
 

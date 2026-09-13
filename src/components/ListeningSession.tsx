@@ -20,6 +20,7 @@ import { useT } from '../i18n';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
 import { AnswerVerdict, QuestionBlock, groupQuestions } from './common/QuestionBlock';
 import { questionNumberRange } from '../utils/questionNumbers';
+import { createExamAudioPlayer, type ClaimOutcome, type ExamAudioPlayer, type PartPlayback, type PlaybackProblem } from '../services/examAudioPlayer';
 
 /**
  * Practice: the questions arrive without keys, and a submission is marked by
@@ -48,10 +49,20 @@ interface ExamProps {
   submitted: boolean;
   onAnswersChange: (answers: Record<string, AnswerValue>) => void;
   onSubmitAnswers: () => void;
-  /** Parts whose recording the session has recorded as started. Each plays once only. */
+  /** Parts the session has recorded as heard: their recording started playing. Each plays once only. */
   audioStarted: Partial<Record<number, number>>;
-  /** Tells the session a part's recording is starting, before it plays. */
-  onAudioStart: (part: 1 | 2 | 3 | 4) => void;
+  /** Parts a tab is starting, with that tab's claim and when the claim lapses (server time). */
+  audioClaims: Partial<Record<number, { claim: string; leaseUntil: number }>>;
+  /** The server's clock now, to tell a live claim from a lapsed one. */
+  serverNow: number;
+  /** This tab's claim token for a part. */
+  claimOf: (part: number) => string;
+  /** Claims a part on the server for this tab. */
+  claimAudio: (part: number) => Promise<ClaimOutcome>;
+  /** Tells the session a part's recording has started playing. */
+  confirmAudio: (part: number) => void;
+  /** Tells the session a part's recording did not start. */
+  releaseAudio: (part: number) => void;
 }
 
 type ListeningSessionProps = PracticeProps | ExamProps;
@@ -79,16 +90,42 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
 
   // Exam recordings: one element per part, kept mounted so moving between parts
   // does not stop a recording that is playing. There are no player controls — no
-  // pause, no seeking, no replay — because an IELTS recording is heard once.
+  // pause, no seeking, no replay — because an IELTS recording is heard once. A part
+  // counts as heard only once its recording has really started (`examAudioPlayer`).
   const examAudio = useRef<Record<number, HTMLAudioElement | null>>({});
-  const [playingPart, setPlayingPart] = useState<number | null>(null);
-  const [endedParts, setEndedParts] = useState<Record<number, true>>({});
+  const [playback, setPlayback] = useState<Record<number, { state: PartPlayback; problem?: PlaybackProblem }>>({});
+  const examRef = useRef(exam);
+  examRef.current = exam;
+  const playerRef = useRef<ExamAudioPlayer | null>(null);
+  if (!playerRef.current) {
+    playerRef.current = createExamAudioPlayer({
+      outlet: (part) => {
+        const element = examAudio.current[part];
+        if (!element) return null;
+        return {
+          play: () => element.play(),
+          pause: () => {
+            element.pause();
+            // A start that failed leaves the recording at its beginning for the next try.
+            element.currentTime = 0;
+          },
+        };
+      },
+      claim: (part) => examRef.current?.claimAudio(part) ?? Promise.resolve('failed'),
+      confirm: (part) => examRef.current?.confirmAudio(part),
+      release: (part) => examRef.current?.releaseAudio(part),
+      changed: (part, state, problem) => setPlayback((current) => ({ ...current, [part]: { state, ...(problem ? { problem } : {}) } })),
+    });
+  }
+  const player = playerRef.current;
+  const heard = (part: number) => exam?.audioStarted[part] !== undefined;
+  const claimedElsewhere = (part: number) => {
+    const held = exam?.audioClaims[part];
+    return Boolean(exam && held && held.claim !== exam.claimOf(part) && exam.serverNow < held.leaseUntil);
+  };
   const playOnce = (part: 1 | 2 | 3 | 4) => {
-    const element = examAudio.current[part];
-    if (!exam || !element || exam.audioStarted[part] !== undefined || playingPart !== null) return;
-    exam.onAudioStart(part);
-    setPlayingPart(part);
-    void element.play().catch(() => setPlayingPart(null));
+    if (!exam || heard(part) || claimedElsewhere(part)) return;
+    player.start(part);
   };
 
   // Stop speech when changing part
@@ -272,23 +309,43 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
           {/* Controls */}
           <div className="flex items-center space-x-3">
             {exam && currentPart.audioUrl ? (
-              <div className="flex items-center gap-2" data-audio-part={currentPart.partNumber}>
+              <div
+                className="flex flex-col items-end gap-1"
+                data-audio-part={currentPart.partNumber}
+                data-playback={playback[currentPart.partNumber]?.state ?? 'idle'}
+                data-heard={String(heard(currentPart.partNumber))}
+              >
                 <button
                   id={`btn-play-listening-part-${currentPart.partNumber}`}
                   type="button"
                   onClick={() => playOnce(currentPart.partNumber)}
-                  disabled={exam.audioStarted[currentPart.partNumber] !== undefined || playingPart !== null}
+                  disabled={heard(currentPart.partNumber) || claimedElsewhere(currentPart.partNumber) || player.busy()}
                   className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-success-500 text-ink-950 font-bold text-xs shadow-md disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>
-                    {playingPart === currentPart.partNumber
-                      ? t('listening.playing')
-                      : exam.audioStarted[currentPart.partNumber] !== undefined || endedParts[currentPart.partNumber]
-                        ? t('listening.played')
-                        : t('listening.playOnce')}
+                    {playback[currentPart.partNumber]?.state === 'starting'
+                      ? t('listening.playStarting')
+                      : playback[currentPart.partNumber]?.state === 'playing'
+                        ? t('listening.playing')
+                        : heard(currentPart.partNumber) || playback[currentPart.partNumber]?.state === 'ended'
+                          ? t('listening.played')
+                          : t('listening.playOnce')}
                   </span>
                 </button>
+                {!heard(currentPart.partNumber) &&
+                  (claimedElsewhere(currentPart.partNumber) || playback[currentPart.partNumber]?.state === 'failed') && (
+                    <span
+                      id={`listening-audio-problem-${currentPart.partNumber}`}
+                      role="status"
+                      data-problem={claimedElsewhere(currentPart.partNumber) ? 'refused' : playback[currentPart.partNumber]?.problem ?? 'failed'}
+                      className="max-w-xs text-right text-[11px] text-warning-50"
+                    >
+                      {claimedElsewhere(currentPart.partNumber) || playback[currentPart.partNumber]?.problem === 'refused'
+                        ? t('listening.playElsewhere')
+                        : t('listening.playFailed')}
+                    </span>
+                  )}
               </div>
             ) : currentPart.audioUrl ? (
               // The recording itself. Nothing synthetic stands in for it.
@@ -353,10 +410,9 @@ export const ListeningSession: React.FC<ListeningSessionProps> = (props) => {
                 }}
                 preload="auto"
                 src={part.audioUrl}
-                onEnded={() => {
-                  setPlayingPart(null);
-                  setEndedParts((ended) => ({ ...ended, [part.partNumber]: true }));
-                }}
+                onPlaying={() => player.playing(part.partNumber)}
+                onError={() => player.error(part.partNumber)}
+                onEnded={() => player.ended(part.partNumber)}
                 className="hidden"
               />
             ) : null,

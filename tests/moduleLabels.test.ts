@@ -71,7 +71,12 @@ describe('Listening part headings', () => {
         onAnswersChange: noop,
         onSubmitAnswers: noop,
         audioStarted: {},
-        onAudioStart: noop,
+        audioClaims: {},
+        serverNow: 0,
+        claimOf: () => 'render-test-claim',
+        claimAudio: () => Promise.resolve('failed' as const),
+        confirmAudio: noop,
+        releaseAudio: noop,
       }),
     );
     expect(html).toContain('Questions 21–30');

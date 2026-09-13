@@ -7,7 +7,7 @@ import { listLearnerBundles } from '../services/bundleService';
 import { markPractice, practiceTestFor, type PracticeFailure } from '../services/practiceMarking';
 import { authorizeAssetRead } from '../services/assetAccess';
 import { assetStore } from '../services/assetStore';
-import { sendAsset } from './adminRoutes';
+import { sendAsset } from '../http/sendAsset';
 import { loadExamUse, practiceEligibility } from '../services/practiceEligibility';
 import type { LearnerMaterialSummary } from '../types/practice';
 import { guardAsyncHandlers } from '../http/asyncHandlers';
@@ -135,14 +135,15 @@ learnerContentRouter.post('/learner/practice/mark', async (req: AuthenticatedReq
  * Serves a file to a signed-in learner: only learner media a published material
  * renders — never an imported original, a source-library file or a private
  * upload, whoever knows its id (`authorizeAssetRead`). Every refusal is the same
- * 404 as an id that does not exist. `sendAsset` decides the headers, so no file
- * is ever an executable page.
+ * 404 as an id that does not exist, with or without a `Range` header. `sendAsset`
+ * decides the headers, so no file is ever an executable page, and answers byte
+ * ranges only from the file this request was allowed.
  */
 learnerContentRouter.get('/assets/:id', async (req: AuthenticatedRequest, res) => {
   try {
     const access = await authorizeAssetRead('learner', req.params.id);
     if (!access.allowed) return res.status(404).json({ error: 'Asset not found.' });
-    return sendAsset(res, access.asset, await assetStore.readContent(access.asset));
+    return sendAsset(req, res, access.asset, await assetStore.readContent(access.asset));
   } catch (error) {
     console.error('[LearnerContent] asset read error:', error);
     return res.status(404).json({ error: 'Asset not found.' });

@@ -63,7 +63,17 @@ function toLearnerSection(run: SectionRun, now: number): LearnerSectionView {
     writing,
     speaking,
     ...(run.audioStarted ? { audioStarted: { ...run.audioStarted } } : {}),
+    ...(run.audioClaims && Object.keys(run.audioClaims).length > 0 ? { audioClaims: learnerClaims(run.audioClaims) } : {}),
   };
+}
+
+/** A tab's claims as the learner's tabs read them: whose they are and when they lapse. */
+function learnerClaims(claims: NonNullable<SectionRun['audioClaims']>): NonNullable<LearnerSectionView['audioClaims']> {
+  const out: NonNullable<LearnerSectionView['audioClaims']> = {};
+  for (const [part, held] of Object.entries(claims)) {
+    if (held) out[Number(part)] = { claim: held.claim, leaseUntil: held.leaseUntil };
+  }
+  return out;
 }
 
 /** The run as the learner holds it at server time `now`: every question id and no question, progress and no mark. */

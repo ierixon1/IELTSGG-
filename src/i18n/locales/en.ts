@@ -482,6 +482,9 @@ export const en: Dictionary = {
     playOnce: 'Play recording (once only)',
     playing: 'Recording playing…',
     played: 'Recording played — heard once only',
+    playStarting: 'Starting the recording…',
+    playFailed: 'The recording did not start, so your one play has not been used. Check your sound and try again.',
+    playElsewhere: 'This recording is being started in another tab or window.',
     readAloud: 'Read the script aloud (synthetic voice, not exam audio)',
   },
 

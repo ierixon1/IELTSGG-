@@ -60,7 +60,7 @@ const { adminStore } = await import('../src/services/adminStore');
 const { bundleStore } = await import('../src/services/bundleStore');
 const { materialContentHash } = await import('../src/services/materialVersion');
 const { questionsOf } = await import('../src/services/publishGate');
-const { sectionReadiness } = await import('../src/services/examRun');
+const { AUDIO_START_LEASE_MS, sectionReadiness } = await import('../src/services/examRun');
 const { calculateOverallBand, objectiveSectionScore, speakingSectionBand, writingSectionBand } = await import('../src/utils/ieltsScoring');
 
 /* ------------------------------------------------------------ injected world */
@@ -353,18 +353,30 @@ describe('the server runs the exam, in order and on its own clock', () => {
     expect(listed.sessions.map((entry: { sessionId: string }) => entry.sessionId)).toEqual([sessionId]);
   });
 
-  it('records each Listening recording as started once, on the server clock, so a reload cannot replay it', async () => {
+  it('records a Listening recording as heard once it has started, on the server clock, so a reload cannot replay it', async () => {
+    const claimed = await events(sessionId, [{ type: 'audio_starting', part: 1, claim: 'ana-tab-00000001' }]);
+    expect(claimed.status).toBe(200);
+    expect(claimed.body.run.sections.listening.audioStarted).toBe(undefined);
+    expect(claimed.body.run.sections.listening.audioClaims).toEqual({ 1: { claim: 'ana-tab-00000001', leaseUntil: clock + AUDIO_START_LEASE_MS } });
+    advance(2_000);
     const firstStart = clock;
-    const started = await events(sessionId, [{ type: 'audio_started', part: 1 }]);
-    expect(started.status).toBe(200);
+    await events(sessionId, [{ type: 'audio_playing', part: 1, claim: 'ana-tab-00000001' }]);
     advance(5_000);
-    await events(sessionId, [{ type: 'audio_started', part: 1 }]);
+    await events(sessionId, [{ type: 'audio_starting', part: 1, claim: 'ana-tab-00000002' }, { type: 'audio_playing', part: 1, claim: 'ana-tab-00000002' }]);
     const reopened = await openExam();
     expect(reopened.body.sessionId).toBe(sessionId);
     expect(reopened.body.run.sections.listening.audioStarted).toEqual({ 1: firstStart });
-    // The browser names a part; it cannot name a time.
-    const forged = await as('ana')(`/api/learner/exams/${sessionId}/events`, post({ events: [{ type: 'audio_started', part: 2, now: 0 }] }));
-    expect(forged.status).toBe(400);
+    expect(reopened.body.run.sections.listening.audioClaims).toBe(undefined);
+    // The browser names a part and its own claim; it cannot name a time or a lease, and the old unconfirmed start is gone.
+    for (const forged of [
+      { type: 'audio_started', part: 2 },
+      { type: 'audio_playing', part: 2, claim: 'ana-tab-00000001', now: 0 },
+      { type: 'audio_starting', part: 2, claim: 'ana-tab-00000001', leaseUntil: 0 },
+      { type: 'audio_starting', part: 2, claim: 'short' },
+    ]) {
+      const response = await as('ana')(`/api/learner/exams/${sessionId}/events`, post({ events: [forged] }));
+      expect([JSON.stringify(forged), response.status]).toEqual([JSON.stringify(forged), 400]);
+    }
   });
 
   it('refuses a write carrying a stale revision', async () => {

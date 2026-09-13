@@ -14,6 +14,9 @@ import { guardAsyncHandlers } from '../http/asyncHandlers';
  */
 
 const answerValue = z.union([z.string().max(2000), z.array(z.string().max(2000)).max(50)]);
+const listeningPart = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
+/** A tab's own token for a playback claim. The server never trusts it for more than telling tabs apart. */
+const audioClaim = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/);
 
 const clientEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('start') }).strict(),
@@ -24,7 +27,9 @@ const clientEvent = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('submit_answers') }).strict(),
-  z.object({ type: z.literal('audio_started'), part: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }).strict(),
+  z.object({ type: z.literal('audio_starting'), part: listeningPart, claim: audioClaim }).strict(),
+  z.object({ type: z.literal('audio_playing'), part: listeningPart, claim: audioClaim }).strict(),
+  z.object({ type: z.literal('audio_failed'), part: listeningPart, claim: audioClaim }).strict(),
   z.object({ type: z.literal('writing_draft'), task: z.union([z.literal(1), z.literal(2)]), text: z.string().max(30000) }).strict(),
   z.object({ type: z.literal('finish_section') }).strict(),
   z.object({ type: z.literal('sync') }).strict(),

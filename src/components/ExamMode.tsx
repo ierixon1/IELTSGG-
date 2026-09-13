@@ -25,6 +25,7 @@ import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
 import { SpeakingSession, type SpokenAnswer } from './SpeakingSession';
 import { GradingStatus } from './exam/GradingStatus';
+import type { ClaimOutcome } from '../services/examAudioPlayer';
 import { useT } from '../i18n';
 import { Badge, Button, Card, cx } from './ui';
 
@@ -69,6 +70,33 @@ const ANSWER_FLUSH_MS = 700;
 const DRAFT_FLUSH_MS = 1500;
 /** How often the screen asks for the stored state while a grading run is out. */
 const GRADING_POLL_MS = 4000;
+
+type AudioPlayingEvent = Extract<ExamClientEvent, { type: 'audio_playing' }>;
+
+const LISTENING_PARTS = [1, 2, 3, 4] as const;
+const toListeningPart = (part: number) => LISTENING_PARTS.find((candidate) => candidate === part) ?? null;
+
+/** Per-tab storage, which survives a reload of the tab and is not shared with other tabs. It may be unavailable. */
+function readTabStorage(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeTabStorage(key: string, value: string): void {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Without storage the claim lasts as long as the page.
+  }
+}
+
+const newClaimToken = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 
 interface GradingItem {
   section: 'writing' | 'speaking';
@@ -125,6 +153,12 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
   const queueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingAnswers = useRef<Record<string, AnswerValue>>({});
   const pendingDrafts = useRef<Partial<Record<1 | 2, string>>>({});
+  /** Playback starts not yet acknowledged by the server: sent again with the next request and on the way out. */
+  const pendingAudio = useRef<Partial<Record<number, AudioPlayingEvent>>>({});
+  /** This tab's playback claim tokens, also kept in session storage so a reload mid-start keeps its own claim. */
+  const claimTokens = useRef(new Map<string, string>());
+  /** The view the server last returned, for callers that need it as soon as their request is answered. */
+  const latestView = useRef<ExamSessionView | null>(null);
   const answerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncing = useRef(false);
@@ -150,6 +184,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
 
   /** Takes a view the server returned as the truth, and resets the clock correction from it. */
   const adopt = useCallback((next: ExamSessionView) => {
+    latestView.current = next;
     offsetRef.current = next.serverNow - Date.now();
     setNow(Date.now());
     setScreen((current) => (current.kind === 'sitting' && current.view.sessionId === next.sessionId ? { ...current, view: next } : current));
@@ -171,6 +206,8 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
       if (text !== undefined) events.push({ type: 'writing_draft', task, text });
     }
     pendingDrafts.current = {};
+    for (const started of Object.values(pendingAudio.current)) if (started) events.push(started);
+    pendingAudio.current = {};
     return events;
   };
 
@@ -178,6 +215,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
     for (const event of events) {
       if (event.type === 'answers') pendingAnswers.current = { ...event.answers, ...pendingAnswers.current };
       if (event.type === 'writing_draft' && pendingDrafts.current[event.task] === undefined) pendingDrafts.current[event.task] = event.text;
+      if (event.type === 'audio_playing' && pendingAudio.current[event.part] === undefined) pendingAudio.current[event.part] = event;
     }
   };
 
@@ -185,29 +223,37 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
     setScreen((current) => (current.kind === 'sitting' ? { kind: 'error', bundleId: current.bundleId, code: errorCodeOf(failure.code), message: failure.message } : current));
   }, []);
 
-  /** Sends events in order, one request at a time, with whatever typing is still pending in front of them. */
+  /**
+   * Sends events in order, one request at a time, with whatever typing is still
+   * pending in front of them. Resolves with whether the server took them.
+   */
   const send = useCallback(
-    (events: ExamClientEvent[]): Promise<void> => {
-      const run = async () => {
+    (events: ExamClientEvent[]): Promise<boolean> => {
+      const run = async (): Promise<boolean> => {
         const sessionId = sessionIdRef.current;
-        if (!sessionId) return;
+        if (!sessionId) return false;
         const batch = [...takePending(), ...events];
-        if (batch.length === 0) return;
+        if (batch.length === 0) return true;
         const result = await sendExamEvents(sessionId, batch);
         if (result.ok) {
           setSaveError(null);
           adopt(result.value);
-          return;
+          return true;
         }
         if (FATAL_CODES.has(result.code)) {
           fail(result);
-          return;
+          return false;
         }
         restorePending(batch);
         setSaveError(result.message);
+        return false;
       };
-      queueRef.current = queueRef.current.then(run, run);
-      return queueRef.current;
+      const next = queueRef.current.then(run, run);
+      queueRef.current = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
     },
     [adopt, fail],
   );
@@ -267,6 +313,50 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
       draftTimer.current = setTimeout(() => void send([]), DRAFT_FLUSH_MS);
     },
     [send],
+  );
+
+  /** This tab's claim token for a Listening part, the same across a reload of this tab and different in any other. */
+  const claimOf = useCallback((part: number) => {
+    const key = `everstudy.examAudioClaim.${sessionIdRef.current ?? 'none'}.${part}`;
+    const known = claimTokens.current.get(key) ?? readTabStorage(key);
+    const token = known && /^[A-Za-z0-9_-]{8,64}$/.test(known) ? known : newClaimToken();
+    claimTokens.current.set(key, token);
+    if (token !== known) writeTabStorage(key, token);
+    return token;
+  }, []);
+
+  /** Claims a Listening part for this tab while its recording starts, and says whether this tab holds it. */
+  const claimAudio = useCallback(
+    async (part: number): Promise<ClaimOutcome> => {
+      const listeningPart = toListeningPart(part);
+      if (!listeningPart) return 'failed';
+      const claim = claimOf(part);
+      if (!(await send([{ type: 'audio_starting', part: listeningPart, claim }]))) return 'failed';
+      const listening = latestView.current?.run.sections.listening;
+      if (!listening) return 'failed';
+      if (listening.audioStarted?.[part] !== undefined) return 'refused';
+      return listening.audioClaims?.[part]?.claim === claim ? 'granted' : 'refused';
+    },
+    [claimOf, send],
+  );
+
+  /** The claimed recording has started playing: kept until the server has it, so a failed request or a reload does not lose it. */
+  const confirmAudio = useCallback(
+    (part: number) => {
+      const listeningPart = toListeningPart(part);
+      if (!listeningPart) return;
+      pendingAudio.current[part] = { type: 'audio_playing', part: listeningPart, claim: claimOf(part) };
+      void send([]);
+    },
+    [claimOf, send],
+  );
+
+  const releaseAudio = useCallback(
+    (part: number) => {
+      const listeningPart = toListeningPart(part);
+      if (listeningPart) void send([{ type: 'audio_failed', part: listeningPart, claim: claimOf(part) }]);
+    },
+    [claimOf, send],
   );
 
   // The on-screen clock. It decides nothing: at zero it asks the server, which closes the section.
@@ -342,6 +432,8 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
     offsetRef.current = opened.value.serverNow - Date.now();
     pendingAnswers.current = {};
     pendingDrafts.current = {};
+    pendingAudio.current = {};
+    latestView.current = opened.value;
     setSaveError(null);
     setNow(Date.now());
     setScreen({ kind: 'sitting', bundleId, paper: opened.value.paper, view: opened.value, resumed: opened.value.resumed });
@@ -772,7 +864,12 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
             initialAnswers={sectionRun.answers}
             submitted={sectionRun.submittedAt !== undefined}
             audioStarted={sectionRun.audioStarted ?? {}}
-            onAudioStart={(part) => void send([{ type: 'audio_started', part }])}
+            audioClaims={sectionRun.audioClaims ?? {}}
+            serverNow={serverNow}
+            claimOf={claimOf}
+            claimAudio={claimAudio}
+            confirmAudio={confirmAudio}
+            releaseAudio={releaseAudio}
             onAnswersChange={queueAnswers}
             onSubmitAnswers={() => void send([{ type: 'submit_answers' }])}
           />

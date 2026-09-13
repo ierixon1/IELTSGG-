@@ -226,13 +226,32 @@ export interface SectionRun {
   drafts: Partial<Record<1 | 2, string>>;
   speaking: Partial<Record<1 | 2 | 3, SpeakingWork>>;
   /**
-   * Listening: when each part's recording was started. IELTS recordings are heard
-   * once only, so a part that has a start time is never played again — not after a
-   * reload, not after switching parts. Absent on sessions stored before it existed.
+   * Listening: when each part's recording started playing, as the playing tab
+   * confirmed it (H8). IELTS recordings are heard once only, so a part that has a
+   * start time is never played again — not after a reload, not after switching
+   * parts, not in another tab. Absent on sessions stored before it existed.
    */
   audioStarted?: Partial<Record<number, number>>;
+  /**
+   * Listening: a tab's claim on a part whose recording it is starting. A claim is
+   * not a play. It holds the part for its lease so no other tab starts it
+   * meanwhile, and becomes a start only when the same tab confirms playback began;
+   * a start that failed releases it.
+   */
+  audioClaims?: Partial<Record<number, AudioClaim>>;
   band?: number;
 }
+
+export interface AudioClaim {
+  /** The claiming tab's token. */
+  claim: string;
+  claimedAt: number;
+  /** After this (server time) another tab may claim the part. */
+  leaseUntil: number;
+}
+
+/** How long a claim holds a part while its recording starts. Longer than the browser's own start timeout. */
+export const AUDIO_START_LEASE_MS = 30_000;
 
 /** The progress of a sitting without its plan: what the exam session stores. */
 export interface RunProgress {
@@ -267,7 +286,12 @@ export type ExamEvent =
   | { type: 'start'; now: number }
   | { type: 'answer'; questionId: string; value: AnswerValue }
   | { type: 'submit_answers'; now: number }
-  | { type: 'audio_started'; part: number; now: number }
+  /** A tab is starting a part's recording: it claims the part for the lease. */
+  | { type: 'audio_starting'; part: number; claim: string; now: number; leaseUntil: number }
+  /** The claiming tab's recording started playing: the part has been heard. */
+  | { type: 'audio_playing'; part: number; claim: string; now: number }
+  /** The claiming tab's recording did not start: the part stays playable. */
+  | { type: 'audio_failed'; part: number; claim: string }
   | { type: 'writing_draft'; task: 1 | 2; text: string }
   /** The server accepted a Writing task. Its grading is pending. */
   | { type: 'writing_submitted'; task: 1 | 2; essay: string; now: number }
@@ -467,6 +491,32 @@ export function claimGrading<W extends SubmittedWork>(work: W | undefined, now: 
   return { ...work, grading: { status: 'grading', runs: current.runs + 1, startedAt: now, leaseUntil } };
 }
 
+type AudioEvent = Extract<ExamEvent, { type: 'audio_starting' | 'audio_playing' | 'audio_failed' }>;
+
+const withoutClaim = (claims: SectionRun['audioClaims'], part: number): Partial<Record<number, AudioClaim>> =>
+  Object.fromEntries(Object.entries(claims ?? {}).filter(([key]) => Number(key) !== part));
+
+/**
+ * One part's recording: not started → starting (claimed) → played. Only the
+ * claim's holder moves it on, and nothing moves a part that has been heard.
+ */
+function audioTransition(run: SectionRun, event: AudioEvent): SectionRun {
+  if (run.audioStarted?.[event.part] !== undefined) return run;
+  const held = run.audioClaims?.[event.part];
+  switch (event.type) {
+    case 'audio_starting':
+      // Another tab's live claim keeps the part. A lapsed claim gives way, and so does this tab's own after a reload.
+      if (held && held.claim !== event.claim && event.now < held.leaseUntil) return run;
+      return { ...run, audioClaims: { ...run.audioClaims, [event.part]: { claim: event.claim, claimedAt: event.now, leaseUntil: event.leaseUntil } } };
+    case 'audio_playing':
+      if (held?.claim !== event.claim) return run;
+      return { ...run, audioStarted: { ...run.audioStarted, [event.part]: event.now }, audioClaims: withoutClaim(run.audioClaims, event.part) };
+    case 'audio_failed':
+      if (held?.claim !== event.claim) return run;
+      return { ...run, audioClaims: withoutClaim(run.audioClaims, event.part) };
+  }
+}
+
 export function examReducer(state: ExamRunState, event: ExamEvent): ExamRunState {
   switch (event.type) {
     case 'start':
@@ -482,14 +532,13 @@ export function examReducer(state: ExamRunState, event: ExamEvent): ExamRunState
       );
     }
 
-    case 'audio_started': {
+    case 'audio_starting':
+    case 'audio_playing':
+    case 'audio_failed': {
       const plan = currentSection(state);
       if (!plan || plan.section !== 'listening') return state;
       if (!plan.components.some((component) => component.part === event.part)) return state;
-      // The first start is the only one: a recording is heard once.
-      return updateCurrent(state, 'listening', (run) =>
-        run.audioStarted?.[event.part] !== undefined ? run : { ...run, audioStarted: { ...run.audioStarted, [event.part]: event.now } },
-      );
+      return updateCurrent(state, 'listening', (run) => audioTransition(run, event));
     }
 
     case 'submit_answers': {

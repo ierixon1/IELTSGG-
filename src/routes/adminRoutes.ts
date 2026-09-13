@@ -24,6 +24,7 @@ import {createBundleRouter} from './bundleRoutes';
 import {bundleStore} from '../services/bundleStore';
 import {bundlesReferencing,summarizeBundle} from '../services/bundleService';
 import {guardAsyncHandlers} from '../http/asyncHandlers';
+import {sendAsset} from '../http/sendAsset';
 import {authorizeAssetRead,listAssetsFor} from '../services/assetAccess';
 import {ClientRequestError} from '../http/errors';
 import {isStorageUnavailableError} from '../services/storage/availability';
@@ -75,29 +76,10 @@ const upload=multer({storage:multer.memoryStorage(),fileFilter,limits:{fileSize:
 adminRouter.post('/login',async(req,res,next)=>{try{const r=await authService.login(String(req.body?.username||''),String(req.body?.password||''));if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch(error){if(isStorageUnavailableError(error))return next(error);return res.status(401).json({error:'Invalid credentials.'});}});
 adminRouter.get('/me',requireAdminAuth,(req:AdminRequest,res)=>res.json({admin:req.adminUser}));
 adminRouter.post('/logout',requireAdminAuth,async(req:AdminRequest,res)=>{try{await authService.logout(req.adminSessionToken||'');}catch{}res.clearCookie(ADMIN_AUTH_COOKIE,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin'});return res.json({success:true});});
-/**
- * Serves an asset to an administrator.
- *
- * The stored MIME type is sniffed from the bytes, never taken from the upload,
- * and only media types an admin needs to preview are served inline. Everything
- * else — documents, and imported HTML above all — is a download with a neutral
- * type, so an uploaded page can never execute on this origin.
- */
-const INLINE_PREVIEW_TYPES=new Set(['image/png','image/jpeg','image/gif','image/webp','audio/mpeg','audio/wav','audio/ogg','application/pdf']);
-function sendAsset(res:Response,asset:{mimeType:string;originalName:string},data:Buffer){
-  const inline=INLINE_PREVIEW_TYPES.has(asset.mimeType);
-  const filename=asset.originalName.replace(/[^w. -]/g,'_').slice(0,120)||'download';
-  res.setHeader('Content-Type',inline?asset.mimeType:'application/octet-stream');
-  res.setHeader('Content-Disposition',`${inline?'inline':'attachment'}; filename="${filename}"`);
-  res.setHeader('X-Content-Type-Options','nosniff');
-  res.setHeader('Content-Security-Policy',"default-src 'none'; sandbox");
-  return res.send(data);
-}
-export {sendAsset};
 // Staff reads go through the same policy as a learner's (`authorizeAssetRead`): an
 // administrator may read any file, an examiner any material's file but not the source library.
 const assetViewerOf=(req:AdminRequest)=>req.adminUser?.role==='admin'?'admin' as const:'examiner' as const;
-adminRouter.get('/assets/:id',requireAdminAuth,async(req:AdminRequest,res)=>{try{const access=await authorizeAssetRead(assetViewerOf(req),req.params.id);if(!access.allowed)return res.status(404).json({error:'Asset not found.'});return sendAsset(res,access.asset,await assetStore.readContent(access.asset));}catch{return res.status(404).json({error:'Asset not found.'});}});
+adminRouter.get('/assets/:id',requireAdminAuth,async(req:AdminRequest,res)=>{try{const access=await authorizeAssetRead(assetViewerOf(req),req.params.id);if(!access.allowed)return res.status(404).json({error:'Asset not found.'});return sendAsset(req,res,access.asset,await assetStore.readContent(access.asset));}catch{return res.status(404).json({error:'Asset not found.'});}});
 adminRouter.get('/assets',requireAdminAuth,async(req:AdminRequest,res)=>{try{return res.json({items:await listAssetsFor(assetViewerOf(req))});}catch{return res.status(500).json({error:'Unable to list assets.'});}});
 adminRouter.post('/assets/reap',requireAdminAuth,requireAdminRole,async(_req,res)=>{try{return res.json({removed:await assetStore.reapUnreferenced()});}catch(error){console.error('[Assets] reap failed:',error);return res.status(500).json({error:'Unable to reap assets.'});}});
 adminRouter.get('/stats',requireAdminAuth,async(_req,res)=>{try{return res.json({stats:await adminStore.getStats()});}catch{return res.status(500).json({error:'Unable to load stats.'});}});

@@ -98,8 +98,10 @@ export interface LearnerSectionView {
   writing: Partial<Record<1 | 2, { essay: string; submittedAt?: number; grading: LearnerGradingView }>>;
   /** Speaking parts the session has accepted, with their transcript and where their grading stands. No band. */
   speaking: Partial<Record<1 | 2 | 3, { transcript: string; submittedAt?: number; grading: LearnerGradingView }>>;
-  /** Listening: when each part's recording was started. */
+  /** Listening: when each part's recording started playing. A part listed here never plays again. */
   audioStarted?: Partial<Record<number, number>>;
+  /** Listening: parts a tab is starting, with that tab's claim and when the claim lapses (server time). */
+  audioClaims?: Partial<Record<number, { claim: string; leaseUntil: number }>>;
 }
 
 /** The run as the learner sees it: the plan without questions or keys, and progress without marks. */
@@ -167,7 +169,12 @@ export type ExamClientEvent =
   | { type: 'start' }
   | { type: 'answers'; answers: Record<string, AnswerValue> }
   | { type: 'submit_answers' }
-  | { type: 'audio_started'; part: 1 | 2 | 3 | 4 }
+  /** Claims a Listening part for this tab while its recording starts. `claim` is the tab's own token. */
+  | { type: 'audio_starting'; part: 1 | 2 | 3 | 4; claim: string }
+  /** The recording this tab claimed has started playing. */
+  | { type: 'audio_playing'; part: 1 | 2 | 3 | 4; claim: string }
+  /** The recording this tab claimed did not start. */
+  | { type: 'audio_failed'; part: 1 | 2 | 3 | 4; claim: string }
   | { type: 'writing_draft'; task: 1 | 2; text: string }
   | { type: 'finish_section' }
   | { type: 'sync' };

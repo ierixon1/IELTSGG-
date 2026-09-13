@@ -16,6 +16,7 @@ import type {
 import type { DataStore, StorageProvider } from './storage';
 import type { SittingOutcome } from './bundleService';
 import {
+  AUDIO_START_LEASE_MS,
   buildExamPlan,
   createExamRun,
   currentSection,
@@ -277,8 +278,12 @@ export function createExamSessionService(deps: ExamSessionDeps) {
         return Object.entries(event.answers).map(([questionId, value]: [string, AnswerValue]) => ({ type: 'answer', questionId, value }));
       case 'submit_answers':
         return [{ type: 'submit_answers', now }];
-      case 'audio_started':
-        return [{ type: 'audio_started', part: event.part, now }];
+      case 'audio_starting':
+        return [{ type: 'audio_starting', part: event.part, claim: event.claim, now, leaseUntil: now + AUDIO_START_LEASE_MS }];
+      case 'audio_playing':
+        return [{ type: 'audio_playing', part: event.part, claim: event.claim, now }];
+      case 'audio_failed':
+        return [{ type: 'audio_failed', part: event.part, claim: event.claim }];
       case 'writing_draft':
         return [{ type: 'writing_draft', task: event.task, text: event.text }];
       case 'finish_section':

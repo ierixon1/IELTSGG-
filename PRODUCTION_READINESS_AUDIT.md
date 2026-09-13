@@ -53,6 +53,15 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **Browser scenarios A–D were not run.** The in-app browser had no signed-in session, and after two attempts the user chose to skip them. Their server behaviour is tested over HTTP and at service level (see the H6 resolution and Browser verification).
 > - **Status is still NOT READY.** H2 and H8–H10 remain.
 
+> **Update after Phase 25.**
+> - **H8 is resolved on the server and learner path.** Both halves of the finding are fixed:
+>   - Learner and staff audio answer byte-range requests, behind the unchanged Phase 22 policy: `206` with `Content-Range`, `416` outside the file, `200` without a range.
+>   - An exam Listening part counts as heard only once its recording has actually started. A refused `play()`, a media or network error, a stalled start, or a claim held by another tab leaves the part playable.
+>   See the H8 resolution.
+> - **Not verified in a real browser.** Claude in Chrome was not connected, and the in-app browser had no signed-in session, so the user chose to skip the browser check. Chrome playback and Safari/iOS compatibility are unverified.
+> - **Added.** L14: a range is sliced from the whole file, and on Cloud Storage the whole object is downloaded for every range request.
+> - **Status is still NOT READY.** H2, H9 and H10 remain.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -75,7 +84,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24; 4 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 15 Medium (M15 split from H6 in Phase 24), 13 Low (L13 split from H7 in Phase 24).
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24, H8 resolved in Phase 25 on the server and learner path; 3 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 15 Medium (M15 split from H6 in Phase 24), 14 Low (L13 split from H7 in Phase 24, L14 added in Phase 25).
 
 ## Method and evidence legend
 
@@ -115,7 +124,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); **resolved in Phase 23** (materials and sources replace the stored document; the profile replaces its map inside a merged user document; proven on the in-memory Firestore, real Firestore unverified — H10) | Probe 3 F1/F2; `tests/firestoreStaleFields.test.ts`, `tests/storageParity.test.ts` | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
 | H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced; **resolved in Phase 24** (accepted and stored at submission, graded separately; a band after the deadline completes the section; drafts at the deadline split out as M15) | Probe 2 A; `tests/examGrading.test.ts`, `tests/examRun.test.ts` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
 | H7 | High | AI reliability | Grading, rewrite, transcribe and mentor calls have no timeout; each fallback model consumes a quota unit; at the limit the learner gets 500 instead of a quota message. | reproduced; **resolved in Phase 24** (one bounded policy on `callWithRetryPolicy`; one allowance unit per grading; 429 at the limit; residual L13) | Probe 2 B1/B2/C; `tests/gradingPolicy.test.ts` | One outage burns ~3 units per grading (default 4/hour); a hung call holds the request indefinitely; exams can become impossible to finish. | Add per-attempt and total timeouts; charge quota once per grading; map quota refusal to 429 with a clear code. |
-| H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); unverified (Safari/iOS device) | Probe 1 S4b; `ListeningSession.tsx:86-92` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
+| H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); **resolved in Phase 25** on the server and learner path (byte ranges; a part counts as heard only once its playback started); not verified in a real browser, Safari/iOS unverified | Probe 1 S4b; `tests/assetRange.test.ts`, `tests/examAudio.test.ts`, `tests/examAudioPlayer.test.ts` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
 | H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`) | `package.json`; `adminRoutes.ts:2,6`; `sourceRoutes.ts:2` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
 | H10 | High | Firestore verification | No real Firestore project has been run. | **`UNVERIFIED — real Firestore unavailable`**. Phase 23 found no credentials, project or emulator on this machine. The adapter parity, race and outage tests pass against the in-memory Firestore. | Firestore audit below; H10 detail; `tests/storageParity.test.ts`, `tests/firestoreTransactions.test.ts` | Production requires Firestore. Real contention and locking, composite indexes, batch limits and cost are unknown. The Firestore-only defects the parity and race tests found are fixed (H10 detail). | Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project (never one holding production data), clean up, and define composite indexes. |
 | H11 | High | Answer keys / exam integrity | The exam session's run view exposes each closed Listening/Reading section's correct count and band before the exam ends; abandoned sessions can be reopened without limit. | reproduced (counts exposed mid-exam); hypothesis (key derivation); **resolved in Phase 19** (no marks in any response before the exam finishes) | Probe 1 S9b; `tests/examOracle.test.ts` | Repeated sessions let a learner infer closed-choice keys from count changes; far slower than C1 and bounded by timing when early finish is off. | Withhold objective counts and bands from the run view until the exam is finished; consider limiting abandoned sittings per bundle. Exam session logic was out of Phase 18 scope. |
@@ -147,6 +156,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | L11 | Low | Input size | `express.json({ limit: '16mb' })` applies to every route, including anonymous `/api/auth/*`, before rate limiting. | confirmed | `server.ts:30` | Parse-cost denial-of-service surface. | Route-specific limits. |
 | L12 | Low | Local runtime | Local stores read and rewrite whole JSON files synchronously per request; the rate-limit file grows without pruning. | confirmed | `requestRateLimitService.ts:25`; `authService.ts:40-43` | Local mode only. | None unless local mode is used beyond development. |
 | L13 | Low | AI reliability | Split from H7 (Phase 24): the mentor chat's SDK call (`chats.create(...).sendMessage`) is not given the abort signal, so an attempt abandoned at its timeout stops being waited for but keeps running. | confirmed | `server.ts` `/api/preppy/chat` | A hung chat request can hold an upstream connection past its budget; the learner still gets an answer or a 503 on time. | Pass the attempt's signal through the chat config. |
+| L14 | Low | Asset delivery cost | Added in Phase 25: a byte-range response is sliced from the whole file, and on Cloud Storage the whole object is downloaded for every range request. | confirmed | `assetStore.readContent`; `src/http/sendAsset.ts` | A player that fetches a recording in many ranges downloads it from Cloud Storage as many times: cost and latency, not correctness. | Read only the requested range from storage, keeping the policy check in front of it. |
 
 ## Detailed findings
 
@@ -760,6 +770,83 @@ Rate limiting alone does not fix it.
 
 **Recommendation.** Range-capable asset serving; record `audio_started` after the `playing` event; test on Safari/iOS.
 
+**Resolution (Phase 25)** — resolved on the server and learner path. Not verified in a real browser, Chrome or Safari/iOS.
+
+- **Byte ranges.** Both asset routes send files through one `sendAsset` (`src/http/sendAsset.ts`): `/api/assets/:id` for learners and `/api/admin/assets/:id` for staff. It is called only after `authorizeAssetRead` has allowed the file.
+  - **Ranges.**
+    - Inline media answers `Accept-Ranges: bytes`.
+    - One satisfiable `bytes` range gets `206`, with `Content-Range: bytes start-end/size` and that range's `Content-Length`. Adjacent ranges are combined.
+    - These get `200` with the whole file: no range, another unit, a header without `=`, or several separate ranges.
+    - A byte range the file cannot satisfy gets `416`, with `Content-Range: bytes */size`.
+  - **Headers.**
+    - HEAD answers the same headers without a body.
+    - The ETag is the stored SHA-256; assets are never overwritten. An `If-Range` naming another version gets the whole file, and `If-None-Match` revalidates to `304`.
+    - `Cache-Control: private, no-cache`, so every read is authorised again.
+  - **Types.**
+    - Downloads (documents, HTML) stay `application/octet-stream` attachments with `Accept-Ranges: none`.
+    - The type is the one sniffed from the bytes, so only audio bytes are served as audio.
+  - **Refusals are unchanged.** An unknown, guessed, malformed or refused id gets the same `404 {"error":"Asset not found."}`, with or without `Range`, and with no range headers.
+- **Playback state machine.** Each part moves not started → starting → played, on the server.
+  - **`audio_starting {part, claim}`** claims the part for this tab for 30 s (`AUDIO_START_LEASE_MS`).
+    - It is refused while another tab's claim is live.
+    - The same tab, whose token is kept in session storage, may claim again after a reload.
+    - A lapsed claim gives way.
+  - **`audio_playing {part, claim}`**: only the claim's holder records the part as heard (`audioStarted`). After that, no claim, confirmation or tab changes it.
+  - **`audio_failed {part, claim}`**: the holder releases the claim, and nothing is consumed.
+  - **What the browser may send.** No time and no lease (strict schema). The old `audio_started` event is refused.
+- **Failed-play recovery** (exam screen, `examAudioPlayer`).
+  - Play calls `play()` inside the click and claims the part at the same moment. That way, a browser that allows playback only in answer to a gesture still allows it.
+  - The start is confirmed only when playback has begun (`play()` resolved, or the `playing` event) and the claim was granted. A confirmation that fails to reach the server is kept, and sent again with the next request and on `pagehide`.
+  - The start fails when `play()` is rejected, a media or network error arrives before playback, nothing starts within 20 s, or the claim is refused or unreachable. The recording is then paused and rewound, and the claim released unless another tab holds it. Play is offered again with "did not start, so your one play has not been used". A claim held elsewhere shows "being started in another tab".
+  - Nothing starts on a double click, for a second part while one is starting or playing, or for a part already heard.
+- **Practice** keeps its `<audio controls>` player and makes no claims (tested by render).
+- **Tests.**
+  - `tests/assetRange.test.ts`, over the real routes:
+    - **Full and HEAD:** a full request and HEAD.
+    - **Ranges served:** first 100 bytes, first byte, open-ended from the start, a middle range, the final 100 bytes, open-ended to the end, the last byte, an end past the file, and adjacent ranges combined. Each is checked against the exact bytes.
+    - **Refused or ignored:** `416` for unsatisfiable and malformed byte ranges; `200` for other units, a header without `=`, and several ranges.
+    - **Validators:** `If-Range`, and `If-None-Match` to `304`.
+    - **Authorisation:** unknown, guessed, malformed and traversal ids, an imported original, a staged upload, a draft recording, and a recording kept as an original are refused identically, with and without `Range`.
+    - **Types and staff:** an image named as audio is served as `image/png`, and an HTML file named as audio is refused. Staff get the same ranges, and a download is sent whole with no ranges.
+  - `tests/examAudio.test.ts`, over the real exam-session routes with a compare-and-set store:
+    - **Heard only once started:** a claim does not consume the part; the holder's confirmation does. A failed start consumes nothing, and a retry plays.
+    - **Once only, from one tab:** no replay in the same tab or another. A double click is one claim, and a foreign confirmation or release is ignored.
+    - **Concurrency:** two tabs claiming at once leave exactly one holder, and both are told the same holder.
+    - **Reload:** a reload straight after Play keeps the claim for the same tab while another tab waits out the lease. A reload after playing keeps the part heard.
+    - **Refusals:** forged events are refused, and nothing is claimed outside Listening.
+  - `tests/examAudioPlayer.test.ts`:
+    - Confirmation waits for both playback and the claim, in either order.
+    - A refused `play()`, a media error, a timeout, a refused or unreachable claim, and a `play()` that throws all leave the part playable. A retry plays.
+    - A double click and a concurrent part are refused. An error after playback has begun ends a heard recording.
+  - `tests/listeningModes.test.ts`:
+    - Practice has controls and no one-time Play; the exam has Play and no controls.
+    - A heard part is locked, and a live claim from another tab locks the part until it lapses. This tab's own claim does not lock it.
+  - The `examRun`, `examSession` and `moduleLabels` tests were updated to the new events.
+- **Mutations: 21/21 caught.**
+  - **Claims and confirmation:**
+    - a part recorded as played when only claimed (server);
+    - playback confirmed on Play (client);
+    - a failed start confirmed instead of released;
+    - a second tab taking a live claim;
+    - a claim that never lapses;
+    - any tab confirming;
+    - a failed start not releasing its claim;
+    - replay after playing;
+    - no start timeout;
+    - confirmation without a granted claim;
+    - a double click starting twice.
+  - **Delivery:** range headers removed; authorisation bypassed through a Range request; no `416`; wrong `Content-Range`; `If-Range` ignored; public caching.
+  - **Practice and view:** practice forced into one-play mode; the practice player without controls; claims hidden from the learner view; the exam screen ignoring the lease.
+- **Checks.** `tsc --noEmit` clean; full suite 716/716. The audio and exam suites (89 tests) passed 5 consecutive runs.
+- **Browser: not run.** See Browser verification. Safari/iOS compatibility is not claimed.
+- **Residual.**
+  - **L14:** a range is sliced from the whole file, and on Cloud Storage every range request downloads the whole object.
+  - **Two tabs pressing Play together:** the tab whose claim is refused may play a fraction of a second of audio before it is paused. This is because `play()` is called before the claim is answered, to keep the user gesture.
+  - **A late confirmation:** a tab that confirms after its lease has lapsed, once another tab has claimed the part, is not counted. Its recording may already be audible.
+  - **Claim tokens:** a claim token only tells tabs apart. It is not a secret and grants nothing beyond the learner's own session.
+  - **Pages on the previous build:** a page still running the previous build sends `audio_started`, which is now refused with 400. That page shows a save error until it is reloaded.
+  - **Failures after playback starts:** once playback has started, a network failure mid-recording ends the part. The part has been heard once, by design.
+
 ### H9 — Runtime dependencies misdeclared — High
 
 **Status:** confirmed (manifest and imports); hypothesis (boot failure when devDependencies are pruned).
@@ -1004,7 +1091,7 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 | Section progression | L → R → W → S in order; server clock; early finish only when configured and content complete | `examRun.test.ts`, `examSession.test.ts`, Phase 14 browser E2E | holds |
 | Completion conditions | L/R need submission; W needs both tasks submitted and S all 3 parts. A section with everything submitted and a band still out is `awaiting_grading` and completes when the band arrives (Phase 24) | `examRun.test.ts`, `examGrading.test.ts` | holds |
 | Timers | Deadlines from bundle minutes; ticks close sections on the server clock; client displays `serverNow` | `examSession.test.ts` "time is the server's" | holds |
-| Listening once-only | Server records one start per part, kept across reload | `examSession.test.ts`, Phase 15 browser | holds, but **H8** (start recorded before playback succeeds) |
+| Listening once-only | A tab claims a part while its recording starts, and the server records the part as heard only when that tab confirms playback began; kept across reloads and tabs (Phase 25) | `examAudio.test.ts`, `examAudioPlayer.test.ts`, `examRun.test.ts` | holds (H8 resolved on the server and learner path; not verified in a real browser) |
 | Reading parts | 3 passages, 40 questions enforced at publish | `bundleGate.test.ts` | holds |
 | Writing Task 1/2 | Graded per task against pinned prompts with the bundle module | `examSession.test.ts`, `writingModule.test.ts`, `examGrading.test.ts` | holds (H6/H7 resolved in Phase 24) |
 | Speaking Parts 1–3 | Graded per part; section band is the average of 3 parts (non-official, documented) | `examRun.test.ts` | holds (known deviation) |
@@ -1169,6 +1256,17 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
   - **Why not run.** The in-app browser had no signed-in session: its network log showed no sign-in request, only `/api/auth/me` 401 and `/api/admin/me` 403. After two sign-in attempts the user chose to skip. The agent entered no credentials and used no development authentication bypass.
   - **Not verified in a browser.** The grading status, Retry and outstanding-result screens; polling; resuming after a reload; network traces. Their server side is tested over HTTP and at service level (`examGrading.test.ts`).
   - **Cleanup.** The server was stopped, `data/` restored from its backup, and the temporary launch configuration removed.
+- **Phase 25: browser check not run.**
+  - **Prepared.** The real dev server on local storage, with nothing replaced. The E2E fixture was seeded: four Listening parts, each with a real WAV recording.
+  - **Why not run.** The in-app browser had no signed-in session. Its network log showed no sign-in request; `/api/auth/me` answered 401 and `/api/admin/me` 403. Claude in Chrome was not connected, after two attempts. The user chose to skip. The agent entered no credentials and used no authentication bypass.
+  - **Not verified.**
+    - `206 Partial Content` in a browser's network panel.
+    - Real playback.
+    - A failed play staying playable.
+    - No replay after a reload.
+    - Safari/iOS.
+    The server and client logic behind each is tested over HTTP and without a DOM (see the H8 resolution).
+  - **Cleanup.** The server was stopped, `data/` restored from its backup, and the temporary launch configuration removed.
 
 ## Confirmed blockers
 
@@ -1183,7 +1281,7 @@ These Critical/High issues genuinely block production.
 6. ~~**H5** — Firestore merge keeps removed fields (production path).~~ Resolved in Phase 23 (proven on the in-memory Firestore).
 7. ~~**H6** — exam Writing/Speaking lost at the deadline.~~ Resolved in Phase 24 (drafts at the deadline split out as M15).
 8. ~~**H7** — AI timeout, quota and error-mapping defects.~~ Resolved in Phase 24.
-9. **H8** — Listening audio range support and once-only start on playback failure (device impact to verify).
+9. ~~**H8** — Listening audio range support and once-only start on playback failure.~~ Resolved in Phase 25 on the server and learner path. Playback in a real browser (Chrome, Safari/iOS) is still unverified.
 10. **H9** — runtime dependencies misdeclared (blocker for any install that prunes devDependencies).
 11. **H10** — Firestore production path `UNVERIFIED — real Firestore unavailable`. Adapter parity, race and outage tests pass on the in-memory Firestore (Phase 23).
 
@@ -1198,7 +1296,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - **Timing.** Timing is configurable per bundle. The reference timing omits the computer-delivered Listening review, and Speaking uses the 14-minute upper bound.
 - **Exam order.** Fixed L → R → W → S in one sitting; early finish is configurable.
 - **Listening.**
-  - Once-only is enforced in the exam UI, not on the audio file.
+  - Once-only is enforced by the exam session, not on the audio file. Since Phase 25 a part is heard once its recording has started, and a learner allowed to read the file can still fetch it.
   - A reload mid-recording cannot resume it.
   - Part navigation is free.
 - **Missing Writing task.** A missing task leaves Writing without a band and the attempt without an overall. Officially Writing is still scored; this is unresolved.
@@ -1220,7 +1318,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
     - batch limits, cost and latency;
     - server timestamps.
 - **Real Cloud Storage:** upload, download and delete are stubbed in tests.
-- **Safari/iOS Listening playback** (H8).
+- **Listening playback in a real browser** (H8). Phase 25's byte ranges and playback states are tested over HTTP and without a DOM. Neither Chrome nor Safari/iOS playback was run.
 - **Production install with pruned devDependencies** (H9).
 - **Real Gemini behaviour.** Latency distribution, actual 503 frequency, output variance between calls, and calibration against human examiner scores.
 - **The anonymous public route under a real Firestore partial outage** (formerly the H1 hypothesis). Since Phase 20 it answers 503 through the error boundary when its query fails behind a working rate limiter — tested against the in-memory Firestore, not a real project (H10).
@@ -1239,7 +1337,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - ~~**H3**~~ — done in Phase 22 (one asset policy for every file read; learners get only rendered media of published materials).
 - ~~**H4**~~ — done in Phase 21 (a changed published material is withdrawn to draft; revisioned saves; publish re-checks the row it gated).
 - ~~**H6 + H7**~~ — done in Phase 24: submission-time acceptance, bounded grading, one allowance unit per grading, 429 for quota. Still to do: decide M15 (drafts at the deadline), and run browser scenarios A–D with a signed-in session.
-- **H8** — Range support and start-on-playing, then a Safari/iOS check.
+- ~~**H8**~~ — done in Phase 25 on the server and learner path: byte ranges, and a part is heard only once playback started. Still to do: the browser check in Chrome (206 in the network panel, a failed play staying playable, no replay after a reload) and on a Safari/iOS device.
 - **H9, M1, M3** — dependency declarations, `PORT`, admin bootstrap for the target deployment.
 - **M2** — security headers.
 - **M11** — ensure no hosted environment runs with `EXPLICIT_DEV_AUTH`.
