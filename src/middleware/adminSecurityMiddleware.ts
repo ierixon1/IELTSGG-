@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { requestRateLimitService } from '../services/requestRateLimitService';
+import { accountKey, admitRequest } from '../http/rateLimit';
+import { clientAddressKey } from '../http/clientAddress';
+import { staffSessionOf } from './staffSession';
 
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -13,12 +15,11 @@ function expectedOrigins(req: Request) {
 
 export async function enforceAdminSecurity(req: Request, res: Response, next: NextFunction) {
   try {
-    const ip = String(req.ip || req.socket.remoteAddress || 'unknown');
-    const limiter = await requestRateLimitService.check(`admin:${ip}`, 'api_global');
-    if (!limiter.allowed) {
-      res.setHeader('Retry-After', String(Math.max(1, Math.ceil(limiter.retryAfterMs / 1000))));
-      return res.status(429).json({ error: 'Too many requests. Please try again later.' });
-    }
+    // A signed-in staff member is counted against their own allowance; everything
+    // else here — the public catalogue, staff sign-in — against its address.
+    const staff = await staffSessionOf(req);
+    const admitted = staff ? await admitRequest(res, accountKey(staff.userId), 'staff_api') : await admitRequest(res, clientAddressKey(req), 'admin_anonymous');
+    if (!admitted) return;
 
     if (STATE_CHANGING_METHODS.has(req.method)) {
       const allowed = expectedOrigins(req);
@@ -43,8 +44,9 @@ export async function enforceAdminSecurity(req: Request, res: Response, next: Ne
 
     return next();
   } catch (error) {
-    // Only the rate limiter can throw here, and only when its store fails. That is
-    // not the caller exceeding a limit, so the API error boundary answers it.
+    // Only the session store or the rate limiter can throw here, and only when
+    // storage fails. That is not the caller exceeding a limit, so the API error
+    // boundary answers it.
     return next(error);
   }
 }

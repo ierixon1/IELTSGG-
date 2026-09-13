@@ -61,13 +61,14 @@ describe('security regressions', () => {
   });
   it('uses HttpOnly admin cookie auth and enforces global admin security', async () => {
     const routes = await read('src/routes/adminRoutes.ts');
+    const staffSession = await read('src/middleware/staffSession.ts');
     const middleware = await read('src/middleware/adminSecurityMiddleware.ts');
     const server = await read('server.ts');
-    expect(routes).toContain("const ADMIN_AUTH_COOKIE='prep_admin_auth'");
+    expect(staffSession).toContain("export const ADMIN_AUTH_COOKIE='prep_admin_auth'");
     expect(routes).toContain('httpOnly:true');
     expect(routes).not.toContain('req.headers.authorization');
     expect(middleware).toContain('Cross-site request blocked.');
-    expect(middleware).toContain("'api_global'");
+    expect(middleware).toContain("'staff_api'");
     expect(server).toContain("app.use('/api/admin',enforceAdminSecurity,adminRouter)");
   });
   it('does not pass or persist an admin session token in the login UI', async () => {
@@ -108,11 +109,15 @@ describe('security regressions', () => {
     const store = await read('src/services/storage/LocalJsonDataStore.ts');
     expect(store).toContain('withLock(`${userId}:quota`');
   });
-  it('applies a distributed global throttle to authenticated API requests', async () => {
+  it('throttles API requests per signed-in account, and per address only without a session', async () => {
+    // The behaviour is held by userRateLimits.test.ts and rateLimitStorage.test.ts; this pins the wiring.
     const middleware = await read('src/middleware/authMiddleware.ts');
     const limiter = await read('src/services/requestRateLimitService.ts');
-    expect(middleware).toContain("check(`api:${ip}`,'api_global')");
-    expect(limiter).toContain("api_global: { windowMs: 60 * 1000, max: 120 }");
+    const server = await read('server.ts');
+    expect(middleware).toContain("admitRequest(res,accountKey(userId),'api_user')");
+    expect(middleware).toContain("admitRequest(res,clientAddressKey(req),'api_anonymous')");
+    expect(limiter).toContain('api_user: { windowMs: 60 * 1000, max: 120 }');
+    expect(server).toContain("app.set('trust proxy',trustProxy)");
   });
   it('validates persisted CMS payloads before writing them', async () => {
     const store = await read('src/services/adminStore.ts');

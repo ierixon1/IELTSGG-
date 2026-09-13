@@ -71,6 +71,19 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **Added.** L15: the upload route never extracts text from a PDF.
 > - **Status is still NOT READY.** H2 and H10 remain, and H8 still awaits a browser check.
 
+> **Update after Phase 27.**
+> - **H2 is resolved.**
+>   - Signed-in learners and staff are each counted against their own account, after the session is read.
+>   - Only traffic without a session, and sign-up, sign-in and password recovery, are counted per address.
+>   - The address comes from the connection unless `TRUST_PROXY` names the proxies. `true` and unreadable values stop the server.
+>   - Over a limit is 429 `rate_limited` with `Retry-After`. A limiter store failure is still 503.
+>   - No limit was raised. Staff sign-in, which had no sign-in limit, now has one.
+>   - Tested over the real `server.ts` and on the in-memory Firestore, with 12 mutations caught.
+>   See the H2 resolution.
+> - **Not verified in a browser.** Two signed-in learner sessions were not available; the check was run over HTTP against the real server instead.
+> - **Added.** M16: sign-up and sign-in are still limited per address, so a class signing in together from one network can be refused.
+> - **Status is still NOT READY.** H10 remains `UNVERIFIED — real Firestore unavailable`. H8 still awaits a browser check, and the deployment must set `TRUST_PROXY`.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -93,7 +106,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24, H8 resolved in Phase 25 on the server and learner path, H9 resolved in Phase 26; 2 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 15 Medium (M15 split from H6 in Phase 24), 15 Low (L13 split from H7 in Phase 24, L14 added in Phase 25, L15 added in Phase 26).
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24, H8 resolved in Phase 25 on the server and learner path, H9 resolved in Phase 26, H2 resolved in Phase 27; 1 open, H10, as `UNVERIFIED — real Firestore unavailable`), 16 Medium (M15 split from H6 in Phase 24, M16 split from H2 in Phase 27), 15 Low (L13 split from H7 in Phase 24, L14 added in Phase 25, L15 added in Phase 26).
 
 ## Method and evidence legend
 
@@ -127,7 +140,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 |---|---|---|---|---|---|---|---|
 | C1 | Critical | Answer keys / exam integrity | Practice marking returns the full answer key of any published bundle or material for an empty submission, so exam keys are available before the exam. | reproduced; **resolved in Phase 18** (no longer reproducible) | Probe 1 S9a/S9b; `tests/practiceEligibility.test.ts` | Any learner can get band 9 in Listening/Reading of any published exam; exam results are not trustworthy. | Product decision required (see C1 detail). At minimum, stop revealing keys for exam bundles or their components through practice. |
 | H1 | High | Runtime / availability | Async route handlers without try/catch plus no process handler: one thrown error exits the process. | reproduced; **resolved in Phase 20** (no longer reproducible over the real `server.ts`) | Probe 1 S17; production boot; `tests/serverStability.test.ts`, `tests/errorBoundary.test.ts` | Any examiner/admin typo in an id, or a Firestore error on the anonymous `/api/admin/public/materials/:section`, takes the server down for all learners mid-exam. | Wrap every async handler (or add an Express async error wrapper and a JSON error handler); add a process-level `unhandledRejection` log-and-survive policy. |
-| H2 | High | Rate limiting | Global (120/min) and auth limiters are keyed by `req.ip`, with no `trust proxy`, and shared by all users behind one address. | reproduced | Probe 1 S16 | Behind a load balancer every user shares one budget; a classroom behind one NAT gets 429 on exam autosaves and logins. | Configure `trust proxy` for the deployment; key the authenticated limiter by user id; size limits against exam autosave traffic. |
+| H2 | High | Rate limiting | Global (120/min) and auth limiters are keyed by `req.ip`, with no `trust proxy`, and shared by all users behind one address. | reproduced; **resolved in Phase 27** (signed-in learners and staff counted per account after the session is read; per-address limits only without a session; explicit `TRUST_PROXY`; 429 `rate_limited`; storage failure still 503; sign-in and sign-up per address split out as M16) | Probe 1 S16; `tests/userRateLimits.test.ts`, `tests/rateLimitStorage.test.ts`, `tests/clientAddress.test.ts` | Behind a load balancer every user shares one budget; a classroom behind one NAT gets 429 on exam autosaves and logins. | Configure `trust proxy` for the deployment; key the authenticated limiter by user id; size limits against exam autosave traffic. |
 | H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced; **resolved in Phase 22** (one asset policy; originals and private files refused to learners like unknown ids) | Probe 1 S4; `tests/assetAccess.test.ts` | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
 | H4 | High | Publication integrity | Saving a published material keeps it published without re-running the publish gate. | reproduced; **resolved in Phase 21** (a changed published material is withdrawn to draft in the same write) | Probe 1 D1; `tests/publishedMaterialProtection.test.ts` | Learners are served content the gate would refuse: no questions, missing classification, stale confirmations of generated questions, missing assets. | Re-run the gate on save of a published material (refuse, or move to draft); or require unpublish before edit, as bundles do. |
 | H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); **resolved in Phase 23** (materials and sources replace the stored document; the profile replaces its map inside a merged user document; proven on the in-memory Firestore, real Firestore unverified — H10) | Probe 3 F1/F2; `tests/firestoreStaleFields.test.ts`, `tests/storageParity.test.ts` | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
@@ -152,6 +165,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | M13 | Medium | Auth performance | `bcrypt.hashSync`/`compareSync` (cost 12) run on the request thread. | confirmed | `authService.ts:44,74,75` | Each login or register blocks the event loop for all learners for hundreds of milliseconds. | Use the async bcrypt API. |
 | M14 | Medium | Test quality | `security.test.ts` (15 tests) only asserts source text; no test mounts `server.ts`; its inline routes, rate limiting and crash behaviour are untested. | confirmed | Test audit below | Green tests did not catch H1, H2 or H7. | Add behavioural tests on the real app wiring for the confirmed findings when fixing them. |
 | M15 | Medium | Exam policy | Split from H6 (Phase 24): a Writing draft left unsubmitted at the deadline is not submitted for the learner, and work below the grading floor (40 words; 15 typed words or 10 s of speech) cannot be submitted, so the section expires. | confirmed | `tests/examGrading.test.ts`; `gradingInput.ts` | A learner who types until the last second without pressing submit gets no Writing band and no overall. | Product decision: submit drafts at the deadline (graded, or recorded without a band), or keep the rule and state it on the exam screen. |
+| M16 | Medium | Sign-in capacity | Split from H2 (Phase 27): sign-up (10 per 15 minutes) and sign-in (20 per 10 minutes, successful sign-ins included) are still counted per client address. There is no account to count them against yet, and the limits were kept as they were. Signed-in traffic is per account. | confirmed (by design) | `RATE_LIMITS` in `requestRateLimitService.ts`; `tests/rateLimitStorage.test.ts` | More than 20 learners signing in, or more than 10 registering, from one school network within the window get 429 until it closes. Learner sessions last 7 days, so this mostly affects first sign-in, onboarding a class, and new devices. | Count only failed sign-ins per address, or key sign-in by address and username under a higher address ceiling, alongside the per-account lockout already in place; decide how a class is onboarded. |
 | L1 | Low | Assets | Download filename sanitiser `/[^w. -]/g` is missing its backslash, so names become underscores. | reproduced | Probe 1 S4 (`filename="____-____.____"`) | Cosmetic. | Fix the pattern to `\w`. |
 | L2 | Low | Admin upload | PDF text extraction on `/api/admin/upload` calls the pdf-parse v2 class without `new`, so it always fails. | reproduced | Direct call: "Class constructor PDFParse cannot be invoked without 'new'" | PDF uploads never pre-fill text (the Source Library path uses `new PDFParse` correctly). | Use the same call as `sourceIngest/extract.ts`. |
 | L3 | Low | Error handling | Malformed JSON returns Express's HTML error page (stack trace in development); unknown `GET /api/*` returns `index.html` in production. | reproduced (dev); confirmed (prod) | Probe 1 S15; `server.ts:177` | Non-JSON errors confuse clients. | JSON error handler; 404 for unknown `/api`. |
@@ -160,10 +174,10 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | L6 | Low | Attempts | Practice attempts are client-reported (`POST /api/data/attempts` accepts any practice band). Exam attempts are refused. | reproduced | Probe 1 S8 | Affects only the learner's own plan and statistics. | Accept as design, or mark practice bands as self-reported. |
 | L7 | Low | Dead surface | `/api/mocks/generate`, `/history`, `/:id` have no client caller but spend Gemini quota. | confirmed | grep | Unused cost and attack surface. | Remove or gate. |
 | L8 | Low | Repository data | Per-user learning data is tracked in git (`data/users/usr_89Byxf2yeZsgb0fp/*`), intentionally per commit `fb82b24`. | confirmed | `git ls-files data` | Personal study data in version control. | Keep a deliberate decision on record. |
-| L9 | Low | Firestore growth | `rate_limits` and `auth_sessions` documents are never deleted except on use. | confirmed | `requestRateLimitService.ts:24`; `authService.ts:76` | Unbounded collection growth. | Firestore TTL policies. |
+| L9 | Low | Firestore growth | `rate_limits` and `auth_sessions` documents are never deleted except on use. | confirmed; `rate_limits` narrowed in Phase 27 (one document per key instead of one per key per window, each with `expiresAt` for a TTL policy; the policy itself is a deployment step) | `requestRateLimitService.ts`; `authService.ts:76` | Unbounded collection growth. | Firestore TTL policies (`rate_limits.expiresAt`; sessions still need a timestamp field for one). |
 | L10 | Low | AI output validation | Only `band_overall` is range-checked; criterion bands and non-half-band values are accepted. | confirmed | `grading.ts:139,204,273` | Odd bands shown in practice; exam rounding absorbs them. | Validate criterion bands. |
 | L11 | Low | Input size | `express.json({ limit: '16mb' })` applies to every route, including anonymous `/api/auth/*`, before rate limiting. | confirmed | `server.ts:30` | Parse-cost denial-of-service surface. | Route-specific limits. |
-| L12 | Low | Local runtime | Local stores read and rewrite whole JSON files synchronously per request; the rate-limit file grows without pruning. | confirmed | `requestRateLimitService.ts:25`; `authService.ts:40-43` | Local mode only. | None unless local mode is used beyond development. |
+| L12 | Low | Local runtime | Local stores read and rewrite whole JSON files synchronously per request; the rate-limit file grows without pruning. | confirmed; the rate-limit file is pruned of closed windows on every write since Phase 27 | `requestRateLimitService.ts`; `authService.ts:40-43` | Local mode only. | None unless local mode is used beyond development. |
 | L13 | Low | AI reliability | Split from H7 (Phase 24): the mentor chat's SDK call (`chats.create(...).sendMessage`) is not given the abort signal, so an attempt abandoned at its timeout stops being waited for but keeps running. | confirmed | `server.ts` `/api/preppy/chat` | A hung chat request can hold an upstream connection past its budget; the learner still gets an answer or a 503 on time. | Pass the attempt's signal through the chat config. |
 | L14 | Low | Asset delivery cost | Added in Phase 25: a byte-range response is sliced from the whole file, and on Cloud Storage the whole object is downloaded for every range request. | confirmed | `assetStore.readContent`; `src/http/sendAsset.ts` | A player that fetches a recording in many ranges downloads it from Cloud Storage as many times: cost and latency, not correctness. | Read only the requested range from storage, keeping the policy check in front of it. |
 | L15 | Low | Upload extraction | Added in Phase 26: `POST /api/admin/upload` calls `pdf-parse` 2.x the version-1 way (`fn(buffer)`). The export is a class, so the call throws `TypeError: Class constructor PDFParse cannot be invoked without 'new'`, the catch swallows it, and an uploaded PDF is stored with no extracted text. Source ingestion uses the v2 API and extracts the same PDF. | confirmed (production-install smoke test; module probe) | `adminRoutes.ts:138` | An admin uploading a PDF gets no pre-filled text; nothing is lost and nothing wrong is stored. | Use `new PDFParse({ data }).getText()` as `sourceIngest/extract.ts` does, and report a failed extraction instead of swallowing it. |
@@ -363,6 +377,116 @@ Rate limiting alone does not fix it.
 - **Why it matters:** the exam client flushes answers 700 ms after typing stops and drafts after 1.5 s. A handful of active learners saturate 120 per minute, and failed autosaves show save errors mid-exam. Twenty failed logins per 10 minutes, platform-wide, lock out sign-in for everyone.
 
 **Recommendation.** Set `trust proxy` for the actual proxy hop count, key authenticated limits by user id, and size budgets against exam traffic.
+
+**Resolution (Phase 27)** — resolved.
+
+- **Every limiter before the change.**
+
+  | Limiter | Where | Key | Window / max | Session known when it ran |
+  |---|---|---|---|---|
+  | Learner API | `authenticateRequest`, every `/api` request outside `/api/auth`, `/api/admin` and `/api/health` | `api:${req.ip}` | 60 s / 120 | no — checked before the cookie was read |
+  | Admin API | `enforceAdminSecurity`, every `/api/admin` request | `admin:${ip}` | 60 s / 120 | no — the staff cookie was read later, per route |
+  | Sign-up, sign-in, forgot and reset password | `authRoutes` | `<operation>:${req.ip}` | 15 min / 10, 10 min / 20, 15 min / 5, 15 min / 10 | no session exists yet |
+  | Staff sign-in | `POST /api/admin/login` | only the admin API limiter | — | no |
+  | AI grading, rewrite, transcription, chat, mock generation | `aiRateLimitService` | user id | per operation | yes — not part of H2, unchanged |
+  | Daily generation and upload quotas | `dataStore` | user id | per day | yes — unchanged |
+  | `/api/health`, `/api/auth/me`, `/api/auth/logout` | — | not limited | — | unchanged |
+
+  - **Storage.** Local: a JSON file behind a per-key in-process lock, with a window opened by the first request. Firestore: one document per key *per clock-aligned bucket*, updated in a transaction.
+  - **Failure.** A limiter store failure already reached the error boundary as 503 (Phase 20).
+  - **Refusal.** 429 carried no code.
+  - **Proxy.** There was no `trust proxy`, so `req.ip` was always the connection's address.
+
+- **Keying policy.**
+
+  | Traffic | Class (`RATE_LIMITS`) | Key | Window / max |
+  |---|---|---|---|
+  | Learner API with a valid session | `api_user` | `account:<user id>`, from the validated session | 60 s / 120 |
+  | Learner API without one | `api_anonymous` | client address | 60 s / 120 |
+  | Admin API with a valid admin or examiner session | `staff_api` | `account:<user id>` | 60 s / 120 |
+  | Admin API without one (public catalogue, staff sign-in) | `admin_anonymous` | client address | 60 s / 120 |
+  | Sign-up, sign-in, forgot and reset password | `register`, `login`, `forgot_password`, `reset_password` | client address | unchanged |
+  | Staff sign-in | `login` | `staff:` + client address | 10 min / 20 — **new**; staff sign-in had no sign-in limit |
+
+  - **The session is read first.** Only a request without a valid session is counted against its address. Nobody behind a learner's address — signed in or anonymous — can spend that learner's allowance.
+  - **No limit was raised.** 120 a minute per learner is sized against the exam client: one request at a time, answers 700 ms and drafts 1.5 s after typing stops, and a 4 s poll while grading. That stays under 100 a minute.
+  - **Keys come only from what the server established:** `accountKey` from a validated session, and `clientAddressKey` from the connection and the configured proxies.
+    - No header, query or body value is read for a key.
+    - The `x-user-id` development header still works only with `EXPLICIT_DEV_AUTH` outside production (M11). There it resolves an existing account, and the request is counted as that account.
+  - **The staff session is read once per request.** `staffSessionOf` is shared by the limiter and `requireAdminAuth`.
+  - **Over a limit:** `429 { error, code: "rate_limited" }` with `Retry-After`.
+
+- **Proxy and address policy** (`src/http/clientAddress.ts`, `TRUST_PROXY`, read strictly at start):
+  - **Unset, `false` or `0`:** the connection's own address; `X-Forwarded-For` is ignored.
+  - **A hop count from 1 to 10:** the address that many hops back.
+  - **A list of proxy addresses, CIDR ranges, or `loopback` / `linklocal` / `uniquelocal`:** only those hops are believed.
+  - **Refused, and the server does not start:** `true`, which would let every client choose its own address, and anything unreadable.
+  - **Address keys.** IPv4 is keyed by address, including IPv4-mapped IPv6. IPv6 is keyed by its /64, so one subscriber cannot rotate through its prefix.
+  - **Deployment assumption,** documented in `.env.example` and the README.
+    - Behind one load balancer or reverse proxy (Cloud Run, a single nginx), set `TRUST_PROXY=1`.
+    - Left unset behind a proxy, every client shares the proxy's address. Signed-in traffic stays per account, but the anonymous, sign-up and sign-in limits become platform-wide again.
+- **Storage semantics.** Both stores open a window with a key's first request and close it `windowMs` later. They decide a request and write the new count as one step.
+  - **Firestore.**
+    - One document per key: `rate_limits/<sha256(operation:key)>`.
+    - It is read and written inside a transaction, which the client runs again after a conflict.
+    - `expiresAt` holds the window's end, for a TTL policy (L9).
+    - This replaces one document per key per bucket, which per-account keys would have multiplied.
+  - **Local.**
+    - The file is read, the request decided, and the file written without yielding, one key at a time.
+    - Closed windows are dropped on every write, which fixes the growth half of L12.
+  - **Store failure.** A store that fails throws, and the throw is never turned into a refusal. The boundary answers 503 `storage_unavailable`, and the refused request is not counted.
+- **Tests** (18 new; full suite 738 pass, 0 fail; `tsc --noEmit` clean; the rate-limit suites passed three runs in a row).
+  - **`tests/userRateLimits.test.ts`** runs the real `server.ts` in a child process, on local storage, from one address:
+    - two learners each get exactly their own allowance, and the one over it gets 429 again and again;
+    - requests without a session are limited per address, whatever `X-Forwarded-For`, `x-user-id`, `X-Real-IP` or forged cookie they carry, and never spend a signed-in learner's allowance;
+    - staff have an allowance of their own, apart from the public catalogue and learners;
+    - a learner claiming another account by header, query or cookie spends only their own allowance, and the other account's stays whole;
+    - 160 concurrent requests from one learner are exactly 120 × 200 and 40 × 429;
+    - `TRUST_PROXY=true` stops the server at start.
+  - **`tests/rateLimitStorage.test.ts`** runs on the in-memory Firestore, in its optimistic mode, behind the real auth, admin and learner middleware:
+    - four requests racing for a learner's last two slots: two let through, two refused, with transaction conflicts observed, and one document holding exactly the allowance;
+    - two staff members on one address, each with their own allowance;
+    - with the limiter's store unreachable, a learner, staff, an anonymous caller, the public catalogue, learner and staff sign-in, and password recovery all get 503 `storage_unavailable`, never 429. Nothing is counted, and every request goes through again afterwards;
+    - staff sign-in is limited per address.
+  - **`tests/clientAddress.test.ts`:**
+    - the `TRUST_PROXY` grammar, accepted and refused forms alike;
+    - IPv4, IPv4-mapped and IPv6 /64 keys;
+    - the real authentication middleware without a proxy (forged X-Forwarded-For ignored) and with `TRUST_PROXY=1` (the proxy's entry counted, a forged entry in front of it ignored, one IPv6 /64 shared).
+  - **`security.test.ts`** now pins the per-account wiring instead of the IP-keyed string.
+- **Mutation check** (each mutation applied to the source bytes, the named suites run, the file restored byte-identical). All 12 caught:
+
+  | # | Mutation | Caught by |
+  |---|---|---|
+  | M1 | Signed-in learners keyed by address again | `userRateLimits` (5 tests) |
+  | M2a | Staff keyed by address | `rateLimitStorage` (two staff members) |
+  | M2b | Staff counted with anonymous admin traffic | `userRateLimits` (staff) |
+  | M3 | A client-supplied `x-user-id` or `userId` query chooses the key | `userRateLimits` (claiming another account) |
+  | M4 | Firestore limiter reads and writes outside its transaction | `rateLimitStorage` (race) |
+  | M5 | Local store without its lock, with an asynchronous read | `userRateLimits` (160 concurrent requests) |
+  | M6 | A store failure answered 429 | `rateLimitStorage` (outage), `errorBoundary` |
+  | M7 | Every `/api` request counted per address before the session is read | `userRateLimits` (5 tests) |
+  | M8 | `TRUST_PROXY=true` accepted | `clientAddress`, `userRateLimits` (boot refusal) |
+  | M8b | `server.ts` believes every hop | `userRateLimits` (forged X-Forwarded-For) |
+  | M9 | IPv6 keyed by full address | `clientAddress` |
+  | M10 | Staff sign-in without its limit | `rateLimitStorage` |
+
+- **HTTP verification against the real `server.ts`** (local storage, every request from 127.0.0.1; no browser, see Browser verification):
+  - **Learner A:** 122 × `GET /api/data` gave 200 × 120, then 429 `{"code":"rate_limited"}` with `Retry-After: 59`.
+  - **Learner B, same address, right after:** 5 plain requests and 5 carrying `x-user-id=A` and `?userId=A` were all 200. B was then refused on the 121st request of their own, so the forged requests counted as B, not A.
+  - **Without a session:** 121 requests with a different forged `X-Forwarded-For` each gave 401 × 120, then 429.
+  - **Staff:** 200 × 120, then 429. The public catalogue was still 200.
+  - **`TRUST_PROXY=1`:** client 203.0.113.10 got 401 × 120, then 429, with a forged address prepended to every other request. Client 203.0.113.11, behind the same proxy, got 401.
+  - **`TRUST_PROXY=true`:** exit code 1 before listening, with `[Config] TRUST_PROXY=true would believe an X-Forwarded-For header that any client can write…`.
+- **Not changed.**
+  - H8 and H10.
+  - The per-user AI and daily quotas; scoring, exam sessions, Book → Test and the bundle architecture.
+  - `/api/health`, `/api/auth/me` and `/api/auth/logout` stay unlimited.
+  - A local rate-limit file that cannot be read is still treated as empty (M4).
+  - Sign-in and sign-up limits (M16).
+- **Remaining.**
+  - The deployment must set `TRUST_PROXY` to match its proxy, and enable the TTL policy on `rate_limits.expiresAt`.
+  - Real Firestore contention is unverified (H10). A limiter transaction that exhausts its retries (`ABORTED`) would answer 500.
+  - With a bogus session cookie, a request costs one session read before it is counted against its address.
 
 ### H3 — Private original of an imported page reachable by learners — High, reproduced
 
@@ -1080,7 +1204,7 @@ All requests below were made against the real `server.ts` (Probe 1) unless state
 | HTML upload sanitisation | Original kept private; derived sanitised copy; served with CSP sandbox and attachment | by code and existing tests | confirmed — holds |
 | CSRF | Admin: Origin/Referer check + SameSite=Strict. Learner: SameSite=Strict only | safe for modern browsers | confirmed |
 | API input validation | Zod on learner, exam, bundle and practice bodies; material schema on save | holds | confirmed |
-| Rate limiting | IP-keyed and shared | **fails** | reproduced — **H2** |
+| Rate limiting | Was IP-keyed and shared. Since Phase 27, signed-in learners and staff each have their own allowance, counted after the session is read. Per-address limits apply only without a session, and to sign-up, sign-in and recovery. Addresses come from the connection unless `TRUST_PROXY` names the proxies. Forged `x-user-id`, query, cookie and `X-Forwarded-For` values change nothing. | holds (sign-in per address: M16) | reproduced — **H2**, resolved (tested over the real `server.ts`) |
 | Error-message leakage | Dev: HTML stack for malformed JSON (L3), and multer upload errors as HTML with stack and file paths. Since Phase 20 every `/api` failure that reaches the error boundary is JSON with a fixed message and no stack, path or library text (tested for learner, public and admin routes). Material save still returns `error.message` to admins | low | reproduced (dev) / confirmed; `/api` part resolved |
 | Security headers | None; `X-Powered-By: Express` | **missing** | reproduced — **M2** |
 | Session handling | HttpOnly, SameSite=Strict, Secure in production; tokens stored hashed; role/version checked per request | holds | confirmed |
@@ -1283,13 +1407,13 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
 | Behavioural, route-level | 17 files mount their own Express app with a subset of routers over HTTP: material lifecycle, practice keys, exam session, bundles, sources, imports, public endpoints. |
 | Unit / pure | Scoring tables (mutation-checked), exam state machine, CDI parser, question schema/engine, sanitiser, bundle gate. |
 | Render tests | `lifecycleUi`, `moduleLabels` (renderToStaticMarkup). |
-| Static text assertions | **`security.test.ts` (15 tests) only checks source text.** It would pass with the behaviour broken: it asserts the IP-keyed limiter string that H2 shows is defective. |
+| Static text assertions | **`security.test.ts` (15 tests) only checks source text.** It would pass with the behaviour broken: it asserted the IP-keyed limiter string that H2 showed was defective. Since Phase 27 its limiter test pins the per-account wiring, and the behaviour is held by `userRateLimits.test.ts` (the real `server.ts`), `rateLimitStorage.test.ts` and `clientAddress.test.ts`. |
 | Browser | Manual only (Phases 14–16); no automated browser tests. |
 
 **Gaps that matter**
 
 - **No test mounts the real `server.ts`.** Suites wire their own apps (for example, `materialLifecycle` omits `enforceAdminSecurity`, and suites use 5 MB JSON limits instead of 16 MB). The following are therefore untested:
-  - middleware order, the global limiter, unhandled-error behaviour (H1) — the H1 part is now covered: `tests/serverStability.test.ts` runs the real `server.ts` in a child process (Phase 20);
+  - middleware order, the global limiter, unhandled-error behaviour (H1) — the H1 part is now covered: `tests/serverStability.test.ts` runs the real `server.ts` in a child process (Phase 20). The limiter and its place in the middleware order are covered the same way by `tests/userRateLimits.test.ts` (Phase 27);
   - `server.ts` inline routes (`/api/grade/*`, `/api/writing/improve`, `/api/writing/transcribe`, `/api/preppy/chat`, `/api/mocks/*`).
 - **Mocks that bypass important code.**
   - Exam tests inject fake graders. Since Phase 24, `gradingPolicy.test.ts` runs the real grading policy against a replaced provider request, and `examGrading.test.ts` runs the exam session with the real grader for the allowance check.
@@ -1327,6 +1451,15 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
     - Safari/iOS.
     The server and client logic behind each is tested over HTTP and without a DOM (see the H8 resolution).
   - **Cleanup.** The server was stopped, `data/` restored from its backup, and the temporary launch configuration removed.
+- **Phase 27: HTTP-level verification instead of two browser sessions.**
+  - **Why not a browser.** The brief asked for two learner sessions on one address if possible. A browser keeps one session cookie per host, so that takes two browsers, or `localhost` and `127.0.0.1` side by side, each signed in to a different learner account. In Phases 24 and 25 the in-app browser had no signed-in session, and the agent does not create accounts or sign in in a browser.
+  - **What was run instead.** The real `server.ts`, over HTTP from one address (see the H2 resolution):
+    - two learners, one of them over the limit;
+    - anonymous traffic with forged headers;
+    - staff;
+    - `TRUST_PROXY=1` behind a simulated proxy;
+    - `TRUST_PROXY=true`.
+  - **Not verified in a browser.** How the exam screen shows a `429` save error, and a real proxy deployment.
 - **Phase 26: no browser check, by design.** Declaring dependencies changes no visible behaviour. The runtime paths that depend on the corrected packages — multipart uploads, DOCX and PDF extraction, source ingestion, sign-in and assets — were exercised over HTTP from a clean production install (see the H9 resolution).
 
 ## Confirmed blockers
@@ -1336,7 +1469,7 @@ These Critical/High issues genuinely block production.
 1. ~~**C1** — exam keys obtainable through practice marking.~~ Resolved in Phase 18.
 1. ~~**H11** — exam-session score counts usable to derive closed-choice keys (added in Phase 18).~~ Resolved in Phase 19.
 2. ~~**H1** — server crash on unhandled async errors; health does not reflect storage.~~ Resolved in Phase 20.
-3. **H2** — IP-keyed shared rate limits.
+3. ~~**H2** — IP-keyed shared rate limits.~~ Resolved in Phase 27: signed-in learners and staff are counted per account, and only traffic without a session per address. Sign-up and sign-in per address are split out as M16, and the deployment must set `TRUST_PROXY` for its proxy.
 4. ~~**H3** — private imported originals downloadable by learners.~~ Resolved in Phase 22.
 5. ~~**H4** — published content edited without the gate.~~ Resolved in Phase 21.
 6. ~~**H5** — Firestore merge keeps removed fields (production path).~~ Resolved in Phase 23 (proven on the in-memory Firestore).
@@ -1378,6 +1511,11 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
     - composite indexes (`getUsageLogs`);
     - batch limits, cost and latency;
     - server timestamps.
+- **Rate limits behind a real proxy and on real Firestore** (H2, H10).
+  - `TRUST_PROXY=1` was verified behind a simulated proxy: X-Forwarded-For written by the test.
+  - Not verified behind Cloud Run, a load balancer or nginx.
+  - Not verified on a real Firestore project: contention on one key, and the `rate_limits.expiresAt` TTL policy.
+  - A limiter transaction that exhausts its retries under contention (`ABORTED`) would be a 500, not a 503.
 - **Real Cloud Storage:** upload, download and delete are stubbed in tests.
 - **Listening playback in a real browser** (H8). Phase 25's byte ranges and playback states are tested over HTTP and without a DOM. Neither Chrome nor Safari/iOS playback was run.
 - **Production install on the target platform** (H9).
@@ -1397,7 +1535,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - ~~**C1**~~ — done in Phase 18 (exam content is not practice content).
 - ~~**H11**~~ — done in Phase 19 (no marks in exam-session responses until the exam has finished).
 - ~~**H1**~~ — done in Phase 20 (async error boundary, process policy for stray rejections, storage-aware health).
-- **H2** — `trust proxy`, per-user limits sized for exam autosaves.
+- ~~**H2**~~ — done in Phase 27 (per-account limits after the session is read, per-address only without one, strict `TRUST_PROXY`, 429 `rate_limited`, one Firestore document per key). Still to do: set `TRUST_PROXY` for the target deployment's proxy, enable the `rate_limits.expiresAt` TTL policy, and decide M16 (sign-in and sign-up per address) before onboarding classes.
 - ~~**H3**~~ — done in Phase 22 (one asset policy for every file read; learners get only rendered media of published materials).
 - ~~**H4**~~ — done in Phase 21 (a changed published material is withdrawn to draft; revisioned saves; publish re-checks the row it gated).
 - ~~**H6 + H7**~~ — done in Phase 24: submission-time acceptance, bounded grading, one allowance unit per grading, 429 for quota. Still to do: decide M15 (drafts at the deadline), and run browser scenarios A–D with a signed-in session.

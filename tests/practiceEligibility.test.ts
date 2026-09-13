@@ -169,8 +169,8 @@ before(async () => {
   await bundleAction(bundleA, 'publish');
 });
 
-// These tests send several hundred learner requests from one address, and the
-// global API limiter (120 a minute per IP) would refuse them part-way through.
+// These tests send several hundred requests as one learner, and the per-account
+// API limiter (120 a minute) would refuse them part-way through.
 // Its local store is reset before each test; the limiter itself is not under test here.
 beforeEach(() => {
   writeFileSync(path.join(tempRoot, 'data', 'request_rate_limits.json'), '{}', 'utf8');

@@ -20,10 +20,16 @@ import { authRouter } from './src/routes/authRoutes';
 import { guardAsyncHandlers } from './src/http/asyncHandlers';
 import { apiErrorBoundary } from './src/http/errorBoundary';
 import { installProcessGuards } from './src/http/processGuards';
+import { trustProxySetting, TrustProxyConfigError, type TrustProxySetting } from './src/http/clientAddress';
 
 installProcessGuards();
+// Which X-Forwarded-For hops to believe when working out a client's address (src/http/clientAddress.ts).
+// Unset: none, and req.ip is the connection's own address. A value that cannot be read stops the server.
+let trustProxy:TrustProxySetting;
+try{trustProxy=trustProxySetting(process.env.TRUST_PROXY);}catch(error){if(!(error instanceof TrustProxyConfigError))throw error;console.error(`[Config] ${error.message}`);process.exit(1);}
 // Every handler registered on the app hands a rejection to the API error boundary below.
 const app=guardAsyncHandlers(express());
+app.set('trust proxy',trustProxy);
 const PORT=3000;
 const MIN_REWRITABLE_WORDS=15;
 /** Roughly 6 MB of image once base64 expands it. */

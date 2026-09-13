@@ -189,7 +189,7 @@ before(async () => {
   await fetch(`${origin}/api/admin/bundles/${bundleId}/publish`, { method: 'POST', headers: { cookie: adminCookie } });
 });
 
-// Hundreds of requests from one address; the global per-IP limiter is not under test here.
+// Hundreds of requests from one learner and one staff member; the request limiter is not under test here.
 beforeEach(() => {
   writeFileSync(path.join(tempRoot, 'data', 'request_rate_limits.json'), '{}', 'utf8');
 });

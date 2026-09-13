@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { authService, AuthError } from '../services/authService';
-import { requestRateLimitService, AuthRateLimitOperation } from '../services/requestRateLimitService';
+import type { RateLimitOperation } from '../services/requestRateLimitService';
 import { AUTH_COOKIE } from '../middleware/authMiddleware';
+import { admitRequest } from '../http/rateLimit';
+import { clientAddressKey } from '../http/clientAddress';
 import { guardAsyncHandlers } from '../http/asyncHandlers';
 import { isStorageUnavailableError } from '../services/storage/availability';
 
@@ -11,8 +13,8 @@ import { isStorageUnavailableError } from '../services/storage/availability';
 export const authRouter = guardAsyncHandlers(Router());
 const isObj=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null&&!Array.isArray(v);
 const readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};
-const clientKey=(req:Request,operation:AuthRateLimitOperation)=>`${operation}:${req.ip||'unknown'}`;
-const enforceRateLimit=async(req:Request,res:Response,operation:AuthRateLimitOperation)=>{const result=await requestRateLimitService.check(clientKey(req,operation),operation);if(result.allowed)return true;res.setHeader('Retry-After',String(Math.max(1,Math.ceil(result.retryAfterMs/1000))));res.status(429).json({error:'Too many requests. Please try again later.'});return false;};
+// Sign-up, sign-in and recovery come before there is an account to count against, so they are counted by address.
+const enforceRateLimit=(req:Request,res:Response,operation:RateLimitOperation)=>admitRequest(res,clientAddressKey(req),operation);
 const setAuthCookie=(res:Response,token:string,maxAge:number)=>res.cookie(AUTH_COOKIE,token,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/',maxAge});
 const clearAuthCookie=(res:Response)=>res.clearCookie(AUTH_COOKIE,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/'});
 const sessionMaxAge=(role:string)=>role==='student'?7*24*60*60*1000:24*60*60*1000;

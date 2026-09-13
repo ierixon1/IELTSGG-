@@ -69,6 +69,14 @@ are all enforced server-side.
   403 without an admin session.
 - Sessions are HttpOnly cookies. Anything cached in `localStorage` is a UI hint
   only and is never trusted for access.
+- Request rate limits count a signed-in learner or staff member against their
+  own account, so people sharing an address (a classroom, an office NAT) do not
+  spend each other's allowance. Requests without a session — sign-up, sign-in,
+  password recovery, anonymous API calls — are counted per client address. Over
+  a limit is `429` with `code: "rate_limited"` and `Retry-After`.
+- The client address is the connection's own unless `TRUST_PROXY` says which
+  proxies sit in front (a hop count, or their addresses); `X-Forwarded-For` is
+  otherwise ignored. Set it to `1` behind one load balancer or reverse proxy.
 
 Production must keep `EXPLICIT_DEV_AUTH=false` and `SEED_DEFAULT_ACCOUNTS=false`
 unless a controlled bootstrap is explicitly required, must supply valid
