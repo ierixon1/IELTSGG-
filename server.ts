@@ -9,7 +9,7 @@ import { authenticateRequest, AuthenticatedRequest } from './src/middleware/auth
 import { enforceAdminSecurity } from './src/middleware/adminSecurityMiddleware';
 import { checkStorageHealth, dataStore } from './src/services/storage';
 import { IELTS_THEMES, READING_QUESTION_TYPES, LISTENING_QUESTION_TYPES, WRITING_TASK1_ACADEMIC_TYPES, WRITING_TASK2_TYPES, SPEAKING_PART2_CATEGORIES } from './src/config/ieltsTaxonomy';
-import { executeGeminiWithRetry, AiUnavailableError } from './prompts/geminiRetry';
+import { executeGeminiWithRetry, AiQuotaExceededError, AiUnavailableError } from './prompts/geminiRetry';
 import { getGenAI, gradeWithFallback, gradeSpeakingSubmission, gradeWritingSubmission, paragraphRewriteInstruction } from './src/services/grading';
 import { examSessionRouter } from './src/routes/examSessionRoutes';
 import { mockRouter } from './src/routes/mockRoutes';
@@ -96,9 +96,9 @@ app.post('/api/writing/improve',async(req:AuthenticatedRequest,res)=>{
     if(words<MIN_REWRITABLE_WORDS)return res.status(400).json({error:'Paragraph is too short to rewrite.',code:'too_short',wordCount:words,minimum:MIN_REWRITABLE_WORDS});
     if(!process.env.GEMINI_API_KEY)return res.status(503).json({error:'AI rewriting is not configured on this server.',code:'ai_not_configured'});
     const userContent=`${prompt?`Task prompt:\n${prompt}\n\n`:''}Candidate paragraph:\n"""\n${paragraph}\n"""`;
-    const response=await gradeWithFallback((model)=>getGenAI().models.generateContent({model,contents:userContent,config:{systemInstruction,temperature:0.3,responseMimeType:'application/json',responseSchema:rewriteSchema}}),'writing_grade');
+    const response=await gradeWithFallback((model,signal)=>getGenAI().models.generateContent({model,contents:userContent,config:{systemInstruction,temperature:0.3,responseMimeType:'application/json',responseSchema:rewriteSchema,abortSignal:signal}}),'writing_grade');
     return res.json(JSON.parse(response.text||'{}'));
-  }catch(error){console.error('[Rewrite]',error);if(error instanceof AiUnavailableError)return res.status(503).json({error:'The model is busy right now.',code:'ai_unavailable'});return res.status(500).json({error:'Failed to rewrite the paragraph.',code:'grading_failed'});}
+  }catch(error){console.error('[Rewrite]',error);if(error instanceof AiQuotaExceededError)return res.status(429).json({error:'The AI allowance for now is used up. Try again later.',code:'quota_exceeded'});if(error instanceof AiUnavailableError)return res.status(503).json({error:'The model is busy right now.',code:'ai_unavailable'});return res.status(500).json({error:'Failed to rewrite the paragraph.',code:'grading_failed'});}
 });
 
 /**
@@ -115,9 +115,9 @@ app.post('/api/writing/transcribe',async(req:AuthenticatedRequest,res)=>{
     if(!/^image\/(png|jpeg|jpg|webp|heic|heif)$/i.test(type))return res.status(400).json({error:'Unsupported image type.',code:'bad_image_type'});
     if(!process.env.GEMINI_API_KEY)return res.status(503).json({error:'AI transcription is not configured on this server.',code:'ai_not_configured'});
     const systemInstruction='You transcribe photographed handwriting for an IELTS practice platform. Reproduce the text exactly as written, preserving the candidate spelling, grammar and paragraph breaks; never correct, improve or complete anything. If a word is genuinely illegible write [?]. Return only the transcription as plain text.';
-    const response=await gradeWithFallback((model)=>getGenAI().models.generateContent({model,contents:{parts:[{inlineData:{mimeType:type,data:imageBase64}},{text:'Transcribe this handwritten essay verbatim.'}]},config:{systemInstruction,temperature:0}}),'writing_grade');
+    const response=await gradeWithFallback((model,signal)=>getGenAI().models.generateContent({model,contents:{parts:[{inlineData:{mimeType:type,data:imageBase64}},{text:'Transcribe this handwritten essay verbatim.'}]},config:{systemInstruction,temperature:0,abortSignal:signal}}),'writing_grade');
     return res.json({text:(response.text||'').trim()});
-  }catch(error){console.error('[Transcribe]',error);if(error instanceof AiUnavailableError)return res.status(503).json({error:'The model is busy right now.',code:'ai_unavailable'});return res.status(500).json({error:'Failed to read the image.',code:'grading_failed'});}
+  }catch(error){console.error('[Transcribe]',error);if(error instanceof AiQuotaExceededError)return res.status(429).json({error:'The AI allowance for now is used up. Try again later.',code:'quota_exceeded'});if(error instanceof AiUnavailableError)return res.status(503).json({error:'The model is busy right now.',code:'ai_unavailable'});return res.status(500).json({error:'Failed to read the image.',code:'grading_failed'});}
 });
 
 app.post('/api/preppy/chat',async(req:AuthenticatedRequest,res)=>{
@@ -133,7 +133,7 @@ app.post('/api/preppy/chat',async(req:AuthenticatedRequest,res)=>{
     const chat=getGenAI().chats.create({model:'gemini-3.8-flash',config:{systemInstruction,temperature:0.5}});
     const result=await executeGeminiWithRetry(()=>chat.sendMessage({message:latest}),3,1500,'preppy_chat');
     return res.json({reply:result.text});
-  }catch(error){console.error('[Preppy]',error);return res.status(500).json({error:'Failed to generate mentor reply.'});}
+  }catch(error){console.error('[Preppy]',error);if(error instanceof AiQuotaExceededError||(error instanceof AiUnavailableError&&error.failureClass==='quota'))return res.status(429).json({error:'The AI allowance for now is used up. Try again later.',code:'quota_exceeded'});if(error instanceof AiUnavailableError)return res.status(503).json({error:'The model is busy right now.',code:'ai_unavailable'});return res.status(500).json({error:'Failed to generate mentor reply.'});}
 });
 
 // The one answer for an API request that failed and was not answered by its route:

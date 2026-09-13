@@ -48,10 +48,17 @@ export const listExamSessions = () => call<{ sessions: ExamSessionSummary[] }>('
 export const openExamSession = (bundleId: string) => call<ExamSessionOpened>('/api/learner/exams', post({ bundleId }));
 export const getExamSession = (sessionId: string) => call<ExamSessionOpened>(at(sessionId));
 export const sendExamEvents = (sessionId: string, events: ExamClientEvent[]) => call<ExamSessionView>(`${at(sessionId)}/events`, post({ events }));
-export const gradeExamWriting = (sessionId: string, task: 1 | 2, essay: string) =>
+
+/** Submits a Writing task. The server stores it, grading pending, and answers without waiting for any model. */
+export const submitExamWriting = (sessionId: string, task: 1 | 2, essay: string) =>
   call<WritingGradedResponse>(`${at(sessionId)}/writing/${task}`, post({ essay }));
-export const gradeExamSpeaking = (sessionId: string, part: 1 | 2 | 3, answer: SpokenAnswer) =>
+/** Asks the server to grade a submitted Writing task: pending, or failed with a run left. */
+export const gradeExamWriting = (sessionId: string, task: 1 | 2) => call<WritingGradedResponse>(`${at(sessionId)}/writing/${task}/grade`, post({}));
+
+export const submitExamSpeaking = (sessionId: string, part: 1 | 2 | 3, answer: SpokenAnswer) =>
   call<SpeakingGradedResponse>(`${at(sessionId)}/speaking/${part}`, post(answer));
+export const gradeExamSpeaking = (sessionId: string, part: 1 | 2 | 3) => call<SpeakingGradedResponse>(`${at(sessionId)}/speaking/${part}/grade`, post({}));
+
 export const abandonExamSession = (sessionId: string) => call<ExamSessionView>(`${at(sessionId)}/abandon`, post({}));
 
 /**

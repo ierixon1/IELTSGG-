@@ -20,9 +20,10 @@ import type { BundleComponentRef, BundleSection, LearnerBundleErrorCode } from '
  *
  * An exam session moves all three to the server. It is created when a learner
  * opens a published bundle, it stores progress after every change, it marks
- * Listening and Reading against keys the browser never receives, it grades
- * Writing and Speaking against the exact pinned prompts, it reads time from its
- * own clock, and it records the attempt itself — once, under the session id.
+ * Listening and Reading against keys the browser never receives, it records
+ * Writing and Speaking work when it is submitted and grades it against the exact
+ * pinned prompts, it reads time from its own clock, and it records the attempt
+ * itself — under the session id.
  */
 
 /** The exam as the browser renders it: every section, no answer key anywhere. */
@@ -54,8 +55,21 @@ export interface ExamSessionRecord {
   createdAt: string;
   updatedAt: string;
   progress: RunProgress;
-  /** When the attempt was confirmed stored. Absent until then. */
+  /** When the attempt was last stored. Absent until then. */
   attemptSavedAt?: string;
+}
+
+/**
+ * Where a submitted task's or part's grading stands, as the learner may know it:
+ * whether a band is coming, came, or could not be produced — never the band.
+ */
+export interface LearnerGradingView {
+  /** `pending`: submitted, no grading run claimed yet. The screen asks for one. */
+  status: 'pending' | 'grading' | 'graded' | 'failed';
+  /** Failed, and the learner may ask for it to be graded again. */
+  retryable: boolean;
+  /** Why the last run produced no band, in the terms the screen explains. */
+  reason?: 'unavailable' | 'timeout' | 'quota' | 'failed';
 }
 
 /**
@@ -80,10 +94,10 @@ export interface LearnerSectionView {
   submittedAt?: number;
   /** Writing: what the learner has typed so far. */
   drafts: Partial<Record<1 | 2, string>>;
-  /** Writing tasks the session has recorded, with the essay recorded. No band. */
-  writing: Partial<Record<1 | 2, { essay: string }>>;
-  /** Speaking parts the session has recorded, with their transcript. No band. */
-  speaking: Partial<Record<1 | 2 | 3, { transcript: string }>>;
+  /** Writing tasks the session has accepted, with the essay accepted and where its grading stands. No band. */
+  writing: Partial<Record<1 | 2, { essay: string; submittedAt?: number; grading: LearnerGradingView }>>;
+  /** Speaking parts the session has accepted, with their transcript and where their grading stands. No band. */
+  speaking: Partial<Record<1 | 2 | 3, { transcript: string; submittedAt?: number; grading: LearnerGradingView }>>;
   /** Listening: when each part's recording was started. */
   audioStarted?: Partial<Record<number, number>>;
 }
@@ -107,6 +121,8 @@ export interface ExamResultView {
   bands: Partial<Record<BundleSection, number>>;
   /** Listening and Reading raw scores, for the sections that were marked. */
   raw: Partial<Record<'listening' | 'reading', { correct: number; total: number }>>;
+  /** Sections whose work was all submitted and whose band has not arrived. */
+  awaitingGrading: BundleSection[];
 }
 
 /**
@@ -162,7 +178,11 @@ export type ExamSessionErrorCode =
   | 'session_closed'
   | 'session_superseded'
   | 'section_closed'
+  | 'already_submitted'
   | 'already_graded'
+  | 'not_submitted'
+  | 'grading_in_progress'
+  | 'grading_retry_limit'
   | 'conflict';
 
 export interface ExamSessionError {
@@ -171,9 +191,10 @@ export interface ExamSessionError {
 }
 
 /**
- * A Writing task or Speaking part recorded by the session. The grading itself —
- * band, criteria, annotations — stays on the server with the attempt: during an
- * exam the learner is told only that the work was recorded.
+ * A Writing task or Speaking part submitted or graded again through the session.
+ * The grading itself — band, criteria, annotations — stays on the server with the
+ * attempt: during an exam the learner is told only that the work was accepted and
+ * where its grading stands.
  */
 export interface WritingGradedResponse {
   view: ExamSessionView;

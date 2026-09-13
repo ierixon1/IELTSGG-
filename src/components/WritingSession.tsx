@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { WritingTaskData, WritingGradingResult, TextAnnotation, RewriteResult } from '../types';
+import type { LearnerGradingView } from '../types/examSession';
 import { GradingError, requestWritingGrading, requestParagraphRewrite, requestHandwritingTranscription } from '../services/api';
 import {
   AlertTriangle,
@@ -18,6 +19,7 @@ import { useT } from '../i18n';
 import { Badge, Button, Card, LexisPanel, cx } from './ui';
 import { analyseLexis } from '../utils/textMetrics';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
+import { GradingStatus } from './exam/GradingStatus';
 
 interface TaskProps {
   /**
@@ -55,17 +57,20 @@ interface PracticeProps extends TaskProps {
 
 /**
  * Inside a full exam: the section clock belongs to the exam screen, each task is
- * graded by the exam session against the pinned prompt and recorded there, a
- * submitted task is final, and no band is shown until the exam is over.
+ * submitted to the exam session — which stores it at once and grades it
+ * separately against the pinned prompt — a submitted task is final, and no band
+ * is shown until the exam is over.
  */
 interface ExamProps extends TaskProps {
   examMode: true;
-  /** Grades and records one task. Rejects with a `GradingError` when no band could be given. */
-  grade: (task: 1 | 2, essay: string) => Promise<void>;
+  /** Submits one task. Rejects with a `GradingError` when the session does not accept it. */
+  submit: (task: 1 | 2, essay: string) => Promise<void>;
   /** What the session stored of each draft, so a reload does not lose it. */
   initialDrafts: Partial<Record<1 | 2, string>>;
-  /** Tasks the session has already recorded, with the essay it recorded. */
-  gradedTasks: Partial<Record<1 | 2, { essay: string }>>;
+  /** Tasks the session has accepted, with the essay it stored and where its grading stands. */
+  gradedTasks: Partial<Record<1 | 2, { essay: string; grading: LearnerGradingView }>>;
+  /** Asks for a failed grading to run again. */
+  onRetryGrading: (task: 1 | 2) => void;
   onDraftChange: (task: 1 | 2, text: string) => void;
 }
 
@@ -80,6 +85,10 @@ function describeGradingError(error: unknown, t: (key: string, vars?: Record<str
   if (error instanceof GradingError) {
     if (error.code === 'ai_not_configured') return t('grading.errors.ai_not_configured');
     if (error.code === 'ai_unavailable') return t('grading.errors.ai_unavailable');
+    if (error.code === 'quota_exceeded') return t('grading.errors.quota_exceeded');
+    if (error.code === 'grading_timeout') return t('grading.errors.grading_timeout');
+    if (error.code === 'already_submitted') return t('grading.errors.already_submitted');
+    if (error.code === 'section_closed') return t('grading.errors.section_closed');
     if (error.code === 'too_short') {
       return t('grading.errors.too_short_writing', {
         count: Number(error.details?.wordCount ?? 0),
@@ -118,7 +127,8 @@ export const WritingSession: React.FC<WritingSessionProps> = (props) => {
     2: exam?.gradedTasks[2]?.essay ?? exam?.initialDrafts[2] ?? '',
   }));
   const essayText = essays[selectedTask];
-  const taskLocked = Boolean(exam?.gradedTasks[selectedTask]);
+  const submittedTask = exam?.gradedTasks[selectedTask];
+  const taskLocked = Boolean(submittedTask);
   const setEssayText = (value: string | ((current: string) => string)) =>
     setEssays((previous) => {
       const text = typeof value === 'function' ? value(previous[selectedTask]) : value;
@@ -126,6 +136,9 @@ export const WritingSession: React.FC<WritingSessionProps> = (props) => {
       return { ...previous, [selectedTask]: text };
     });
   const [isGrading, setIsGrading] = useState(false);
+  // In an exam each task is sent on its own: waiting for Task 1 to be accepted never holds up Task 2.
+  const [submitting, setSubmitting] = useState<Partial<Record<1 | 2, boolean>>>({});
+  const taskSending = Boolean(submitting[selectedTask]);
   const [result, setResult] = useState<WritingGradingResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedAnnotation, setSelectedAnnotation] = useState<TextAnnotation | null>(null);
@@ -164,19 +177,29 @@ export const WritingSession: React.FC<WritingSessionProps> = (props) => {
       setErrorMsg(t('writing.needText'));
       return;
     }
+    setErrorMsg(null);
+
+    if (exam) {
+      // Stored by the session as soon as it is accepted; grading follows on its own,
+      // and the band stays with the session until the exam is over.
+      const task = selectedTask;
+      setSubmitting((current) => ({ ...current, [task]: true }));
+      try {
+        await exam.submit(task, essays[task]);
+      } catch (error) {
+        setErrorMsg(describeGradingError(error, t));
+      } finally {
+        setSubmitting((current) => ({ ...current, [task]: false }));
+      }
+      return;
+    }
+    if (!practice) return;
 
     setIsGrading(true);
-    setErrorMsg(null);
     setSelectedAnnotation(null);
     setRewrite(null);
 
     try {
-      if (exam) {
-        // Recorded by the session; the band stays with it until the exam is over.
-        await exam.grade(selectedTask, essayText);
-        return;
-      }
-      if (!practice) return;
       const grading = await requestWritingGrading({
         taskType: selectedTask === 1 ? 'task1' : 'task2',
         prompt: `${activeTaskData.title}\n${activeTaskData.prompt}`,
@@ -284,6 +307,7 @@ ${activeTaskData.prompt}`,
   };
 
   const promptLooksLikeHtml = /<[a-z][\s\S]*>/i.test(activeTaskData.prompt);
+  const busy = examMode ? taskSending : isGrading;
 
   return (
     <div className="space-y-6">
@@ -440,7 +464,7 @@ ${activeTaskData.prompt}`,
                     type="file"
                     accept="image/*"
                     className="sr-only"
-                    disabled={isReadingImage || taskLocked}
+                    disabled={isReadingImage || taskLocked || taskSending}
                     onChange={(event) => {
                       const file = event.target.files?.[0];
                       if (file) handleEssayPhoto(file);
@@ -455,7 +479,7 @@ ${activeTaskData.prompt}`,
               id="textarea-essay-input"
               rows={16}
               value={essayText}
-              readOnly={taskLocked}
+              readOnly={taskLocked || taskSending}
               data-task={selectedTask}
               onChange={(event) => setEssayText(event.target.value)}
               placeholder={t(writingPlaceholderKey(selectedTask, module))}
@@ -469,13 +493,15 @@ ${activeTaskData.prompt}`,
               </div>
             )}
 
-            {taskLocked && (
-              <p
-                id={`writing-task-submitted-${selectedTask}`}
-                className="rounded-[var(--radius-control)] border border-ink-200 bg-ink-50 p-3 text-sm font-semibold text-ink-700"
-              >
-                {t('exam.taskSubmitted', { task: selectedTask })}
-              </p>
+            {exam && submittedTask && (
+              <div id={`writing-task-submitted-${selectedTask}`}>
+                <GradingStatus
+                  id={`writing-grading-${selectedTask}`}
+                  label={t('grading.exam.item.writing', { n: selectedTask })}
+                  grading={submittedTask.grading}
+                  onRetry={() => exam.onRetryGrading(selectedTask)}
+                />
+              </div>
             )}
 
             <div className="flex items-center justify-between pt-1">
@@ -483,7 +509,7 @@ ${activeTaskData.prompt}`,
                 id="btn-clear-essay"
                 variant="ghost"
                 size="sm"
-                disabled={taskLocked}
+                disabled={taskLocked || taskSending}
                 onClick={() => {
                   if (window.confirm(t('writing.clearConfirm'))) setEssayText('');
                 }}
@@ -494,17 +520,17 @@ ${activeTaskData.prompt}`,
               <Button
                 id="btn-submit-writing-grade"
                 onClick={handleGrade}
-                disabled={isGrading || wordCount === 0 || taskLocked}
+                disabled={busy || wordCount === 0 || taskLocked}
               >
-                {isGrading ? (
+                {busy ? (
                   <>
                     <RefreshCw className="h-4 w-4 animate-spin" />
-                    {t('writing.grading')}
+                    {examMode ? t('grading.exam.submitting') : t('writing.grading')}
                   </>
                 ) : (
                   <>
                     <Sparkles className="h-4 w-4" />
-                    {t('writing.grade')}
+                    {examMode ? t('grading.exam.submitTask') : t('writing.grade')}
                   </>
                 )}
               </Button>

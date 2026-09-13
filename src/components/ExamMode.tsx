@@ -3,7 +3,7 @@ import { AlertTriangle, Award, Clock, Layers, ShieldAlert } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { AnswerValue, MockAttempt } from '../types';
 import { BUNDLE_SECTIONS, minutesKey, type BundleSection, type LearnerBundleSummary } from '../types/bundle';
-import type { ExamClientEvent, ExamPaper, ExamSessionSummary, ExamSessionView } from '../types/examSession';
+import type { ExamClientEvent, ExamPaper, ExamSessionSummary, ExamSessionView, LearnerGradingView, LearnerRunView } from '../types/examSession';
 import { canFinishSection, currentSection, remainingSeconds, sectionReadiness, type MissingItem } from '../services/examRun';
 import { fetchLearnerBundles } from '../services/publishedTests';
 import {
@@ -15,6 +15,8 @@ import {
   openExamSession,
   sendExamEvents,
   sendExamEventsOnExit,
+  submitExamSpeaking,
+  submitExamWriting,
   type SessionCall,
 } from '../services/examSessionClient';
 import { GradingError } from '../services/api';
@@ -22,11 +24,12 @@ import { ListeningSession } from './ListeningSession';
 import { ReadingSession } from './ReadingSession';
 import { WritingSession } from './WritingSession';
 import { SpeakingSession, type SpokenAnswer } from './SpeakingSession';
+import { GradingStatus } from './exam/GradingStatus';
 import { useT } from '../i18n';
 import { Badge, Button, Card, cx } from './ui';
 
 interface ExamModeProps {
-  /** Called once, with the attempt the server stored, when a sitting ends. */
+  /** Called with the attempt the server stored when a sitting ends — and again if a band that arrives later changes it. */
   onCompleteExam: (attempt: MockAttempt) => void;
   onExitExam: () => void;
 }
@@ -64,6 +67,28 @@ const clock = (seconds: number) =>
 /** How long typing may go unsent. Anything still pending is flushed before a submit, a finish, or leaving the page. */
 const ANSWER_FLUSH_MS = 700;
 const DRAFT_FLUSH_MS = 1500;
+/** How often the screen asks for the stored state while a grading run is out. */
+const GRADING_POLL_MS = 4000;
+
+interface GradingItem {
+  section: 'writing' | 'speaking';
+  item: 1 | 2 | 3;
+  grading: LearnerGradingView;
+}
+
+/** Every submitted Writing task and Speaking part, with where its grading stands. */
+function gradingItems(run: LearnerRunView): GradingItem[] {
+  const items: GradingItem[] = [];
+  for (const task of [1, 2] as const) {
+    const work = run.sections.writing.writing[task];
+    if (work) items.push({ section: 'writing', item: task, grading: work.grading });
+  }
+  for (const part of [1, 2, 3] as const) {
+    const work = run.sections.speaking.speaking[part];
+    if (work) items.push({ section: 'speaking', item: part, grading: work.grading });
+  }
+  return items;
+}
 
 /**
  * The full exam: a published bundle, sat end to end through a server-held
@@ -74,6 +99,11 @@ const DRAFT_FLUSH_MS = 1500;
  * server marks, times and records. The clock shown here counts down to the
  * deadline the server set, corrected by the server's own time, and when it
  * reaches zero the screen asks the server, which closes the section.
+ *
+ * Writing and Speaking are submitted and graded in two steps. A submission is
+ * stored by the server at once; this screen then asks the server to grade it — at
+ * once, and again after a reload for anything still pending — and shows where each
+ * grading stands. Nothing about grading holds the learner or the clock up.
  *
  * Progress survives a reload: answers and essay drafts are stored as they are
  * typed, and reopening the exam resumes the same session, with the time spent
@@ -99,6 +129,8 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncing = useRef(false);
   const reported = useRef<string | null>(null);
+  /** Grade requests this page has out, so one submission is never asked for twice at once. */
+  const gradingRequests = useRef(new Set<string>());
 
   const loadCatalog = useCallback(() => {
     fetchLearnerBundles().then((load) => {
@@ -149,6 +181,10 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
     }
   };
 
+  const fail = useCallback((failure: Extract<SessionCall<unknown>, { ok: false }>) => {
+    setScreen((current) => (current.kind === 'sitting' ? { kind: 'error', bundleId: current.bundleId, code: errorCodeOf(failure.code), message: failure.message } : current));
+  }, []);
+
   /** Sends events in order, one request at a time, with whatever typing is still pending in front of them. */
   const send = useCallback(
     (events: ExamClientEvent[]): Promise<void> => {
@@ -164,7 +200,7 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
           return;
         }
         if (FATAL_CODES.has(result.code)) {
-          setScreen((current) => (current.kind === 'sitting' ? { kind: 'error', bundleId: current.bundleId, code: errorCodeOf(result.code), message: result.message } : current));
+          fail(result);
           return;
         }
         restorePending(batch);
@@ -173,7 +209,46 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
       queueRef.current = queueRef.current.then(run, run);
       return queueRef.current;
     },
-    [adopt],
+    [adopt, fail],
+  );
+
+  const sync = useCallback(() => {
+    if (syncing.current) return;
+    syncing.current = true;
+    void send([{ type: 'sync' }]).finally(() => {
+      syncing.current = false;
+    });
+  }, [send]);
+
+  /**
+   * Asks the server to grade one submitted task or part. The server claims a run
+   * only if none is out, so a second page or a second click starts nothing; the
+   * view it returns says how the grading ended.
+   */
+  const requestGrading = useCallback(
+    async (section: 'writing' | 'speaking', item: 1 | 2 | 3) => {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+      const key = `${sessionId}:${section}:${item}`;
+      if (gradingRequests.current.has(key)) return;
+      gradingRequests.current.add(key);
+      try {
+        const graded = section === 'writing' ? await gradeExamWriting(sessionId, item === 1 ? 1 : 2) : await gradeExamSpeaking(sessionId, item);
+        if (graded.ok) {
+          adopt(graded.value.view);
+          return;
+        }
+        if (FATAL_CODES.has(graded.code)) {
+          fail(graded);
+          return;
+        }
+        // Refused because a run is already out, or it finished meanwhile: the stored state says which.
+        sync();
+      } finally {
+        gradingRequests.current.delete(key);
+      }
+    },
+    [adopt, fail, sync],
   );
 
   const queueAnswers = useCallback(
@@ -204,11 +279,24 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
   useEffect(() => {
     if (!view || !running || syncing.current) return;
     if (remainingSeconds(view.run, serverNow) > 0) return;
-    syncing.current = true;
-    void send([{ type: 'sync' }]).finally(() => {
-      syncing.current = false;
-    });
-  }, [view, running, serverNow, send]);
+    sync();
+  }, [view, running, serverNow, sync]);
+
+  // Submitted work nobody has asked to grade yet — just submitted, or found pending after a reload — is sent for grading.
+  useEffect(() => {
+    if (!view) return;
+    for (const entry of gradingItems(view.run)) {
+      if (entry.grading.status === 'pending') void requestGrading(entry.section, entry.item);
+    }
+  }, [view, requestGrading]);
+
+  // While a run is out — on this page or another — the stored state is asked for until it settles.
+  const gradingOut = Boolean(view && gradingItems(view.run).some((entry) => entry.grading.status === 'grading'));
+  useEffect(() => {
+    if (!gradingOut) return;
+    const interval = setInterval(sync, GRADING_POLL_MS);
+    return () => clearInterval(interval);
+  }, [gradingOut, sync]);
 
   // Typing still pending when the page is hidden or unloaded is sent on the way out.
   useEffect(() => {
@@ -232,11 +320,13 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
     };
   }, [running]);
 
-  // Report the stored attempt exactly once.
+  // Report each version of the stored attempt once: a band that arrives after the exam ended stores it again.
   useEffect(() => {
     const attempt = view?.attempt;
-    if (!view || view.status !== 'finished' || !view.attemptSaved || !attempt || reported.current === attempt.id) return;
-    reported.current = attempt.id;
+    if (!view || view.status !== 'finished' || !view.attemptSaved || !attempt) return;
+    const version = `${attempt.id}:${attempt.status}:${attempt.scores.overall ?? ''}`;
+    if (reported.current === version) return;
+    reported.current = version;
     onCompleteExam(attempt);
     if ((attempt.scores.overall ?? 0) >= 7) confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 } });
   }, [view, onCompleteExam]);
@@ -264,32 +354,31 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
     onExitExam();
   };
 
-  /** Grades one Writing task through the session; a refusal reaches the screen as a `GradingError`. */
-  const gradeWriting = async (task: 1 | 2, essay: string) => {
+  /** Submits one Writing task. A refusal reaches the screen as a `GradingError`; grading follows on its own. */
+  const submitWriting = async (task: 1 | 2, essay: string) => {
     await send([]);
     const sessionId = sessionIdRef.current;
     if (!sessionId) throw new GradingError('session_closed', 'The exam session is not open.');
-    const graded = await gradeExamWriting(sessionId, task, essay);
-    if (!graded.ok) {
-      if (FATAL_CODES.has(graded.code) && screen.kind === 'sitting') refuse(screen.bundleId, graded);
-      else void send([{ type: 'sync' }]);
-      throw new GradingError(graded.code, graded.message, graded.details);
+    const submitted = await submitExamWriting(sessionId, task, essay);
+    if (!submitted.ok) {
+      if (FATAL_CODES.has(submitted.code) && screen.kind === 'sitting') refuse(screen.bundleId, submitted);
+      else sync();
+      throw new GradingError(submitted.code, submitted.message, submitted.details);
     }
-    // Recorded by the session; the band is part of the result once the exam is over.
-    adopt(graded.value.view);
+    adopt(submitted.value.view);
   };
 
-  const gradeSpeaking = async (part: 1 | 2 | 3, answer: SpokenAnswer) => {
+  const submitSpeaking = async (part: 1 | 2 | 3, answer: SpokenAnswer) => {
     await send([]);
     const sessionId = sessionIdRef.current;
     if (!sessionId) throw new GradingError('session_closed', 'The exam session is not open.');
-    const graded = await gradeExamSpeaking(sessionId, part, answer);
-    if (!graded.ok) {
-      if (FATAL_CODES.has(graded.code) && screen.kind === 'sitting') refuse(screen.bundleId, graded);
-      else void send([{ type: 'sync' }]);
-      throw new GradingError(graded.code, graded.message, graded.details);
+    const submitted = await submitExamSpeaking(sessionId, part, answer);
+    if (!submitted.ok) {
+      if (FATAL_CODES.has(submitted.code) && screen.kind === 'sitting') refuse(screen.bundleId, submitted);
+      else sync();
+      throw new GradingError(submitted.code, submitted.message, submitted.details);
     }
-    adopt(graded.value.view);
+    adopt(submitted.value.view);
   };
 
   const retrySave = async () => {
@@ -463,11 +552,17 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
   // A finished run without them falls through to the refusal below rather than a made-up result.
   const result = current.result;
   if (result) {
+    const ungraded = gradingItems(run).filter((entry) => entry.grading.status !== 'graded');
+    // A band can still arrive: pending, being graded, or failed with a run left.
+    const bandsToCome = ungraded.some((entry) => entry.grading.status !== 'failed' || entry.grading.retryable);
+    // "Time ran out" is said only when a section did not get its work in; sections waiting only on grading are not that.
+    const timedOut = BUNDLE_SECTIONS.some((name) => run.sections[name].status !== 'completed' && run.sections[name].status !== 'awaiting_grading');
     return (
       <div
         className="mx-auto max-w-3xl"
         id="exam-result"
         data-complete={String(result.complete)}
+        data-awaiting-grading={result.awaitingGrading.join(',')}
         data-session-id={current.sessionId}
         data-attempt-saved={String(current.attemptSaved)}
       >
@@ -478,9 +573,17 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
           <div>
             <Badge tone={result.complete ? 'success' : 'neutral'}>{t('exam.doneEyebrow')}</Badge>
             <h1 className="mt-3 text-display-sm text-ink-900">
-              {result.complete ? t('exam.doneTitle') : t('exam.incompleteTitle')}
+              {result.complete ? t('exam.doneTitle') : timedOut || !bandsToCome ? t('exam.incompleteTitle') : t('grading.exam.resultTitle')}
             </h1>
-            <p className="mt-1.5 text-sm text-ink-500">{result.complete ? t('exam.doneSubtitle') : t('exam.incompleteBody')}</p>
+            <p className="mt-1.5 text-sm text-ink-500">
+              {result.complete
+                ? t('exam.doneSubtitle')
+                : timedOut
+                  ? t('exam.incompleteBody')
+                  : bandsToCome
+                    ? t('grading.exam.resultBody')
+                    : t('grading.exam.resultUngradedBody')}
+            </p>
           </div>
 
           {result.complete && result.overall !== undefined && (
@@ -502,18 +605,36 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
                     {band === undefined ? '—' : band.toFixed(1)}
                   </p>
                   {band === undefined && (
-                    <p className="mt-0.5 text-[0.625rem] text-ink-400">{status === 'expired' ? t('exam.sectionExpired') : t('exam.notSat')}</p>
+                    <p className="mt-0.5 text-[0.625rem] text-ink-400">
+                      {status === 'expired' ? t('exam.sectionExpired') : status === 'awaiting_grading' ? t('grading.exam.sectionAwaiting') : t('exam.notSat')}
+                    </p>
                   )}
                 </div>
               );
             })}
           </div>
 
+          {result.awaitingGrading.length > 0 && (
+            <div id="exam-grading-outstanding" className="space-y-3 rounded-[var(--radius-control)] border border-brand-200 bg-brand-50 p-4 text-left">
+              <p className="text-sm font-semibold text-brand-800">{t('grading.exam.outstandingTitle')}</p>
+              <p className="text-xs text-brand-700">{t('grading.exam.outstandingBody')}</p>
+              {ungraded.map((entry) => (
+                <GradingStatus
+                  key={`${entry.section}-${entry.item}`}
+                  id={`exam-result-grading-${entry.section}-${entry.item}`}
+                  label={t(`grading.exam.item.${entry.section}`, { n: entry.item })}
+                  grading={entry.grading}
+                  onRetry={() => void requestGrading(entry.section, entry.item)}
+                />
+              ))}
+            </div>
+          )}
+
           {current.attemptSaved ? (
             <p id="exam-attempt-saved" className="text-xs text-ink-500">
               {t('exam.attemptSaved')}
             </p>
-          ) : (
+          ) : bandsToCome ? null : (
             <div id="exam-attempt-not-saved" className="flex items-center justify-center gap-3 rounded-[var(--radius-control)] border border-warning-500/25 bg-warning-50 p-3 text-sm text-warning-700">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {t('exam.attemptNotSaved')}
@@ -558,6 +679,8 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
   const index = run.currentIndex;
   // Keyed by session and section, so a resumed sitting mounts with what the server stored.
   const sessionKey = `${current.sessionId}-${section.section}`;
+  // Writing still being graded when Speaking starts is shown above it, so the learner knows it was kept.
+  const earlierGrading = section.section === 'speaking' ? gradingItems(run).filter((entry) => entry.section === 'writing' && entry.grading.status !== 'graded') : [];
 
   return (
     <div className="space-y-6" id="exam-running" data-section={section.section} data-session-id={current.sessionId}>
@@ -613,6 +736,20 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
         </p>
       )}
 
+      {earlierGrading.length > 0 && (
+        <div id="exam-earlier-grading" className="space-y-2">
+          {earlierGrading.map((entry) => (
+            <GradingStatus
+              key={`${entry.section}-${entry.item}`}
+              id={`exam-earlier-grading-${entry.section}-${entry.item}`}
+              label={t(`grading.exam.item.${entry.section}`, { n: entry.item })}
+              grading={entry.grading}
+              onRetry={() => void requestGrading(entry.section, entry.item)}
+            />
+          ))}
+        </div>
+      )}
+
       {showFocusWarning && (
         <div className="flex flex-col justify-between gap-3 rounded-[var(--radius-card)] border border-danger-500/30 bg-danger-50 p-4 text-danger-700 sm:flex-row sm:items-center">
           <p className="flex items-start gap-2 text-sm">
@@ -657,14 +794,21 @@ export const ExamMode: React.FC<ExamModeProps> = ({ onCompleteExam, onExitExam }
             task1Data={paper.writing.task1}
             task2Data={paper.writing.task2}
             module={plan.module}
-            grade={gradeWriting}
+            submit={submitWriting}
             initialDrafts={sectionRun.drafts}
             gradedTasks={sectionRun.writing}
+            onRetryGrading={(task) => void requestGrading('writing', task)}
             onDraftChange={queueDraft}
           />
         )}
         {section.section === 'speaking' && (
-          <SpeakingSession examMode speakingData={paper.speaking} grade={gradeSpeaking} gradedParts={sectionRun.speaking} />
+          <SpeakingSession
+            examMode
+            speakingData={paper.speaking}
+            submit={submitSpeaking}
+            gradedParts={sectionRun.speaking}
+            onRetryGrading={(part) => void requestGrading('speaking', part)}
+          />
         )}
       </div>
 

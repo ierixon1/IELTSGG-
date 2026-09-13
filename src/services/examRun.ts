@@ -27,15 +27,23 @@ import {
  *   - Sections run in order: Listening → Reading → Writing → Speaking.
  *   - Each section's clock is the bundle's configured minutes for it. Nothing
  *     here knows what an IELTS section "usually" takes.
- *   - A section is complete when its configured content is done: every
- *     Listening or Reading part submitted; both Writing tasks graded; all three
- *     Speaking parts graded. One graded task is not a Writing section.
- *   - When time runs out, Listening and Reading are marked on the answers given
- *     so far (an unanswered question is wrong); a Writing or Speaking section
- *     with ungraded content ends `expired` and carries no band.
+ *   - A Writing task or Speaking part is *submitted* when the server accepts it
+ *     while its section is running, and it is stored then, with its grading
+ *     `pending`. Grading is a separate, later fact about submitted work: a run is
+ *     claimed, and its band or failure is recorded on the work the section already
+ *     accepted — including after the section closed. The clock can refuse a
+ *     submission; it can never take one back.
+ *   - A section's content is done when every Listening or Reading part is
+ *     submitted, both Writing tasks are submitted, or all three Speaking parts are.
+ *   - When a section closes, Listening and Reading are marked on the answers
+ *     given so far (an unanswered question is wrong). A Writing or Speaking
+ *     section is `completed` when every required band is in, `awaiting_grading`
+ *     when everything was submitted but a band is still out, and `expired` when
+ *     something was never submitted. An awaiting section completes the moment its
+ *     last band is recorded.
  *   - The overall band exists only when all four sections are complete. An
  *     incomplete sitting is reported as incomplete, not averaged over whatever
- *     happened to finish.
+ *     happened to finish, and no band is ever made up for work whose grading failed.
  */
 
 export interface PlanComponent {
@@ -142,7 +150,67 @@ export function buildExamPlan(sitting: ExamSitting): ExamPlan {
   };
 }
 
-export type SectionStatus = 'pending' | 'in_progress' | 'completed' | 'expired';
+export type SectionStatus = 'pending' | 'in_progress' | 'completed' | 'expired' | 'awaiting_grading';
+
+/**
+ * Where the grading of one submitted Writing task or Speaking part stands:
+ * `pending` until a run is claimed, `grading` while one is out, then `graded`
+ * with a band or `failed` without one.
+ */
+export type GradingStatus = 'pending' | 'grading' | 'graded' | 'failed';
+
+/**
+ * Why a grading run produced no band. `rejected`: the grader refused the work
+ * itself. `interrupted`: the run's lease ran out with no result recorded — the
+ * request running it is gone.
+ */
+export type GradingFailure = 'unavailable' | 'timeout' | 'quota' | 'invalid_response' | 'rejected' | 'interrupted';
+
+/** How many grading runs one submitted task or part may have, the first included. */
+export const MAX_GRADING_RUNS = 3;
+
+export interface GradingRecord {
+  status: GradingStatus;
+  /** Grading runs claimed for this work so far. */
+  runs: number;
+  /** When the current run was claimed (server time). */
+  startedAt?: number;
+  /** A run still `grading` at this server time has been interrupted. */
+  leaseUntil?: number;
+  finishedAt?: number;
+  failure?: GradingFailure;
+  /** The model that produced the band. Kept on the server. */
+  model?: string;
+}
+
+interface SubmittedWork {
+  /** When the server accepted the work. Absent on sessions stored before submission and grading were recorded apart. */
+  submittedAt?: number;
+  /** Absent on those older sessions, which stored work only once it was graded. */
+  grading?: GradingRecord;
+  /** Present once a grading run has returned a band, and only then. */
+  band?: number;
+}
+
+export interface WritingWork extends SubmittedWork {
+  essay: string;
+}
+
+/** A recorded Speaking answer, stored when it is submitted, so grading can read it later. */
+export interface SpeakingAudioRef {
+  path: string;
+  mimeType: string;
+  sha256: string;
+  durationSeconds?: number;
+}
+
+export interface SpeakingWork extends SubmittedWork {
+  /** What the learner typed, or the model's transcription once graded. Empty for a recording not yet graded. */
+  transcript: string;
+  /** The learner's own typed transcript, when they gave one. */
+  transcriptProvided?: string;
+  audio?: SpeakingAudioRef;
+}
 
 export interface SectionRun {
   status: SectionStatus;
@@ -153,10 +221,10 @@ export interface SectionRun {
   answers: Record<string, AnswerValue>;
   submittedAt?: number;
   objective?: { correct: number; total: number; band: number };
-  writing: Partial<Record<1 | 2, { band: number; essay: string }>>;
+  writing: Partial<Record<1 | 2, WritingWork>>;
   /** Writing: what the learner has typed so far, per task, so a reload does not lose it. */
   drafts: Partial<Record<1 | 2, string>>;
-  speaking: Partial<Record<1 | 2 | 3, { band: number; transcript: string }>>;
+  speaking: Partial<Record<1 | 2 | 3, SpeakingWork>>;
   /**
    * Listening: when each part's recording was started. IELTS recordings are heard
    * once only, so a part that has a start time is never played again — not after a
@@ -201,8 +269,16 @@ export type ExamEvent =
   | { type: 'submit_answers'; now: number }
   | { type: 'audio_started'; part: number; now: number }
   | { type: 'writing_draft'; task: 1 | 2; text: string }
-  | { type: 'writing_graded'; task: 1 | 2; band: number; essay: string }
-  | { type: 'speaking_graded'; part: 1 | 2 | 3; band: number; transcript: string }
+  /** The server accepted a Writing task. Its grading is pending. */
+  | { type: 'writing_submitted'; task: 1 | 2; essay: string; now: number }
+  /** A grading run is claimed for a pending, failed or interrupted task. */
+  | { type: 'writing_grading_started'; task: 1 | 2; now: number; leaseUntil: number }
+  | { type: 'writing_graded'; task: 1 | 2; run: number; band: number; model?: string; now: number }
+  | { type: 'writing_grading_failed'; task: 1 | 2; run: number; failure: GradingFailure; now: number }
+  | { type: 'speaking_submitted'; part: 1 | 2 | 3; transcriptProvided?: string; audio?: SpeakingAudioRef; now: number }
+  | { type: 'speaking_grading_started'; part: 1 | 2 | 3; now: number; leaseUntil: number }
+  | { type: 'speaking_graded'; part: 1 | 2 | 3; run: number; band: number; transcript: string; model?: string; now: number }
+  | { type: 'speaking_grading_failed'; part: 1 | 2 | 3; run: number; failure: GradingFailure; now: number }
   | { type: 'finish_section'; now: number }
   | { type: 'tick'; now: number };
 
@@ -230,9 +306,54 @@ export function currentSection<S extends SectionShape>(state: ProgressShape<S>):
 
 const isBand = (value: number) => Number.isFinite(value) && value >= 0 && value <= 9;
 
+/** Where a submitted task's or part's grading stands at `now`. */
+export interface GradingView {
+  status: GradingStatus;
+  runs: number;
+  failure?: GradingFailure;
+}
+
+export function gradingOf(work: { grading?: GradingRecord; band?: number }, now: number): GradingView {
+  const grading = work.grading;
+  // Work stored before grading was recorded apart from submission was stored with its band.
+  if (!grading) return typeof work.band === 'number' ? { status: 'graded', runs: 1 } : { status: 'failed', runs: MAX_GRADING_RUNS, failure: 'interrupted' };
+  if (grading.status === 'grading' && grading.leaseUntil !== undefined && now >= grading.leaseUntil) {
+    return { status: 'failed', runs: grading.runs, failure: 'interrupted' };
+  }
+  return { status: grading.status, runs: grading.runs, ...(grading.failure ? { failure: grading.failure } : {}) };
+}
+
+/** The band a grading run recorded on the work, if one has. */
+export function gradedBand(work: { grading?: GradingRecord; band?: number } | undefined): number | undefined {
+  if (!work || typeof work.band !== 'number') return undefined;
+  return !work.grading || work.grading.status === 'graded' ? work.band : undefined;
+}
+
+function submittedWork(progress: RunProgress): Array<WritingWork | SpeakingWork> {
+  const writing = Object.values(progress.sections.writing.writing);
+  const speaking = Object.values(progress.sections.speaking.speaking);
+  return [...writing, ...speaking].filter((work): work is WritingWork | SpeakingWork => work !== undefined);
+}
+
+/** Whether any submitted work has no grading outcome yet: pending, or a run still out. */
+export function gradingUnsettled(progress: RunProgress, now: number): boolean {
+  return submittedWork(progress).some((work) => {
+    const status = gradingOf(work, now).status;
+    return status === 'pending' || status === 'grading';
+  });
+}
+
+/** Whether any submitted work may still receive a band: unsettled, or failed with a run left. */
+export function gradingOutstanding(progress: RunProgress, now: number): boolean {
+  return submittedWork(progress).some((work) => {
+    const grading = gradingOf(work, now);
+    return grading.status === 'pending' || grading.status === 'grading' || (grading.status === 'failed' && grading.runs < MAX_GRADING_RUNS);
+  });
+}
+
 export type MissingItem = { kind: 'answers' } | { kind: 'writing_task'; task: 1 | 2 } | { kind: 'speaking_part'; part: 1 | 2 | 3 };
 
-/** Whether a section's configured content is done, and what is not. */
+/** Whether a section's configured content is submitted, and what is not. Grading is not content: the clock waits for no model. */
 export function sectionReadiness(state: ProgressShape, section: BundleSection): { ready: boolean; missing: MissingItem[] } {
   const plan = state.plan.sections.find((entry) => entry.section === section);
   const run = state.sections[section];
@@ -281,6 +402,15 @@ function startSection(state: ExamRunState, index: number, now: number): ExamRunS
   };
 }
 
+const writingBand = (run: SectionRun) => writingSectionBand(gradedBand(run.writing[1]), gradedBand(run.writing[2]));
+const speakingBand = (run: SectionRun) => speakingSectionBand([gradedBand(run.speaking[1]), gradedBand(run.speaking[2]), gradedBand(run.speaking[3])]);
+
+/** A closing Writing or Speaking section: complete with its band, waiting for a band, or missing work. */
+function closeGraded(run: SectionRun, submitted: boolean, band: number | null): SectionRun {
+  if (band !== null) return { ...run, band, status: 'completed' };
+  return { ...run, status: submitted ? 'awaiting_grading' : 'expired' };
+}
+
 function closeCurrent(state: ExamRunState, endedAt: number, by: 'learner' | 'time', nextStartsAt: number): ExamRunState {
   const plan = currentSection(state);
   if (!plan) return state;
@@ -293,11 +423,9 @@ function closeCurrent(state: ExamRunState, endedAt: number, by: 'learner' | 'tim
       objectiveSectionScore(plan.section, plan.questions.map((entry) => entry.question), run.answers, state.plan.module);
     closed = { ...closed, objective, submittedAt: run.submittedAt ?? endedAt, band: objective.band, status: 'completed' };
   } else if (plan.section === 'writing') {
-    const band = writingSectionBand(run.writing[1]?.band, run.writing[2]?.band);
-    closed = band === null ? { ...closed, status: 'expired' } : { ...closed, band, status: 'completed' };
+    closed = closeGraded(closed, plan.tasks.every((task) => run.writing[task]), writingBand(run));
   } else {
-    const band = speakingSectionBand([run.speaking[1]?.band, run.speaking[2]?.band, run.speaking[3]?.band]);
-    closed = band === null ? { ...closed, status: 'expired' } : { ...closed, band, status: 'completed' };
+    closed = closeGraded(closed, plan.parts.every((part) => run.speaking[part]), speakingBand(run));
   }
 
   // The next section starts when this one is closed, not at the old deadline: a tick that
@@ -309,6 +437,34 @@ function updateCurrent(state: ExamRunState, section: BundleSection, update: (run
   const plan = currentSection(state);
   if (!plan || plan.section !== section || state.sections[section].status !== 'in_progress') return state;
   return { ...state, sections: { ...state.sections, [section]: update(state.sections[section]) } };
+}
+
+/** Changes a section whatever its status: grading lands on work already accepted, including after the section closed. */
+function updateSection(state: ExamRunState, section: BundleSection, update: (run: SectionRun) => SectionRun): ExamRunState {
+  return { ...state, sections: { ...state.sections, [section]: update(state.sections[section]) } };
+}
+
+/** A section that closed while a band was still out completes once every required band is in. */
+function settle(state: ExamRunState, section: 'writing' | 'speaking'): ExamRunState {
+  const run = state.sections[section];
+  if (run.status !== 'awaiting_grading') return state;
+  const band = section === 'writing' ? writingBand(run) : speakingBand(run);
+  return band === null ? state : updateSection(state, section, (current) => ({ ...current, status: 'completed', band }));
+}
+
+const PENDING: GradingRecord = { status: 'pending', runs: 0 };
+
+/** Whether a grading result belongs to the run currently claimed on this work. A late result from an abandoned run does not. */
+const isCurrentRun = <W extends SubmittedWork>(work: W | undefined, run: number): work is W & { grading: GradingRecord } =>
+  Boolean(work?.grading && work.grading.status === 'grading' && work.grading.runs === run);
+
+/** The work with a new grading run claimed, or null when it may not be graded now: already graded, being graded, or out of runs. */
+export function claimGrading<W extends SubmittedWork>(work: W | undefined, now: number, leaseUntil: number): W | null {
+  if (!work) return null;
+  const current = gradingOf(work, now);
+  const claimable = current.status === 'pending' || (current.status === 'failed' && current.runs < MAX_GRADING_RUNS);
+  if (!claimable) return null;
+  return { ...work, grading: { status: 'grading', runs: current.runs + 1, startedAt: now, leaseUntil } };
 }
 
 export function examReducer(state: ExamRunState, event: ExamEvent): ExamRunState {
@@ -354,22 +510,71 @@ export function examReducer(state: ExamRunState, event: ExamEvent): ExamRunState
     case 'writing_draft': {
       const plan = currentSection(state);
       if (!plan || plan.section !== 'writing' || !plan.tasks.includes(event.task)) return state;
-      // A graded task is final: its draft no longer changes what is recorded.
+      // A submitted task is final: its draft no longer changes what is recorded.
       return updateCurrent(state, 'writing', (run) =>
         run.writing[event.task] ? run : { ...run, drafts: { ...run.drafts, [event.task]: event.text } },
       );
     }
 
-    case 'writing_graded': {
+    case 'writing_submitted': {
       const plan = currentSection(state);
-      if (!plan || plan.section !== 'writing' || !plan.tasks.includes(event.task) || !isBand(event.band)) return state;
-      return updateCurrent(state, 'writing', (run) => ({ ...run, writing: { ...run.writing, [event.task]: { band: event.band, essay: event.essay } } }));
+      if (!plan || plan.section !== 'writing' || !plan.tasks.includes(event.task)) return state;
+      return updateCurrent(state, 'writing', (run) =>
+        run.writing[event.task] ? run : { ...run, writing: { ...run.writing, [event.task]: { essay: event.essay, submittedAt: event.now, grading: PENDING } } },
+      );
+    }
+
+    case 'writing_grading_started': {
+      const next = claimGrading(state.sections.writing.writing[event.task], event.now, event.leaseUntil);
+      return next ? updateSection(state, 'writing', (run) => ({ ...run, writing: { ...run.writing, [event.task]: next } })) : state;
+    }
+
+    case 'writing_graded': {
+      const work = state.sections.writing.writing[event.task];
+      if (!isCurrentRun(work, event.run) || !isBand(event.band)) return state;
+      const grading: GradingRecord = { ...work.grading, status: 'graded', finishedAt: event.now, ...(event.model ? { model: event.model } : {}) };
+      return settle(updateSection(state, 'writing', (run) => ({ ...run, writing: { ...run.writing, [event.task]: { ...work, band: event.band, grading } } })), 'writing');
+    }
+
+    case 'writing_grading_failed': {
+      const work = state.sections.writing.writing[event.task];
+      if (!isCurrentRun(work, event.run)) return state;
+      const grading: GradingRecord = { ...work.grading, status: 'failed', finishedAt: event.now, failure: event.failure };
+      return updateSection(state, 'writing', (run) => ({ ...run, writing: { ...run.writing, [event.task]: { ...work, grading } } }));
+    }
+
+    case 'speaking_submitted': {
+      const plan = currentSection(state);
+      if (!plan || plan.section !== 'speaking' || !plan.parts.includes(event.part)) return state;
+      if (!event.transcriptProvided && !event.audio) return state;
+      const work: SpeakingWork = {
+        transcript: event.transcriptProvided ?? '',
+        ...(event.transcriptProvided ? { transcriptProvided: event.transcriptProvided } : {}),
+        ...(event.audio ? { audio: event.audio } : {}),
+        submittedAt: event.now,
+        grading: PENDING,
+      };
+      return updateCurrent(state, 'speaking', (run) => (run.speaking[event.part] ? run : { ...run, speaking: { ...run.speaking, [event.part]: work } }));
+    }
+
+    case 'speaking_grading_started': {
+      const next = claimGrading(state.sections.speaking.speaking[event.part], event.now, event.leaseUntil);
+      return next ? updateSection(state, 'speaking', (run) => ({ ...run, speaking: { ...run.speaking, [event.part]: next } })) : state;
     }
 
     case 'speaking_graded': {
-      const plan = currentSection(state);
-      if (!plan || plan.section !== 'speaking' || !plan.parts.includes(event.part) || !isBand(event.band)) return state;
-      return updateCurrent(state, 'speaking', (run) => ({ ...run, speaking: { ...run.speaking, [event.part]: { band: event.band, transcript: event.transcript } } }));
+      const work = state.sections.speaking.speaking[event.part];
+      if (!isCurrentRun(work, event.run) || !isBand(event.band)) return state;
+      const grading: GradingRecord = { ...work.grading, status: 'graded', finishedAt: event.now, ...(event.model ? { model: event.model } : {}) };
+      const graded: SpeakingWork = { ...work, band: event.band, transcript: event.transcript || work.transcript, grading };
+      return settle(updateSection(state, 'speaking', (run) => ({ ...run, speaking: { ...run.speaking, [event.part]: graded } })), 'speaking');
+    }
+
+    case 'speaking_grading_failed': {
+      const work = state.sections.speaking.speaking[event.part];
+      if (!isCurrentRun(work, event.run)) return state;
+      const grading: GradingRecord = { ...work.grading, status: 'failed', finishedAt: event.now, failure: event.failure };
+      return updateSection(state, 'speaking', (run) => ({ ...run, speaking: { ...run.speaking, [event.part]: { ...work, grading } } }));
     }
 
     case 'finish_section':
@@ -392,18 +597,22 @@ export interface ExamResult {
   overall?: number;
   bands: Partial<Record<BundleSection, number>>;
   incomplete: BundleSection[];
+  /** Sections whose work was all submitted and whose band is still out. */
+  awaitingGrading: BundleSection[];
 }
 
 export function examResult(state: RunShape): ExamResult {
   const bands: Partial<Record<BundleSection, number>> = {};
   const incomplete: BundleSection[] = [];
+  const awaitingGrading: BundleSection[] = [];
   for (const section of BUNDLE_SECTIONS) {
     const run = state.sections[section];
     if (run.status === 'completed' && typeof run.band === 'number') bands[section] = run.band;
     else incomplete.push(section);
+    if (run.status === 'awaiting_grading') awaitingGrading.push(section);
   }
   const complete = incomplete.length === 0;
-  return { complete, bands, incomplete, ...(complete ? { overall: calculateOverallBand(bands) } : {}) };
+  return { complete, bands, incomplete, awaitingGrading, ...(complete ? { overall: calculateOverallBand(bands) } : {}) };
 }
 
 /** An optional timestamp as an optional field: absent, never `undefined` — Firestore refuses `undefined` values. */
@@ -419,6 +628,7 @@ const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 /**
  * The attempt to store: every answer, essay and transcript against the bundle,
  * the exact material version and the question, task or part it belongs to.
+ * Submitted work is recorded whether or not it has a band yet.
  */
 export function toExamAttempt(state: ExamRunState): MockAttempt {
   const result = examResult(state);
@@ -454,15 +664,16 @@ export function toExamAttempt(state: ExamRunState): MockAttempt {
   const writingPlan = sectionPlan('writing');
   const writingTasks: AttemptWritingTask[] = writingPlan
     ? writingPlan.tasks.map((task) => {
-        const graded = state.sections.writing.writing[task];
+        const work = state.sections.writing.writing[task];
+        const band = gradedBand(work);
         const component = writingPlan.components[0];
         return {
           materialId: component.materialId,
           contentHash: component.contentHash,
           task,
-          ...(graded ? { band: graded.band } : {}),
-          essay: graded?.essay ?? '',
-          wordCount: graded ? words(graded.essay) : 0,
+          ...(band !== undefined ? { band } : {}),
+          essay: work?.essay ?? '',
+          wordCount: work ? words(work.essay) : 0,
         };
       })
     : [];
@@ -470,14 +681,15 @@ export function toExamAttempt(state: ExamRunState): MockAttempt {
   const speakingPlan = sectionPlan('speaking');
   const speakingParts: AttemptSpeakingPart[] = speakingPlan
     ? speakingPlan.parts.map((part) => {
-        const graded = state.sections.speaking.speaking[part];
+        const work = state.sections.speaking.speaking[part];
+        const band = gradedBand(work);
         const component = speakingPlan.components[0];
         return {
           materialId: component.materialId,
           contentHash: component.contentHash,
           part,
-          ...(graded ? { band: graded.band } : {}),
-          transcript: graded?.transcript ?? '',
+          ...(band !== undefined ? { band } : {}),
+          transcript: work?.transcript ?? '',
         };
       })
     : [];
@@ -486,6 +698,8 @@ export function toExamAttempt(state: ExamRunState): MockAttempt {
   const reading = state.sections.reading;
   const startedAt = state.startedAt ?? Date.now();
   const finishedAt = state.finishedAt ?? Date.now();
+  const task1Band = gradedBand(state.sections.writing.writing[1]);
+  const task2Band = gradedBand(state.sections.writing.writing[2]);
 
   return {
     id: state.attemptId,
@@ -514,8 +728,8 @@ export function toExamAttempt(state: ExamRunState): MockAttempt {
             // Both tasks carry a band whenever the section has one: `writingSectionBand` requires them.
             writing: {
               band: result.bands.writing,
-              ...(state.sections.writing.writing[1] ? { task1Band: state.sections.writing.writing[1].band } : {}),
-              ...(state.sections.writing.writing[2] ? { task2Band: state.sections.writing.writing[2].band } : {}),
+              ...(task1Band !== undefined ? { task1Band } : {}),
+              ...(task2Band !== undefined ? { task2Band } : {}),
             },
           }
         : {}),

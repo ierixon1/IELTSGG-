@@ -24,6 +24,8 @@ import confetti from 'canvas-confetti';
 import { useT } from '../i18n';
 import { Badge, Button, Card, LexisPanel, Progress, cx } from './ui';
 import { CdiHtmlViewer } from './common/CdiHtmlViewer';
+import { GradingStatus } from './exam/GradingStatus';
+import type { LearnerGradingView } from '../types/examSession';
 
 interface PracticeProps {
   examMode?: false;
@@ -43,17 +45,19 @@ export interface SpokenAnswer {
 }
 
 /**
- * Inside a full exam: each part is graded by the exam session against the
- * pinned part and recorded there, a submitted part is final, and no band is
- * shown until the exam is over.
+ * Inside a full exam: each part is submitted to the exam session, which stores
+ * it at once and grades it separately against the pinned part; a submitted part
+ * is final, and no band is shown until the exam is over.
  */
 interface ExamProps {
   examMode: true;
   speakingData: SpeakingData;
-  /** Grades and records one part. Rejects with a `GradingError` when no band could be given. */
-  grade: (part: 1 | 2 | 3, answer: SpokenAnswer) => Promise<void>;
-  /** Parts the session has already recorded. */
-  gradedParts: Partial<Record<1 | 2 | 3, { transcript: string }>>;
+  /** Submits one part. Rejects with a `GradingError` when the session does not accept it. */
+  submit: (part: 1 | 2 | 3, answer: SpokenAnswer) => Promise<void>;
+  /** Parts the session has accepted, with where each one's grading stands. */
+  gradedParts: Partial<Record<1 | 2 | 3, { transcript: string; grading: LearnerGradingView }>>;
+  /** Asks for a failed grading to run again. */
+  onRetryGrading: (part: 1 | 2 | 3) => void;
 }
 
 type SpeakingSessionProps = PracticeProps | ExamProps;
@@ -110,6 +114,10 @@ function describeGradingError(error: unknown, t: (key: string, vars?: Record<str
   if (error instanceof GradingError) {
     if (error.code === 'ai_not_configured') return t('grading.errors.ai_not_configured');
     if (error.code === 'ai_unavailable') return t('grading.errors.ai_unavailable');
+    if (error.code === 'quota_exceeded') return t('grading.errors.quota_exceeded');
+    if (error.code === 'grading_timeout') return t('grading.errors.grading_timeout');
+    if (error.code === 'already_submitted') return t('grading.errors.already_submitted');
+    if (error.code === 'section_closed') return t('grading.errors.section_closed');
     if (error.code === 'too_short') {
       return t('grading.errors.too_short_speaking', {
         seconds: Number(error.details?.minimumSeconds ?? 10),
@@ -408,8 +416,9 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = (props) => {
       };
 
       if (exam) {
-        // Recorded by the session; the band stays with it until the exam is over.
-        await exam.grade(activePart, answer);
+        // Stored by the session as soon as it is accepted; grading follows on its own,
+        // and the band stays with the session until the exam is over.
+        await exam.submit(activePart, answer);
         if (activePart < 3) goToPart((activePart + 1) as PartNumber);
         return;
       }
@@ -771,13 +780,15 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = (props) => {
                   </div>
                 )}
 
-                {partLocked && (
-                  <p
-                    id={`speaking-part-submitted-${activePart}`}
-                    className="rounded-[var(--radius-control)] border border-ink-200 bg-ink-50 p-3 text-sm font-semibold text-ink-700"
-                  >
-                    {t('exam.partSubmitted', { part: activePart })}
-                  </p>
+                {exam && exam.gradedParts[activePart] && (
+                  <div id={`speaking-part-submitted-${activePart}`}>
+                    <GradingStatus
+                      id={`speaking-grading-${activePart}`}
+                      label={t('grading.exam.item.speaking', { n: activePart })}
+                      grading={exam.gradedParts[activePart]!.grading}
+                      onRetry={() => exam.onRetryGrading(activePart)}
+                    />
+                  </div>
                 )}
 
                 <div className="flex flex-wrap justify-end gap-3">
@@ -789,12 +800,12 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = (props) => {
                     {isGrading ? (
                       <>
                         <Activity className="h-4 w-4 animate-spin" />
-                        {t('speaking.grading')}
+                        {exam ? t('grading.exam.submitting') : t('speaking.grading')}
                       </>
                     ) : (
                       <>
                         <Sparkles className="h-4 w-4" />
-                        {currentAttempt ? t('speaking.regrade') : t('speaking.grade')}
+                        {exam ? t('grading.exam.submitAnswer') : currentAttempt ? t('speaking.regrade') : t('speaking.grade')}
                       </>
                     )}
                   </Button>

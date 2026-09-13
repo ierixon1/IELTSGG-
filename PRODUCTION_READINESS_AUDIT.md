@@ -40,6 +40,19 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 >   See the H10 detail.
 > - **Status is still NOT READY.** H2, H6–H9 and H10 remain.
 
+> **Update after Phase 24.**
+> - **H6 is resolved.** A Writing task or Speaking part is stored the moment the server accepts it before the section deadline, with its grading `pending`. Grading is a separate, bounded request, and a band that arrives after the deadline completes the section instead of being refused. A slow, failing or interrupted grading run cannot lose the submission, grade it twice or invent a band. See the H6 resolution.
+> - **H7 is resolved.** Every grading-class call runs on the shared `callWithRetryPolicy`:
+>   - 45 s per attempt, 100 s in total;
+>   - at most three attempts, one per fallback model;
+>   - one allowance unit per grading;
+>   - rate limits and permanent refusals are not retried;
+>   - `429 quota_exceeded` at the limit.
+>   See the H7 resolution.
+> - **Split out.** M15: a Writing draft at the deadline is not a submission, and work below the grading floor cannot be submitted (product decision, open). L13: an abandoned mentor-chat attempt is not cancelled at the SDK (open).
+> - **Browser scenarios A–D were not run.** The in-app browser had no signed-in session, and after two attempts the user chose to skip them. Their server behaviour is tested over HTTP and at service level (see the H6 resolution and Browser verification).
+> - **Status is still NOT READY.** H2 and H8–H10 remain.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -62,7 +75,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23; 6 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 14 Medium, 12 Low.
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24; 4 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 15 Medium (M15 split from H6 in Phase 24), 13 Low (L13 split from H7 in Phase 24).
 
 ## Method and evidence legend
 
@@ -100,8 +113,8 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H3 | High | Source leakage | An imported page's untouched original (with its printed answer key) is served to any signed-in learner by `/api/assets/:id` once the material is published. | reproduced; **resolved in Phase 22** (one asset policy; originals and private files refused to learners like unknown ids) | Probe 1 S4; `tests/assetAccess.test.ts` | Boundary broken; exploit needs the asset id, which no learner payload exposes (S10). | Exclude `assetIds` entries that name the source original from the learner allowlist, or strip `assetIds` in `toLearnerMaterial`. |
 | H4 | High | Publication integrity | Saving a published material keeps it published without re-running the publish gate. | reproduced; **resolved in Phase 21** (a changed published material is withdrawn to draft in the same write) | Probe 1 D1; `tests/publishedMaterialProtection.test.ts` | Learners are served content the gate would refuse: no questions, missing classification, stale confirmations of generated questions, missing assets. | Re-run the gate on save of a published material (refuse, or move to draft); or require unpublish before edit, as bundles do. |
 | H5 | High | Firestore divergence | `adminStore.saveMaterial` writes with `set(..., { merge: true })`; nested fields the editor removed survive in Firestore. | reproduced (fake); **resolved in Phase 23** (materials and sources replace the stored document; the profile replaces its map inside a merged user document; proven on the in-memory Firestore, real Firestore unverified — H10) | Probe 3 F1/F2; `tests/firestoreStaleFields.test.ts`, `tests/storageParity.test.ts` | Learners keep seeing removed `htmlContent`, audio ids and similar; local and production behave differently; stored hash ≠ saved item hash. | Write the finalised material without merge (the local store replaces the row); same review for `sourceStore.save`. |
-| H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced | Probe 2 A; `examSession.ts:299-319`, `examRun.ts:299-305` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
-| H7 | High | AI reliability | Grading, rewrite, transcribe and mentor calls have no timeout; each fallback model consumes a quota unit; at the limit the learner gets 500 instead of a quota message. | reproduced | Probe 2 B1/B2/C | One outage burns ~3 units per grading (default 4/hour); a hung call holds the request indefinitely; exams can become impossible to finish. | Add per-attempt and total timeouts; charge quota once per grading; map quota refusal to 429 with a clear code. |
+| H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced; **resolved in Phase 24** (accepted and stored at submission, graded separately; a band after the deadline completes the section; drafts at the deadline split out as M15) | Probe 2 A; `tests/examGrading.test.ts`, `tests/examRun.test.ts` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
+| H7 | High | AI reliability | Grading, rewrite, transcribe and mentor calls have no timeout; each fallback model consumes a quota unit; at the limit the learner gets 500 instead of a quota message. | reproduced; **resolved in Phase 24** (one bounded policy on `callWithRetryPolicy`; one allowance unit per grading; 429 at the limit; residual L13) | Probe 2 B1/B2/C; `tests/gradingPolicy.test.ts` | One outage burns ~3 units per grading (default 4/hour); a hung call holds the request indefinitely; exams can become impossible to finish. | Add per-attempt and total timeouts; charge quota once per grading; map quota refusal to 429 with a clear code. |
 | H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); unverified (Safari/iOS device) | Probe 1 S4b; `ListeningSession.tsx:86-92` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
 | H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`) | `package.json`; `adminRoutes.ts:2,6`; `sourceRoutes.ts:2` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
 | H10 | High | Firestore verification | No real Firestore project has been run. | **`UNVERIFIED — real Firestore unavailable`**. Phase 23 found no credentials, project or emulator on this machine. The adapter parity, race and outage tests pass against the in-memory Firestore. | Firestore audit below; H10 detail; `tests/storageParity.test.ts`, `tests/firestoreTransactions.test.ts` | Production requires Firestore. Real contention and locking, composite indexes, batch limits and cost are unknown. The Firestore-only defects the parity and race tests found are fixed (H10 detail). | Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project (never one holding production data), clean up, and define composite indexes. |
@@ -120,6 +133,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | M12 | Medium | Migration / deploy artefacts | No local→Firestore migration script; no Firestore index or rules files; no deployment descriptor. | confirmed | repo listing | Existing local content cannot be moved to production; deployment is undocumented. | Write the migration and deployment runbook before production. |
 | M13 | Medium | Auth performance | `bcrypt.hashSync`/`compareSync` (cost 12) run on the request thread. | confirmed | `authService.ts:44,74,75` | Each login or register blocks the event loop for all learners for hundreds of milliseconds. | Use the async bcrypt API. |
 | M14 | Medium | Test quality | `security.test.ts` (15 tests) only asserts source text; no test mounts `server.ts`; its inline routes, rate limiting and crash behaviour are untested. | confirmed | Test audit below | Green tests did not catch H1, H2 or H7. | Add behavioural tests on the real app wiring for the confirmed findings when fixing them. |
+| M15 | Medium | Exam policy | Split from H6 (Phase 24): a Writing draft left unsubmitted at the deadline is not submitted for the learner, and work below the grading floor (40 words; 15 typed words or 10 s of speech) cannot be submitted, so the section expires. | confirmed | `tests/examGrading.test.ts`; `gradingInput.ts` | A learner who types until the last second without pressing submit gets no Writing band and no overall. | Product decision: submit drafts at the deadline (graded, or recorded without a band), or keep the rule and state it on the exam screen. |
 | L1 | Low | Assets | Download filename sanitiser `/[^w. -]/g` is missing its backslash, so names become underscores. | reproduced | Probe 1 S4 (`filename="____-____.____"`) | Cosmetic. | Fix the pattern to `\w`. |
 | L2 | Low | Admin upload | PDF text extraction on `/api/admin/upload` calls the pdf-parse v2 class without `new`, so it always fails. | reproduced | Direct call: "Class constructor PDFParse cannot be invoked without 'new'" | PDF uploads never pre-fill text (the Source Library path uses `new PDFParse` correctly). | Use the same call as `sourceIngest/extract.ts`. |
 | L3 | Low | Error handling | Malformed JSON returns Express's HTML error page (stack trace in development); unknown `GET /api/*` returns `index.html` in production. | reproduced (dev); confirmed (prod) | Probe 1 S15; `server.ts:177` | Non-JSON errors confuse clients. | JSON error handler; 404 for unknown `/api`. |
@@ -132,6 +146,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | L10 | Low | AI output validation | Only `band_overall` is range-checked; criterion bands and non-half-band values are accepted. | confirmed | `grading.ts:139,204,273` | Odd bands shown in practice; exam rounding absorbs them. | Validate criterion bands. |
 | L11 | Low | Input size | `express.json({ limit: '16mb' })` applies to every route, including anonymous `/api/auth/*`, before rate limiting. | confirmed | `server.ts:30` | Parse-cost denial-of-service surface. | Route-specific limits. |
 | L12 | Low | Local runtime | Local stores read and rewrite whole JSON files synchronously per request; the rate-limit file grows without pruning. | confirmed | `requestRateLimitService.ts:25`; `authService.ts:40-43` | Local mode only. | None unless local mode is used beyond development. |
+| L13 | Low | AI reliability | Split from H7 (Phase 24): the mentor chat's SDK call (`chats.create(...).sendMessage`) is not given the abort signal, so an attempt abandoned at its timeout stops being waited for but keeps running. | confirmed | `server.ts` `/api/preppy/chat` | A hung chat request can hold an upstream connection past its budget; the learner still gets an answer or a 503 on time. | Pass the attempt's signal through the chat config. |
 
 ## Detailed findings
 
@@ -624,6 +639,60 @@ Rate limiting alone does not fix it.
 
 **Recommendation.** Stamp acceptance at submission and grade afterwards, and decide the policy for drafts at the deadline. Until then, list this as a known limitation.
 
+**Resolution (Phase 24)** — resolved; drafts at the deadline split out as M15.
+
+- **Deadline policy.** The deadline applies to submission, on the server's clock. Grading is not part of the deadline.
+  - `POST …/writing/:task` and `POST …/speaking/:part` check the work against the grading floor and that the section is running. They then store the essay, the typed transcript, or a reference to the recording, with grading `pending`. The recording itself is stored first, under `exam_audio/<session>/part-<n>-<sha16>`. No model is called, and the response is immediate.
+  - The same answer submitted again returns what is stored. A different answer is refused with `409 already_submitted`.
+  - Work arriving at or after the deadline is refused with `409 section_closed`, and nothing is stored. The body cannot name a time or a band (strict schema, 400).
+  - `POST …/grade` claims a grading run by compare-and-set and grades it under the H7 policy. It records the band or the failure on the stored work, whatever the section clock has done since.
+- **State model.** `pending → grading → graded | failed`.
+  - A run holds a lease: the policy's total timeout plus 60 s. A run still `grading` after its lease counts as `failed` (`interrupted`) and may be claimed again.
+  - At most three runs per submission; the fourth request is refused with `grading_retry_limit`.
+  - A result from a run that is no longer the current one is ignored.
+- **Section completion and result.**
+  - At the deadline, a Writing or Speaking section is `completed` (every band in), `awaiting_grading` (everything submitted, a band still out) or `expired` (something never submitted).
+  - An `awaiting_grading` section completes when its last band is recorded.
+  - There is no overall band until every section is complete, and no band is recorded for failed grading.
+- **Attempt.**
+  - Stored once the sitting has finished and every submission has a grading outcome, with its essays and transcripts whether or not they have a band.
+  - Stored again under the same id when a later band changes it.
+  - A sitting that can still receive a band stays in the learner's list.
+- **Learner view and screen.**
+  - Each submission shows `pending`, `grading`, `graded` or `failed`, with a reason (`unavailable`, `timeout`, `quota`, `failed`) and whether a retry is possible — never a band or the model.
+  - The exam screen asks for grading straight after a submit, and again after a reload for anything still pending. It polls every 4 s while a run is out and offers Retry.
+  - The result screen lists the answers still being graded.
+- **Tests.**
+  - `tests/examGrading.test.ts` injects the clock and the grader, uses an in-memory store with compare-and-set, and includes an HTTP block over the real router. It covers:
+    - Writing submitted 1 s before the deadline and graded 2 min after it;
+    - a submission at the deadline refused on the server clock;
+    - a Speaking recording stored at submission and graded from storage after the deadline;
+    - a recording that cannot be read back;
+    - identical and different resubmission;
+    - a reload while a run is out;
+    - two grade requests that read the same state, of which exactly one runs;
+    - one allowance unit across submit, reload and re-grade, with the real grader and a test provider;
+    - an interrupted lease with a late result from the dead run;
+    - three failed runs, then `grading_retry_limit`;
+    - the quota failure reason;
+    - an attempt stored on failure and stored again when a later band arrives;
+    - request bodies naming a time or a band refused.
+  - `tests/examRun.test.ts` covers the state machine.
+  - `examSession`, `examOracle` and `firestoreExam` were updated to submit, then grade.
+- **Mutations: 20/20 caught (H6 and H7 together).**
+  - **Deadline and submissions:** accept a submission after the deadline; lose the submission when grading fails; a Speaking recording not stored at submission.
+  - **Timeouts, retries and quota:** remove the timeouts; retry a rate limit; retry a permanent refusal; charge the allowance per attempt; attempts beyond the fallback models; no abort signal to the provider request; `executeGeminiWithRetry` retrying a rate limit.
+  - **Grading runs:** duplicate grading jobs; accept a stale run's result; a lease that never expires; no limit on runs.
+  - **Bands:** fabricate a band from an unusable fallback answer; record a band when grading fails; disclose the band with the grading status.
+  - **Result and attempt:** store the attempt before grading settles; never store it again; an awaiting section that never completes.
+- **Checks.** `tsc --noEmit` clean; full suite 685/685. The grading and deadline suites (87 tests) passed 5 consecutive runs.
+- **Browser: not run.** See Browser verification.
+- **Residual.**
+  - M15: drafts at the deadline are not submitted, and work below the grading floor cannot be submitted, as before.
+  - A run lives inside the request that asked for it. If that request dies (for example, the instance stops), the run becomes `interrupted` when its lease passes and needs another grade request, which the screen sends on the learner's next visit. A learner who never returns leaves pending work and no stored attempt.
+  - A fallback model may produce the band. The model is stored with the run on the server, not on the attempt (M7).
+  - Stored exam recordings are never deleted.
+
 ### H7 — AI calls: no timeout, triple quota use, wrong error at the limit — High, reproduced
 
 **Code path.**
@@ -645,6 +714,33 @@ Rate limiting alone does not fix it.
 **Contrast.** Book → Test already has explicit timeouts (60 s per attempt, 100 s total) and idempotency (`bookToTest/reliability.ts`, `generationLog.ts`).
 
 **Recommendation.** Timeouts on every grading/chat/rewrite/transcribe call; one quota charge per logical grading; a 429 `quota_exceeded` response with a clear message.
+
+**Resolution (Phase 24)** — resolved; residual L13.
+
+- **One policy, one retry implementation.** `runGradingCall` (`grading.ts`) runs every Writing and Speaking grading, paragraph rewrite and handwriting transcription on `callWithRetryPolicy`.
+  - At most 3 attempts; 45 s per attempt, 100 s in total; backoff 1 s, doubling up to 4 s.
+  - Only `unavailable` and `timeout` are retried.
+  - The fallback models are the attempts (3.8 → 3.7 → 3.6 Flash), so no configuration makes more than three calls. `GRADING_*` environment overrides are clamped.
+  - The abort signal reaches the provider request.
+- **Quota.** One allowance unit, checked before the first attempt — never per attempt or per model. The learner's own allowance and a provider 429 both answer `429 quota_exceeded`, and neither is retried.
+- **Errors.**
+  - `503 ai_unavailable`, `504 grading_timeout`.
+  - `502 invalid_model_response`: no band is made from an unusable answer.
+  - `500 grading_failed` for permanent refusals, which are not retried.
+  - An exam records each of these as the run's failure.
+- **Other calls.** `executeGeminiWithRetry` (mentor chat, mock generation) is bounded at 45 s per attempt and 100 s in total, and no longer retries a rate limit. The chat route answers 429 and 503; rewrite and transcribe answer 429 for quota.
+- **Provider seam.** Only the provider request can be replaced: `setGradingProvider` in tests, and `GRADING_FIXTURE_RESPONSE` for manual runs. The fixture uses the Book → Test script format and is refused in production.
+- **Tests.** `tests/gradingPolicy.test.ts`:
+  - **Timeouts:** a model that never answers, with and without honouring the abort; per-attempt and total timeouts; a timeout then the next model; Speaking bounded the same way; the production policy and its clamping.
+  - **Retries:** 503 bounded to three calls for one unit; 503 then success; `maxAttempts: 10` still three calls; 429 and 400/401/403 not retried.
+  - **Quota and bad answers:** the learner's allowance used up (no model call); input too short (no charge); unusable fallback answers answered 502.
+  - **Rewrite and transcribe:** 429 and exhaustion.
+  - **`executeGeminiWithRetry`:** 429 not retried.
+  - **Fixture script:** 503 then an answer; refused in production.
+  - Mutations: see the H6 resolution.
+- **Residual.**
+  - L13: the mentor chat's SDK call is not given the abort signal. An abandoned attempt is no longer waited for, but it is not cancelled.
+  - Real Gemini latency under the new timeouts is unmeasured.
 
 ### H8 — Listening audio on Safari/iOS — High
 
@@ -906,15 +1002,15 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 | Area | Current behaviour | Evidence | Status |
 |---|---|---|---|
 | Section progression | L → R → W → S in order; server clock; early finish only when configured and content complete | `examRun.test.ts`, `examSession.test.ts`, Phase 14 browser E2E | holds |
-| Completion conditions | L/R need submission; W needs both tasks graded; S needs 3 parts graded | `examRun.test.ts` (mutations killed in Phase 15) | holds |
+| Completion conditions | L/R need submission; W needs both tasks submitted and S all 3 parts. A section with everything submitted and a band still out is `awaiting_grading` and completes when the band arrives (Phase 24) | `examRun.test.ts`, `examGrading.test.ts` | holds |
 | Timers | Deadlines from bundle minutes; ticks close sections on the server clock; client displays `serverNow` | `examSession.test.ts` "time is the server's" | holds |
 | Listening once-only | Server records one start per part, kept across reload | `examSession.test.ts`, Phase 15 browser | holds, but **H8** (start recorded before playback succeeds) |
 | Reading parts | 3 passages, 40 questions enforced at publish | `bundleGate.test.ts` | holds |
-| Writing Task 1/2 | Graded per task against pinned prompts with the bundle module | `examSession.test.ts`, `writingModule.test.ts` | holds, but **H6/H7** |
+| Writing Task 1/2 | Graded per task against pinned prompts with the bundle module | `examSession.test.ts`, `writingModule.test.ts`, `examGrading.test.ts` | holds (H6/H7 resolved in Phase 24) |
 | Speaking Parts 1–3 | Graded per part; section band is the average of 3 parts (non-official, documented) | `examRun.test.ts` | holds (known deviation) |
 | Academic vs GT | Module-specific Reading conversion and Writing Task 1 grading; labels (Phase 16) | `examIntegrity`, `examRun`, `practiceKeys`, `moduleLabels` | holds |
 | Score conversion / overall | Published tables; half-band rounding; Task 2 double weight; band 0 counted | `examIntegrity.test.ts` (mutation-checked) | holds |
-| Failed AI grading | No band recorded, learner can retry; **but** quota and timeout behaviour (H7) and deadline (H6) | `examSession.test.ts`, Probe 2 | partial |
+| Failed AI grading | Submission kept, no band recorded, reason shown; up to 3 grading runs, each bounded in time and charged one allowance unit (Phase 24) | `examGrading.test.ts`, `gradingPolicy.test.ts` | holds |
 | Incomplete exam | No overall; attempt stored as incomplete and verified | `examSession.test.ts` | holds |
 | Material changed during exam | Sitting stops with `component_changed`; resumes if content reverted | `examSession.test.ts` | holds (M9 operational) |
 | Superseded bundles | Republish supersedes open sittings; fresh session on reopen | `examSession.test.ts` | holds |
@@ -925,13 +1021,13 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 
 | Topic | Current state | Status |
 |---|---|---|
-| Retry policy | Grading, chat and rewrite retry unavailable/timeout/quota up to 3 attempts per model with backoff; permanent errors are not retried; the SDK's own retries are off (no `retryOptions`). | confirmed; reproduced (B1: 9 calls) |
-| Timeouts | **None** for grading, rewrite, transcribe or chat (H7). Book → Test: 60 s per attempt, 100 s total. | reproduced (C) |
-| Quota | Per-user hourly/daily per operation; **charged per fallback model** (H7). Admin generation (not under `authenticateRequest`) has no per-user quota. | reproduced (B1/B2) / confirmed |
-| Idempotency / duplicates | Book → Test: persisted request ledger with lease, replay and conflict handling. Exam grading: a second concurrent grading of the same task calls the model twice and the loser gets `already_graded` (quota wasted). Practice grading has no idempotency. | confirmed |
+| Retry policy | Since Phase 24, grading, rewrite and transcribe make at most 3 attempts, one per fallback model, retrying only `unavailable` and `timeout`. Mentor chat (`executeGeminiWithRetry`) retries the same classes. Rate limits and permanent errors are never retried; the SDK's own retries are off (no `retryOptions`). Before Phase 24, one grading made 9 calls (B1). | tested (`gradingPolicy`) |
+| Timeouts | 45 s per attempt, 100 s total for grading, rewrite, transcribe and chat since Phase 24 (H7 resolved). Book → Test: 60 s per attempt, 100 s total. | tested (`gradingPolicy`) |
+| Quota | Per-user hourly/daily per operation; one unit per grading since Phase 24 (was one per fallback model, H7). Admin generation (not under `authenticateRequest`) has no per-user quota. | tested / confirmed |
+| Idempotency / duplicates | Book → Test: persisted request ledger with lease, replay and conflict handling. Exam grading (Phase 24): a submission is stored once; a grading run is claimed by compare-and-set under a lease, so a concurrent request gets `grading_in_progress` and starts nothing; a stale run's result is ignored. Practice grading has no idempotency. | tested (`examGrading`) |
 | Malformed output | `JSON.parse` failure → 500 `grading_failed`; missing or out-of-range `band_overall` → 502; criterion bands not validated (L10). Book → Test validates every question against schema, grounding and quality. | confirmed + tests |
 | Provenance / grounding | Book → Test records source chunks, prompt version, generator version, model, attempts and per-question evidence; unverified questions cannot be published (the H4 path — editing a question after publication — closed in Phase 21: the edit withdraws the material, and republishing re-runs the gate, including stale confirmations). | tests (generationBoundary, bookToTest) |
-| Writing/Speaking failure handling | No invented bands; 503/500 surfaced; exam records nothing. | tests |
+| Writing/Speaking failure handling | No invented bands; 429/502/503/504/500 surfaced with a code. In an exam, since Phase 24, the submission is kept and the failure is recorded with a reason. | tests |
 | Fallback model behaviour | 3.8 → 3.7 → 3.6 flash on unavailability only; model names hard-coded. | confirmed |
 | Model/prompt version recording | Book → Test: yes. Grading: model logged in the AI usage log only; attempts store bands without model or prompt version. | confirmed (M7) |
 | Not equivalent to official IELTS | AI examiner instead of certified examiners; Speaking graded per part and averaged instead of holistic; typed-transcript Speaking assesses pronunciation without audio; practice bands on partial sections are scaled estimates; GT/Academic prompts differ only in instruction text; AI bands vary between calls (temperature 0.25) and are not calibrated against examiner scripts. | documented (IELTS_CORRECTNESS_AUDIT.md) |
@@ -957,7 +1053,7 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 
 | Topic | Finding | Status |
 |---|---|---|
-| Long-running requests | Source ingestion awaited in-request (60 MB limit); grading without timeout (H7); Book → Test bounded at 100 s. | confirmed |
+| Long-running requests | Source ingestion awaited in-request (60 MB limit); grading bounded at 45 s per attempt and 100 s total since Phase 24 (was unbounded, H7); Book → Test bounded at 100 s. | confirmed / tested |
 | Synchronous JSON persistence | Local stores use synchronous whole-file reads and writes, including users and sessions per request (L12). Local mode only. | confirmed |
 | Concurrent writes | Exam CAS correct; local stores atomic within one process (tmp + rename, no await between read and write); Firestore admin writes not transactional. | confirmed / tested |
 | Server restart | Exam state, ledger, quotas and rate limits persisted; in-memory locks only coordinate one process (fine for Firestore, which uses transactions). | confirmed |
@@ -1049,7 +1145,7 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
   - middleware order, the global limiter, unhandled-error behaviour (H1) — the H1 part is now covered: `tests/serverStability.test.ts` runs the real `server.ts` in a child process (Phase 20);
   - `server.ts` inline routes (`/api/grade/*`, `/api/writing/improve`, `/api/writing/transcribe`, `/api/preppy/chat`, `/api/mocks/*`).
 - **Mocks that bypass important code.**
-  - Exam tests inject fake graders, so AI timeout, quota and fallback interaction with the exam is untested (H6/H7).
+  - Exam tests inject fake graders. Since Phase 24, `gradingPolicy.test.ts` runs the real grading policy against a replaced provider request, and `examGrading.test.ts` runs the exam session with the real grader for the allowance check.
   - Firestore tests use `FakeFirestore`, which serialises transactions and lacks `orderBy`, collection reads in transactions, and query reads in transactions.
 - **Firestore paths never executed:** auth, rate limits, AI quota, sources, Book → Test ledger, tasks/checklist/vocab, generated mocks.
 - **Tests that can pass with empty data:** none found in the core exam and scoring suites (fixtures are full-size since Phase 15, and totals are asserted). The static security tests are the exception.
@@ -1068,6 +1164,11 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
     - a learner is no longer served removed markup, explanations or a replaced recording;
     - `/api/data` stops returning a cleared profile field;
     - a storage outage answers 503.
+- **Phase 24: scenarios A–D not run.**
+  - **Prepared.** The real dev server with only the grading provider request replaced. `GRADING_FIXTURE_RESPONSE` scripts covered slow grading near the deadline, 503 then success, always 503, and a slow run to reload during. The E2E fixture materials were seeded.
+  - **Why not run.** The in-app browser had no signed-in session: its network log showed no sign-in request, only `/api/auth/me` 401 and `/api/admin/me` 403. After two sign-in attempts the user chose to skip. The agent entered no credentials and used no development authentication bypass.
+  - **Not verified in a browser.** The grading status, Retry and outstanding-result screens; polling; resuming after a reload; network traces. Their server side is tested over HTTP and at service level (`examGrading.test.ts`).
+  - **Cleanup.** The server was stopped, `data/` restored from its backup, and the temporary launch configuration removed.
 
 ## Confirmed blockers
 
@@ -1080,8 +1181,8 @@ These Critical/High issues genuinely block production.
 4. ~~**H3** — private imported originals downloadable by learners.~~ Resolved in Phase 22.
 5. ~~**H4** — published content edited without the gate.~~ Resolved in Phase 21.
 6. ~~**H5** — Firestore merge keeps removed fields (production path).~~ Resolved in Phase 23 (proven on the in-memory Firestore).
-7. **H6** — exam Writing/Speaking lost at the deadline.
-8. **H7** — AI timeout, quota and error-mapping defects.
+7. ~~**H6** — exam Writing/Speaking lost at the deadline.~~ Resolved in Phase 24 (drafts at the deadline split out as M15).
+8. ~~**H7** — AI timeout, quota and error-mapping defects.~~ Resolved in Phase 24.
 9. **H8** — Listening audio range support and once-only start on playback failure (device impact to verify).
 10. **H9** — runtime dependencies misdeclared (blocker for any install that prunes devDependencies).
 11. **H10** — Firestore production path `UNVERIFIED — real Firestore unavailable`. Adapter parity, race and outage tests pass on the in-memory Firestore (Phase 23).
@@ -1101,6 +1202,8 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
   - A reload mid-recording cannot resume it.
   - Part navigation is free.
 - **Missing Writing task.** A missing task leaves Writing without a band and the attempt without an overall. Officially Writing is still scored; this is unresolved.
+- **Writing and Speaking at the deadline (Phase 24, M15).** Work counts when it is submitted before the deadline. A draft that was never submitted is not submitted for the learner. Work below the grading floor (40 words; 15 typed words or 10 s of speech) cannot be submitted.
+- **Grading after the exam (Phase 24).** Bands can arrive after the sitting ends; the overall band and the stored attempt wait for them. A failed grading may be retried up to three runs in total; after that the answer stays without a band.
 - **Module rule.** Listening and Speaking components must match the bundle module, which is stricter than official.
 - **Question types.** Flow-chart completion is stored as a diagram label (interaction equivalent); Listening map labelling is a typed gap; `acceptableAnswers` is not consulted.
 - **Book → Test passages** are verbatim source text by design (see licensing).
@@ -1135,7 +1238,7 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - **H2** — `trust proxy`, per-user limits sized for exam autosaves.
 - ~~**H3**~~ — done in Phase 22 (one asset policy for every file read; learners get only rendered media of published materials).
 - ~~**H4**~~ — done in Phase 21 (a changed published material is withdrawn to draft; revisioned saves; publish re-checks the row it gated).
-- **H6 + H7** — timeouts, single quota charge per grading, 429 for quota, submission-time acceptance for Writing/Speaking (or document the limitation explicitly).
+- ~~**H6 + H7**~~ — done in Phase 24: submission-time acceptance, bounded grading, one allowance unit per grading, 429 for quota. Still to do: decide M15 (drafts at the deadline), and run browser scenarios A–D with a signed-in session.
 - **H8** — Range support and start-on-playing, then a Safari/iOS check.
 - **H9, M1, M3** — dependency declarations, `PORT`, admin bootstrap for the target deployment.
 - **M2** — security headers.

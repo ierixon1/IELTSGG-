@@ -85,8 +85,14 @@ const speakingGrade = async (): Promise<GradeOutcome<SpeakingGradingResult>> => 
   },
 });
 
+/** Long enough to pass the checks a submission meets before it is stored. */
+const ESSAY =
+  'long enough to be read and graded, because a submission shorter than the grading floor is refused before it is stored, and this sentence keeps going so that it clears that floor with a comfortable margin to spare for the test.';
+const SPOKEN = 'a spoken answer long enough to be graded, with some detail about where it happened and why it mattered.';
+
 const service = createExamSessionService({
   store: dataStore,
+  audio: storageProvider,
   resolveSitting: openSitting,
   verifyAttempt: verifyExamAttempt,
   gradeWriting: writingGrade,
@@ -268,13 +274,19 @@ describe('the Firestore path: a full exam sitting', () => {
       { type: 'finish_section' },
     ]);
     for (const task of [1, 2]) {
-      const response = await call(`/api/learner/exams/${sessionId}/writing/${task}`, post({ essay: `Essay for task ${task}, long enough to be read.` }));
-      expect(response.status).toBe(200);
+      const submitted = await call(`/api/learner/exams/${sessionId}/writing/${task}`, post({ essay: `Essay for task ${task}, ${ESSAY}` }));
+      expect(submitted.status).toBe(200);
+      // The pending grading record is a document Firestore accepts.
+      expect(JSON.parse(String(fake.documents.get(`users/${LEARNER}/examSessions/${sessionId}`)?.progress)).sections.writing.writing[task].grading).toEqual({ status: 'pending', runs: 0 });
+      const graded = await call(`/api/learner/exams/${sessionId}/writing/${task}/grade`, post({}));
+      expect(graded.status).toBe(200);
     }
     await run([{ type: 'finish_section' }]);
     for (const part of [1, 2, 3]) {
-      const response = await call(`/api/learner/exams/${sessionId}/speaking/${part}`, post({ transcriptProvided: `Spoken answer for part ${part}.` }));
-      expect(response.status).toBe(200);
+      const submitted = await call(`/api/learner/exams/${sessionId}/speaking/${part}`, post({ transcriptProvided: `Part ${part}: ${SPOKEN}` }));
+      expect(submitted.status).toBe(200);
+      const graded = await call(`/api/learner/exams/${sessionId}/speaking/${part}/grade`, post({}));
+      expect(graded.status).toBe(200);
     }
     clock += 30_000;
     const finished = await run([{ type: 'finish_section' }]);

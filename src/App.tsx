@@ -339,9 +339,11 @@ export default function App() {
   };
 
   const handleCompleteFullExam = (attempt: MockAttempt) => {
-    const nextAttempts = [...attempts, attempt];
+    // A sitting whose last band arrived later is reported again under the same id: replaced, not counted twice.
+    const known = attempts.some((existing) => existing.id === attempt.id);
+    const nextAttempts = known ? attempts.map((existing) => (existing.id === attempt.id ? attempt : existing)) : [...attempts, attempt];
     setAttempts(nextAttempts);
-    const nextChecklist = { ...checklist, mocksDone: (checklist.mocksDone || 0) + 1 };
+    const nextChecklist = known ? checklist : { ...checklist, mocksDone: (checklist.mocksDone || 0) + 1 };
     setChecklist(nextChecklist);
     applyRecalculation(recalculatePlan(tasks, nextAttempts, profile), {
       attempts: nextAttempts,

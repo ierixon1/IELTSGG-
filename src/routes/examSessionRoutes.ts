@@ -9,8 +9,8 @@ import { guardAsyncHandlers } from '../http/asyncHandlers';
  *
  * Mounted behind `authenticateRequest`. Nothing here returns an answer key:
  * the paper carries questions without keys, Listening and Reading are marked on
- * the server when answers are submitted, and Writing and Speaking are graded on
- * the server against the pinned prompts.
+ * the server when answers are submitted, and Writing and Speaking are stored when
+ * submitted and graded on the server against the pinned prompts.
  */
 
 const answerValue = z.union([z.string().max(2000), z.array(z.string().max(2000)).max(50)]);
@@ -103,13 +103,19 @@ export function createExamSessionRouter(service: ExamSessionService | (() => Pro
     }),
   );
 
+  // Submitting stores the essay, grading pending, and calls no model; `/grade` grades what was submitted.
   router.post(
     '/learner/exams/:id/writing/:task(1|2)',
     handle(async (req, res, userId, svc) => {
       const body = writingBody.safeParse(req.body);
       if (!body.success) return res.status(400).json({ error: 'An essay is required.' });
-      return send(res, await svc.gradeWriting(userId, req.params.id, req.params.task === '1' ? 1 : 2, body.data.essay));
+      return send(res, await svc.submitWriting(userId, req.params.id, req.params.task === '1' ? 1 : 2, body.data.essay));
     }),
+  );
+
+  router.post(
+    '/learner/exams/:id/writing/:task(1|2)/grade',
+    handle(async (req, res, userId, svc) => send(res, await svc.gradeWriting(userId, req.params.id, req.params.task === '1' ? 1 : 2))),
   );
 
   router.post(
@@ -118,7 +124,15 @@ export function createExamSessionRouter(service: ExamSessionService | (() => Pro
       const body = speakingBody.safeParse(req.body);
       if (!body.success) return res.status(400).json({ error: 'Invalid speaking answer.' });
       const part = req.params.part === '1' ? 1 : req.params.part === '2' ? 2 : 3;
-      return send(res, await svc.gradeSpeaking(userId, req.params.id, part, body.data));
+      return send(res, await svc.submitSpeaking(userId, req.params.id, part, body.data));
+    }),
+  );
+
+  router.post(
+    '/learner/exams/:id/speaking/:part(1|2|3)/grade',
+    handle(async (req, res, userId, svc) => {
+      const part = req.params.part === '1' ? 1 : req.params.part === '2' ? 2 : 3;
+      return send(res, await svc.gradeSpeaking(userId, req.params.id, part));
     }),
   );
 

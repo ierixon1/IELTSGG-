@@ -1,6 +1,6 @@
 import { BUNDLE_SECTIONS, type BundleSection } from '../types/bundle';
-import type { ExamResultView, LearnerRunView, LearnerSectionView } from '../types/examSession';
-import { examResult, type ExamRunState, type SectionRun } from './examRun';
+import type { ExamResultView, LearnerGradingView, LearnerRunView, LearnerSectionView } from '../types/examSession';
+import { examResult, gradingOf, MAX_GRADING_RUNS, type ExamRunState, type GradingFailure, type GradingRecord, type SectionRun } from './examRun';
 
 /**
  * What a learner may learn about their own sitting, and when.
@@ -15,20 +15,41 @@ import { examResult, type ExamRunState, type SectionRun } from './examRun';
  * than removing what should not: a field added to the stored run later is
  * withheld until someone decides here that a learner may see it.
  *
- *   - `toLearnerRunView`: progress and the learner's own work. Always sent.
+ *   - `toLearnerRunView`: progress and the learner's own work, with where each
+ *     submitted task's grading stands (grading, graded, failed) and never its band
+ *     or the model that produced it. Always sent.
  *   - `toExamResultView`: the marks. Only once the exam has finished.
  */
 
-function toLearnerSection(run: SectionRun): LearnerSectionView {
+const REASONS: Record<GradingFailure, NonNullable<LearnerGradingView['reason']>> = {
+  unavailable: 'unavailable',
+  interrupted: 'unavailable',
+  timeout: 'timeout',
+  quota: 'quota',
+  invalid_response: 'failed',
+  rejected: 'failed',
+};
+
+function learnerGrading(work: { grading?: GradingRecord; band?: number }, now: number): LearnerGradingView {
+  const grading = gradingOf(work, now);
+  if (grading.status !== 'failed') return { status: grading.status, retryable: false };
+  return { status: 'failed', retryable: grading.runs < MAX_GRADING_RUNS, reason: REASONS[grading.failure ?? 'interrupted'] };
+}
+
+function toLearnerSection(run: SectionRun, now: number): LearnerSectionView {
   const writing: LearnerSectionView['writing'] = {};
   for (const task of [1, 2] as const) {
-    const graded = run.writing[task];
-    if (graded) writing[task] = { essay: graded.essay };
+    const work = run.writing[task];
+    if (work) {
+      writing[task] = { essay: work.essay, ...(work.submittedAt !== undefined ? { submittedAt: work.submittedAt } : {}), grading: learnerGrading(work, now) };
+    }
   }
   const speaking: LearnerSectionView['speaking'] = {};
   for (const part of [1, 2, 3] as const) {
-    const graded = run.speaking[part];
-    if (graded) speaking[part] = { transcript: graded.transcript };
+    const work = run.speaking[part];
+    if (work) {
+      speaking[part] = { transcript: work.transcript, ...(work.submittedAt !== undefined ? { submittedAt: work.submittedAt } : {}), grading: learnerGrading(work, now) };
+    }
   }
   return {
     status: run.status,
@@ -45,9 +66,9 @@ function toLearnerSection(run: SectionRun): LearnerSectionView {
   };
 }
 
-/** The run as the learner holds it: every question id and no question, progress and no mark. */
-export function toLearnerRunView(state: ExamRunState): LearnerRunView {
-  const sections = Object.fromEntries(BUNDLE_SECTIONS.map((section) => [section, toLearnerSection(state.sections[section])])) as Record<BundleSection, LearnerSectionView>;
+/** The run as the learner holds it at server time `now`: every question id and no question, progress and no mark. */
+export function toLearnerRunView(state: ExamRunState, now: number): LearnerRunView {
+  const sections = Object.fromEntries(BUNDLE_SECTIONS.map((section) => [section, toLearnerSection(state.sections[section], now)])) as Record<BundleSection, LearnerSectionView>;
   return {
     attemptId: state.attemptId,
     plan: {
@@ -78,5 +99,6 @@ export function toExamResultView(state: ExamRunState): ExamResultView | undefine
     ...(result.overall !== undefined ? { overall: result.overall } : {}),
     bands: result.bands,
     raw,
+    awaitingGrading: result.awaitingGrading,
   };
 }

@@ -424,7 +424,8 @@ export interface AttemptComponentRef {
 }
 
 export interface AttemptSectionRecord {
-  status: 'pending' | 'in_progress' | 'completed' | 'expired';
+  /** `awaiting_grading`: all Writing or Speaking work was submitted and a band is still to come. */
+  status: 'pending' | 'in_progress' | 'completed' | 'expired' | 'awaiting_grading';
   startedAt?: string;
   endedAt?: string;
   endedBy?: 'learner' | 'time';

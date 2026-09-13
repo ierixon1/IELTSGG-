@@ -52,7 +52,7 @@ const { authRouter } = await import('../src/routes/authRoutes');
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { createExamSessionRouter } = await import('../src/routes/examSessionRoutes');
 const { createExamSessionService } = await import('../src/services/examSession');
-const { dataStore } = await import('../src/services/storage');
+const { dataStore, storageProvider } = await import('../src/services/storage');
 const { openSitting } = await import('../src/services/bundleService');
 const { verifyExamAttempt } = await import('../src/services/attemptVerification');
 const { assetStore } = await import('../src/services/assetStore');
@@ -80,7 +80,7 @@ const grader = {
 const WRITING_BANDS = { task1: 6.5, task2: 7 } as const;
 const SPEAKING_BANDS: Record<number, number> = { 1: 7, 2: 6.5, 3: 7 };
 
-const busy = { ok: false as const, status: 503, body: { error: 'The grading model is busy right now.', code: 'ai_unavailable' } };
+const busy = { ok: false as const, status: 503, body: { error: 'The grading model is busy right now.', code: 'ai_unavailable' }, failure: 'unavailable' as const };
 const criterion = (name: string, band: number) => ({ name, band, justification: 'Fixture.', improvement_tips: [] });
 
 async function fakeWriting(input: WritingSubmission): Promise<GradeOutcome<WritingGradingResult>> {
@@ -117,6 +117,7 @@ async function fakeSpeaking(input: SpeakingSubmission): Promise<GradeOutcome<Spe
 let sequence = 0;
 const service = createExamSessionService({
   store: dataStore,
+  audio: storageProvider,
   resolveSitting: openSitting,
   verifyAttempt: verifyExamAttempt,
   gradeWriting: fakeWriting,
@@ -154,13 +155,31 @@ const getSession = async (sessionId: string, who: 'ana' | 'ben' = 'ana') => {
   const response = await as(who)(`/api/learner/exams/${sessionId}`);
   return { status: response.status, body: (await response.json()) as ExamSessionOpened & { code?: string } };
 };
-const writeTask = async (sessionId: string, task: 1 | 2, essay: string) => {
+/** Submits a task: stored at once, grading pending. */
+const submitTask = async (sessionId: string, task: 1 | 2, essay: string) => {
   const response = await as('ana')(`/api/learner/exams/${sessionId}/writing/${task}`, post({ essay }));
   return { status: response.status, body: (await response.json()) as WritingGradedResponse & { code?: string } };
 };
-const speakPart = async (sessionId: string, part: 1 | 2 | 3, transcriptProvided: string) => {
+/** Asks for a submitted task to be graded, as the exam screen does straight after submitting. */
+const gradeTask = async (sessionId: string, task: 1 | 2) => {
+  const response = await as('ana')(`/api/learner/exams/${sessionId}/writing/${task}/grade`, post({}));
+  return { status: response.status, body: (await response.json()) as WritingGradedResponse & { code?: string } };
+};
+const writeTask = async (sessionId: string, task: 1 | 2, essay: string) => {
+  const submitted = await submitTask(sessionId, task, essay);
+  return submitted.status === 200 ? gradeTask(sessionId, task) : submitted;
+};
+const submitPart = async (sessionId: string, part: 1 | 2 | 3, transcriptProvided: string) => {
   const response = await as('ana')(`/api/learner/exams/${sessionId}/speaking/${part}`, post({ transcriptProvided }));
   return { status: response.status, body: (await response.json()) as SpeakingGradedResponse & { code?: string } };
+};
+const gradePart = async (sessionId: string, part: 1 | 2 | 3) => {
+  const response = await as('ana')(`/api/learner/exams/${sessionId}/speaking/${part}/grade`, post({}));
+  return { status: response.status, body: (await response.json()) as SpeakingGradedResponse & { code?: string } };
+};
+const speakPart = async (sessionId: string, part: 1 | 2 | 3, transcriptProvided: string) => {
+  const submitted = await submitPart(sessionId, part, transcriptProvided);
+  return submitted.status === 200 ? gradePart(sessionId, part) : submitted;
 };
 const storedAttempts = async (who: 'ana' | 'ben' = 'ana') => ((await (await as(who)('/api/data')).json()).attempts ?? []) as MockAttempt[];
 
@@ -253,7 +272,7 @@ function expectNoKey(text: string, given: string[] = []) {
 }
 
 /** Fields a mark travels in. None may reach the learner while the exam is in progress. */
-const MARK_FIELDS = ['"objective"', '"band"', '"bands"', '"overall"', '"correct"', '"rawScore"', '"raw"', '"result"', '"band_overall"', '"criteria"', '"scores"', '"attempt"'];
+const MARK_FIELDS = ['"objective"', '"band"', '"bands"', '"overall"', '"correct"', '"rawScore"', '"raw"', '"result"', '"band_overall"', '"criteria"', '"scores"', '"attempt"', '"model"'];
 function expectNoMarks(text: string) {
   for (const field of MARK_FIELDS) expect([field, text.includes(field)]).toEqual([field, false]);
 }
@@ -264,8 +283,14 @@ async function storedProgress(id: string) {
   return record.progress;
 }
 
-const ESSAY_1 = 'Energy use rose steadily across the period, with coal falling and wind rising sharply after 2010.';
-const ESSAY_2 = 'Cities should restrict private cars in their centres, because cleaner air benefits everyone who lives there.';
+const ESSAY_1 =
+  'Energy use rose steadily across the period shown in the chart, with coal falling from almost half of all supply to under a fifth, while wind rose sharply after 2010 and overtook gas by the final year, so the overall mix became far cleaner than it had been at the start.';
+const ESSAY_2 =
+  'Cities should restrict private cars in their centres, because cleaner air benefits everyone who lives there. Opponents argue that shops lose trade, yet evidence from several European capitals shows footfall rising once streets are pedestrianised, and public transport can carry the workers who once drove in every morning.';
+const SPOKEN_1 = 'I live in a small flat near the river, and I like the quiet evenings there most of all.';
+const SPOKEN_2 = 'Last spring I visited Bukhara, and the old madrasas surprised me with their colour, their scale and their calm courtyards.';
+const SPOKEN_3 = 'People travel to understand how others live, and to see their own lives a little differently when they come back home.';
+const SPOKEN_LONG = 'A long enough answer for this part, spoken clearly, with some detail about where it happened and why it mattered to me.';
 
 /* -------------------------------------------------------------------------- */
 
@@ -372,6 +397,7 @@ describe('the server runs the exam, in order and on its own clock', () => {
           return record;
         },
       },
+      audio: storageProvider,
       resolveSitting: openSitting,
       verifyAttempt: verifyExamAttempt,
       gradeWriting: fakeWriting,
@@ -444,40 +470,68 @@ describe('the server runs the exam, in order and on its own clock', () => {
     expect(reloaded.body.run.sections.writing.drafts).toEqual({ 2: 'A first thought about cars' });
   });
 
-  it('grades Writing against the pinned prompts and needs both tasks before it can end', async () => {
-    const task1 = await writeTask(sessionId, 1, ESSAY_1);
-    expect(task1.status).toBe(200);
+  it('stores a submitted task at once, grades it on request against the pinned prompt, and needs both tasks before Writing can end', async () => {
+    const submitted = await submitTask(sessionId, 1, ESSAY_1);
+    expect(submitted.status).toBe(200);
+    // Stored with its grading pending; no model has been asked anything yet.
+    expect(grader.writingCalls).toHaveLength(0);
+    expect(submitted.body.view.run.sections.writing.writing).toEqual({ 1: { essay: ESSAY_1, submittedAt: clock, grading: { status: 'pending', retryable: false } } });
+    expect((await storedProgress(sessionId)).sections.writing.writing[1]?.grading).toEqual({ status: 'pending', runs: 0 });
+    expectNoMarks(JSON.stringify(submitted.body));
+
+    const graded = await gradeTask(sessionId, 1);
+    expect(graded.status).toBe(200);
+    expect(graded.body.view.run.sections.writing.writing[1]?.grading).toEqual({ status: 'graded', retryable: false });
     // Recorded with its band; the band and the model's feedback are not returned during the exam.
     expect((await storedProgress(sessionId)).sections.writing.writing[1]?.band).toBe(WRITING_BANDS.task1);
-    expectNoMarks(JSON.stringify(task1.body));
+    expectNoMarks(JSON.stringify(graded.body));
     // The pinned task exactly as the paper shows it: the same prompt text practice grades against.
     const { paper } = (await getSession(sessionId)).body;
     expect(paper.writing.task1.prompt).toBe('Summarise the chart of energy use.');
     expect(grader.writingCalls[0]).toEqual({ taskType: 'task1', prompt: `${paper.writing.task1.title}\n${paper.writing.task1.prompt}`, essay: ESSAY_1, module: 'academic' });
-    expect(task1.body.view.run.sections.writing.writing).toEqual({ 1: { essay: ESSAY_1 } });
 
     const early = await events(sessionId, [{ type: 'finish_section' }]);
     expect(early.body.run.sections.writing.status).toBe('in_progress');
     expect(sectionReadiness(early.body.run, 'writing').missing).toEqual([{ kind: 'writing_task', task: 2 }]);
 
-    const again = await writeTask(sessionId, 1, `${ESSAY_1} Resubmitted.`);
+    // The same essay again is the same submission; a different one is refused; graded work is not graded again.
+    expect((await submitTask(sessionId, 1, ESSAY_1)).status).toBe(200);
+    const again = await submitTask(sessionId, 1, `${ESSAY_1} Resubmitted.`);
     expect(again.status).toBe(409);
-    expect(again.body.code).toBe('already_graded');
+    expect(again.body.code).toBe('already_submitted');
+    const regrade = await gradeTask(sessionId, 1);
+    expect(regrade.status).toBe(409);
+    expect(regrade.body.code).toBe('already_graded');
+    expect(grader.writingCalls).toHaveLength(1);
+    expect((await storedProgress(sessionId)).sections.writing.writing[1]?.essay).toBe(ESSAY_1);
   });
 
-  it('records no Writing band when the grading model is unavailable', async () => {
+  it('refuses to grade what was not submitted, and refuses a submission too short to grade before storing it', async () => {
+    const notSubmitted = await gradeTask(sessionId, 2);
+    expect(notSubmitted.status).toBe(409);
+    expect(notSubmitted.body.code).toBe('not_submitted');
+    const tooShort = await submitTask(sessionId, 2, 'Far too short.');
+    expect(tooShort.status).toBe(400);
+    expect(tooShort.body.code).toBe('too_short');
+    expect((await storedProgress(sessionId)).sections.writing.writing[2]).toBe(undefined);
+  });
+
+  it('keeps a task whose grading failed, with no band, and grades it on a later request', async () => {
     grader.writing = 'unavailable';
-    const refused = await writeTask(sessionId, 2, ESSAY_2);
-    expect(refused.status).toBe(503);
-    expect(refused.body.code).toBe('ai_unavailable');
-    const { body } = await getSession(sessionId);
-    expect(body.run.sections.writing.writing[2]).toBe(undefined);
+    const submitted = await submitTask(sessionId, 2, ESSAY_2);
+    expect(submitted.status).toBe(200);
+    const failed = await gradeTask(sessionId, 2);
+    expect(failed.status).toBe(200);
+    expect(failed.body.view.run.sections.writing.writing[2]?.essay).toBe(ESSAY_2);
+    expect(failed.body.view.run.sections.writing.writing[2]?.grading).toEqual({ status: 'failed', retryable: true, reason: 'unavailable' });
+    expect((await storedProgress(sessionId)).sections.writing.writing[2]?.band).toBe(undefined);
     expect((await storedProgress(sessionId)).sections.writing.band).toBe(undefined);
-    expect(body.run.sections.writing.status).toBe('in_progress');
+    expect(failed.body.view.run.sections.writing.status).toBe('in_progress');
 
     grader.writing = 'available';
-    const graded = await writeTask(sessionId, 2, ESSAY_2);
+    const graded = await gradeTask(sessionId, 2);
     expect(graded.status).toBe(200);
+    expect(graded.body.view.run.sections.writing.writing[2]?.grading.status).toBe('graded');
     const finished = await events(sessionId, [{ type: 'finish_section' }]);
     expect(finished.body.run.sections.writing.status).toBe('completed');
     expect((await storedProgress(sessionId)).sections.writing.band).toBe(writingSectionBand(WRITING_BANDS.task1, WRITING_BANDS.task2) ?? -1);
@@ -486,8 +540,9 @@ describe('the server runs the exam, in order and on its own clock', () => {
   });
 
   it('needs all three Speaking parts, and records no band for a part the model could not grade', async () => {
-    const part1 = await speakPart(sessionId, 1, 'I live in a small flat near the river, and I like the quiet evenings there most.');
+    const part1 = await speakPart(sessionId, 1, SPOKEN_1);
     expect(part1.status).toBe(200);
+    expect(part1.body.view.run.sections.speaking.speaking[1]?.grading.status).toBe('graded');
     expect(grader.speakingCalls[0].topic).toBe('Home');
     const early = await events(sessionId, [{ type: 'finish_section' }]);
     expect(early.body.status).toBe('active');
@@ -496,15 +551,17 @@ describe('the server runs the exam, in order and on its own clock', () => {
       { kind: 'speaking_part', part: 3 },
     ]);
 
-    await speakPart(sessionId, 2, 'Last spring I visited Bukhara, and the old madrasas surprised me with their colour and scale.');
+    await speakPart(sessionId, 2, SPOKEN_2);
     grader.speaking = 'unavailable';
-    const refused = await speakPart(sessionId, 3, 'People travel to understand how others live, and to see their own lives differently afterwards.');
-    expect(refused.status).toBe(503);
-    expect((await getSession(sessionId)).body.run.sections.speaking.speaking[3]).toBe(undefined);
+    expect((await submitPart(sessionId, 3, SPOKEN_3)).status).toBe(200);
+    const refused = await gradePart(sessionId, 3);
+    expect(refused.status).toBe(200);
+    expect(refused.body.view.run.sections.speaking.speaking[3]).toEqual({ transcript: SPOKEN_3, submittedAt: clock, grading: { status: 'failed', retryable: true, reason: 'unavailable' } });
+    expect((await storedProgress(sessionId)).sections.speaking.speaking[3]?.band).toBe(undefined);
     expect(await storedAttempts()).toHaveLength(0);
 
     grader.speaking = 'available';
-    await speakPart(sessionId, 3, 'People travel to understand how others live, and to see their own lives differently afterwards.');
+    expect((await gradePart(sessionId, 3)).body.view.run.sections.speaking.speaking[3]?.grading.status).toBe('graded');
     advance(60_000);
     const finished = await events(sessionId, [{ type: 'finish_section' }]);
     expect(finished.body.status).toBe('finished');
@@ -512,6 +569,7 @@ describe('the server runs the exam, in order and on its own clock', () => {
     expect(finished.body.attempt?.id).toBe(sessionId);
     // Once the exam is over, the marks are disclosed: the same ones the attempt stores.
     expect(finished.body.result?.complete).toBe(true);
+    expect(finished.body.result?.awaitingGrading).toEqual([]);
     expect(finished.body.result?.overall).toBe(finished.body.attempt?.scores.overall);
     expect(finished.body.result?.bands.listening).toBe(finished.body.attempt?.scores.listening?.band);
     expect(finished.body.result?.raw.reading).toEqual({ correct: 4, total: 40 });
@@ -565,10 +623,10 @@ describe('the server runs the exam, in order and on its own clock', () => {
       [1, ESSAY_1, WRITING_BANDS.task1, ids['writing-1']],
       [2, ESSAY_2, WRITING_BANDS.task2, ids['writing-1']],
     ]);
-    expect((attempt.speakingParts ?? []).map((part) => [part.part, part.band])).toEqual([
-      [1, SPEAKING_BANDS[1]],
-      [2, SPEAKING_BANDS[2]],
-      [3, SPEAKING_BANDS[3]],
+    expect((attempt.speakingParts ?? []).map((part) => [part.part, part.band, part.transcript])).toEqual([
+      [1, SPEAKING_BANDS[1], SPOKEN_1],
+      [2, SPEAKING_BANDS[2], SPOKEN_2],
+      [3, SPEAKING_BANDS[3], SPOKEN_3],
     ]);
 
     const bands = {
@@ -627,12 +685,13 @@ describe('time is the server’s, and the bundle’s', () => {
     const afterWriting = await getSession(timedId);
     expect(afterWriting.body.run.sections.writing.status).toBe('expired');
     expect((await storedProgress(timedId)).sections.writing.band).toBe(undefined);
-    const tooLate = await writeTask(timedId, 2, ESSAY_2);
+    const tooLate = await submitTask(timedId, 2, ESSAY_2);
     expect(tooLate.status).toBe(409);
     expect(tooLate.body.code).toBe('section_closed');
+    expect((await storedProgress(timedId)).sections.writing.writing[2]).toBe(undefined);
 
     for (const part of [1, 2, 3] as const) {
-      expect((await speakPart(timedId, part, 'A long enough answer for this part, spoken clearly and with some detail.')).status).toBe(200);
+      expect((await speakPart(timedId, part, SPOKEN_LONG)).status).toBe(200);
     }
     const finished = await events(timedId, [{ type: 'finish_section' }]);
     expect(finished.body.status).toBe('finished');
@@ -644,6 +703,7 @@ describe('time is the server’s, and the bundle’s', () => {
     expect(attempt?.scores.overall).toBe(undefined);
     expect(attempt?.scores.writing).toBe(undefined);
     expect(attempt?.sections?.writing?.status).toBe('expired');
+    expect(attempt?.writingTasks?.[0]?.essay).toBe(ESSAY_1);
     expect(await storedAttempts()).toHaveLength(2);
   });
 });
@@ -656,6 +716,7 @@ describe('a sitting that cannot go on is stopped, never patched', () => {
     benSession = opened.body.sessionId;
     expect((await getSession(benSession, 'ana')).status).toBe(404);
     expect((await events(benSession, [{ type: 'start' }], 'ana')).status).toBe(404);
+    expect((await gradeTask(benSession, 1)).status).toBe(404);
     await events(benSession, [{ type: 'start' }], 'ben');
   });
 
@@ -714,7 +775,10 @@ describe('a sitting that cannot go on is stopped, never patched', () => {
   it('refuses events the browser has no business sending', async () => {
     const opened = await openExam('ben');
     for (const forged of [
-      { type: 'writing_graded', task: 1, band: 9, essay: 'x' },
+      { type: 'writing_graded', task: 1, run: 1, band: 9 },
+      { type: 'writing_submitted', task: 1, essay: 'x' },
+      { type: 'writing_grading_started', task: 1, leaseUntil: 0 },
+      { type: 'speaking_grading_failed', part: 1, run: 1, failure: 'quota' },
       { type: 'tick', now: 0 },
       { type: 'start', now: 0 },
     ]) {

@@ -42,7 +42,7 @@ const { authRouter } = await import('../src/routes/authRoutes');
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { createExamSessionRouter } = await import('../src/routes/examSessionRoutes');
 const { createExamSessionService } = await import('../src/services/examSession');
-const { dataStore } = await import('../src/services/storage');
+const { dataStore, storageProvider } = await import('../src/services/storage');
 const { openSitting } = await import('../src/services/bundleService');
 const { verifyExamAttempt } = await import('../src/services/attemptVerification');
 const { assetStore } = await import('../src/services/assetStore');
@@ -69,9 +69,15 @@ async function gradeSpeaking(input: SpeakingSubmission): Promise<GradeOutcome<Sp
   };
 }
 
+/** Long enough to pass the checks a submission meets before it is stored. */
+const ESSAY =
+  'with enough words to be graded properly by the examiner, because a submission shorter than the grading floor is refused before it is stored, and this sentence keeps going so that it clears that floor with a comfortable margin to spare.';
+const SPOKEN = 'A long enough spoken answer for this part, with detail and some examples of where I went and what I saw there.';
+
 let sequence = 0;
 const service = createExamSessionService({
   store: dataStore,
+  audio: storageProvider,
   resolveSitting: openSitting,
   verifyAttempt: verifyExamAttempt,
   gradeWriting,
@@ -270,18 +276,25 @@ describe('an active exam carries progress, never a mark', () => {
     expect((await storedProgress(sessionId)).sections.reading.objective?.correct).toBe(1);
   });
 
-  it('records Writing and Speaking without returning a band or the grader’s feedback', async () => {
+  it('records Writing and Speaking without returning a band, the grader’s feedback or the model', async () => {
     for (const task of [1, 2] as const) {
-      const graded = await ana(`/api/learner/exams/${sessionId}/writing/${task}`, { essay: `Essay for task ${task} with enough words to be graded properly by the examiner.` });
+      const submitted = await ana(`/api/learner/exams/${sessionId}/writing/${task}`, { essay: `Essay for task ${task} ${ESSAY}` });
+      expect(submitted.status).toBe(200);
+      expectNoMarks(`writing ${task} submitted`, submitted.text);
+      const graded = await ana(`/api/learner/exams/${sessionId}/writing/${task}/grade`, {});
       expect(graded.status).toBe(200);
-      expectNoMarks(`writing ${task}`, graded.text);
+      expectNoMarks(`writing ${task} graded`, graded.text);
+      expect(graded.text.includes('"model"')).toBe(false);
     }
     const finishedWriting = await ana(`/api/learner/exams/${sessionId}/events`, { events: [{ type: 'finish_section' }] });
     expectNoMarks('writing finished', finishedWriting.text);
     for (const part of [1, 2] as const) {
-      const graded = await ana(`/api/learner/exams/${sessionId}/speaking/${part}`, { transcriptProvided: 'A long enough spoken answer for this part, with detail and some examples.' });
+      const submitted = await ana(`/api/learner/exams/${sessionId}/speaking/${part}`, { transcriptProvided: SPOKEN });
+      expect(submitted.status).toBe(200);
+      expectNoMarks(`speaking ${part} submitted`, submitted.text);
+      const graded = await ana(`/api/learner/exams/${sessionId}/speaking/${part}/grade`, {});
       expect(graded.status).toBe(200);
-      expectNoMarks(`speaking ${part}`, graded.text);
+      expectNoMarks(`speaking ${part} graded`, graded.text);
     }
     const stored = await storedProgress(sessionId);
     expect([stored.sections.writing.band, stored.sections.speaking.speaking[1]?.band]).toEqual([7, 7]);
@@ -320,8 +333,10 @@ describe('an active exam carries progress, never a mark', () => {
   });
 
   it('discloses the marks once the exam is over, and stores the same marks in the attempt', async () => {
-    const graded = await ana(`/api/learner/exams/${sessionId}/speaking/3`, { transcriptProvided: 'A long enough spoken answer for this part, with detail and some examples.' });
-    expectNoMarks('speaking 3', graded.text);
+    const submitted = await ana(`/api/learner/exams/${sessionId}/speaking/3`, { transcriptProvided: SPOKEN });
+    expectNoMarks('speaking 3 submitted', submitted.text);
+    const graded = await ana(`/api/learner/exams/${sessionId}/speaking/3/grade`, {});
+    expectNoMarks('speaking 3 graded', graded.text);
     const finished = await ana(`/api/learner/exams/${sessionId}/events`, { events: [{ type: 'finish_section' }] });
     expect(finished.status).toBe(200);
     const view = finished.json as { status: string; attemptSaved: boolean; result?: { complete: boolean; overall?: number; bands: Record<string, number>; raw: Record<string, { correct: number; total: number }> }; attempt?: { scores: { overall?: number; listening?: { band: number; rawScore?: number } } } };

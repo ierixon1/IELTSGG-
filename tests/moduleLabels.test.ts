@@ -165,9 +165,10 @@ describe('Writing, by module', () => {
         task1Data: test.writing.task1 ?? undefined,
         task2Data: test.writing.task2 ?? undefined,
         module: 'general',
-        grade: () => Promise.reject(new Error('not graded in a render test')),
+        submit: () => Promise.reject(new Error('not submitted in a render test')),
         initialDrafts: {},
         gradedTasks: {},
+        onRetryGrading: noop,
         onDraftChange: noop,
       }),
     );

@@ -289,7 +289,13 @@ export async function callWithRetryPolicy<T>(
  * `AiUnavailableError` when the model is unavailable, rate limited or timing
  * out, a plain error otherwise — but it now runs on the shared policy, so a
  * permanent failure is never retried and transient 5xx responses are.
+ *
+ * Every call is bounded (H7): no attempt outlasts `EXECUTE_ATTEMPT_TIMEOUT_MS`
+ * and no call `EXECUTE_TOTAL_TIMEOUT_MS`. A rate limit is not retried: the next
+ * attempt meets the same limit and spends a request finding out.
  */
+export const EXECUTE_ATTEMPT_TIMEOUT_MS = 45_000;
+export const EXECUTE_TOTAL_TIMEOUT_MS = 100_000;
 export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request', quotaAlreadyChecked = false, activeModelForLog = 'gemini-3.8-flash'): Promise<T> {
   const userId = requestContext.getStore()?.userId;
   if (userId && !quotaAlreadyChecked) {
@@ -311,7 +317,9 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
       maxAttempts: maxRetries + 1,
       initialDelayMs,
       maxDelayMs: 30_000,
-      retryOn: ['unavailable', 'timeout', 'quota'],
+      attemptTimeoutMs: EXECUTE_ATTEMPT_TIMEOUT_MS,
+      totalTimeoutMs: EXECUTE_TOTAL_TIMEOUT_MS,
+      retryOn: ['unavailable', 'timeout'],
     }, {
       onRetry: ({ attempt, info, delayMs }) =>
         console.warn(
