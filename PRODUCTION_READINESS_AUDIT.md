@@ -62,6 +62,15 @@ Audit-only phase. No production code, tests, schemas or data were changed. Findi
 > - **Added.** L14: a range is sliced from the whole file, and on Cloud Storage the whole object is downloaded for every range request.
 > - **Status is still NOT READY.** H2, H9 and H10 remain.
 
+> **Update after Phase 26.**
+> - **H9 is resolved.**
+>   - `multer`, `mammoth` and `pdf-parse` are runtime dependencies, `nanoid` is declared, and `engines.node` is `>=22.12.0`.
+>   - `bun.lock` — the lockfile CI installs from, which had already drifted from `package.json` — is back in step.
+>   - A clean production install boots the built server and serves sign-in, uploads, DOCX and PDF extraction, source ingestion and asset reads. That holds with both `npm ci --omit=dev` and `bun install --production --frozen-lockfile`.
+>   See the H9 resolution.
+> - **Added.** L15: the upload route never extracts text from a PDF.
+> - **Status is still NOT READY.** H2 and H10 remain, and H8 still awaits a browser check.
+
 The exam engine, scoring, ownership checks and key redaction are in good shape, and most of the audited boundaries held when probed against the real server. Anonymous and learner-to-admin requests were refused, no learner could reach another learner's sessions or data, draft and archived content stayed hidden, practice payloads carried no keys, and encoded path traversal returned nothing.
 
 Several problems remain that would show up quickly in production.
@@ -84,7 +93,7 @@ Several problems remain that would show up quickly in production.
 
 Checks run: `tsc --noEmit` clean; full suite **555 tests, 555 pass, 0 fail**.
 
-Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24, H8 resolved in Phase 25 on the server and learner path; 3 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 15 Medium (M15 split from H6 in Phase 24), 14 Low (L13 split from H7 in Phase 24, L14 added in Phase 25).
+Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18 and resolved in Phase 19, H1 resolved in Phase 20, H4 resolved in Phase 21, H3 resolved in Phase 22, H5 resolved in Phase 23, H6 and H7 resolved in Phase 24, H8 resolved in Phase 25 on the server and learner path, H9 resolved in Phase 26; 2 open, H10 among them as `UNVERIFIED — real Firestore unavailable`), 15 Medium (M15 split from H6 in Phase 24), 15 Low (L13 split from H7 in Phase 24, L14 added in Phase 25, L15 added in Phase 26).
 
 ## Method and evidence legend
 
@@ -125,7 +134,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | H6 | High | Exam correctness | Writing/Speaking are scored only if grading finishes before the section deadline; drafts at the deadline are never graded. | reproduced; **resolved in Phase 24** (accepted and stored at submission, graded separately; a band after the deadline completes the section; drafts at the deadline split out as M15) | Probe 2 A; `tests/examGrading.test.ts`, `tests/examRun.test.ts` | A learner who submits in the last seconds, or writes but does not press submit, gets no Writing band and no overall. | Accept by submission time, not grading-completion time; decide policy for ungraded drafts at the deadline. Record as a known limitation until decided. |
 | H7 | High | AI reliability | Grading, rewrite, transcribe and mentor calls have no timeout; each fallback model consumes a quota unit; at the limit the learner gets 500 instead of a quota message. | reproduced; **resolved in Phase 24** (one bounded policy on `callWithRetryPolicy`; one allowance unit per grading; 429 at the limit; residual L13) | Probe 2 B1/B2/C; `tests/gradingPolicy.test.ts` | One outage burns ~3 units per grading (default 4/hour); a hung call holds the request indefinitely; exams can become impossible to finish. | Add per-attempt and total timeouts; charge quota once per grading; map quota refusal to 429 with a clear code. |
 | H8 | High | Listening delivery | Audio is sent without HTTP Range support, and the exam records a part as played before `play()` succeeds. | reproduced (server); confirmed (client); **resolved in Phase 25** on the server and learner path (byte ranges; a part counts as heard only once its playback started); not verified in a real browser, Safari/iOS unverified | Probe 1 S4b; `tests/assetRange.test.ts`, `tests/examAudio.test.ts`, `tests/examAudioPlayer.test.ts` | Safari/iOS media playback expects byte ranges; if playback fails the part is still consumed and cannot be replayed. | Serve assets with Range/206 support; record the start only after playback actually begins. |
-| H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`) | `package.json`; `adminRoutes.ts:2,6`; `sourceRoutes.ts:2` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
+| H9 | High | Deployment | `multer`, `mammoth` and `pdf-parse` are runtime imports but devDependencies; `nanoid` is imported but undeclared; the build externalises packages. | confirmed (manifest); hypothesis (boot failure under `--omit=dev`); **resolved in Phase 26** (runtime packages declared, `engines` pinned, `bun.lock` in step; a clean `npm ci --omit=dev` and `bun install --production` install boots and serves the runtime paths) | `package.json`; `tests/runtimeDependencies.test.ts`; `scripts/verifyProductionInstall.mjs` | A production install that prunes devDependencies fails at startup. | Move them to dependencies and declare `nanoid`; pin a Node version (`engines`). |
 | H10 | High | Firestore verification | No real Firestore project has been run. | **`UNVERIFIED — real Firestore unavailable`**. Phase 23 found no credentials, project or emulator on this machine. The adapter parity, race and outage tests pass against the in-memory Firestore. | Firestore audit below; H10 detail; `tests/storageParity.test.ts`, `tests/firestoreTransactions.test.ts` | Production requires Firestore. Real contention and locking, composite indexes, batch limits and cost are unknown. The Firestore-only defects the parity and race tests found are fixed (H10 detail). | Run the parity, race, stale-field and outage scenarios against a dedicated Firestore project (never one holding production data), clean up, and define composite indexes. |
 | H11 | High | Answer keys / exam integrity | The exam session's run view exposes each closed Listening/Reading section's correct count and band before the exam ends; abandoned sessions can be reopened without limit. | reproduced (counts exposed mid-exam); hypothesis (key derivation); **resolved in Phase 19** (no marks in any response before the exam finishes) | Probe 1 S9b; `tests/examOracle.test.ts` | Repeated sessions let a learner infer closed-choice keys from count changes; far slower than C1 and bounded by timing when early finish is off. | Withhold objective counts and bands from the run view until the exam is finished; consider limiting abandoned sittings per bundle. Exam session logic was out of Phase 18 scope. |
 | M1 | Medium | Deployment | Port is hard-coded to 3000; `process.env.PORT` is ignored. | confirmed | `server.ts:24,179` | Platforms that assign `PORT` (Heroku, Railway; Cloud Run defaults to 8080) cannot route to the app without extra configuration. | Honour `PORT`. |
@@ -157,6 +166,7 @@ The repository's `data/` directory was not touched. `dist/` was rebuilt; it is g
 | L12 | Low | Local runtime | Local stores read and rewrite whole JSON files synchronously per request; the rate-limit file grows without pruning. | confirmed | `requestRateLimitService.ts:25`; `authService.ts:40-43` | Local mode only. | None unless local mode is used beyond development. |
 | L13 | Low | AI reliability | Split from H7 (Phase 24): the mentor chat's SDK call (`chats.create(...).sendMessage`) is not given the abort signal, so an attempt abandoned at its timeout stops being waited for but keeps running. | confirmed | `server.ts` `/api/preppy/chat` | A hung chat request can hold an upstream connection past its budget; the learner still gets an answer or a 503 on time. | Pass the attempt's signal through the chat config. |
 | L14 | Low | Asset delivery cost | Added in Phase 25: a byte-range response is sliced from the whole file, and on Cloud Storage the whole object is downloaded for every range request. | confirmed | `assetStore.readContent`; `src/http/sendAsset.ts` | A player that fetches a recording in many ranges downloads it from Cloud Storage as many times: cost and latency, not correctness. | Read only the requested range from storage, keeping the policy check in front of it. |
+| L15 | Low | Upload extraction | Added in Phase 26: `POST /api/admin/upload` calls `pdf-parse` 2.x the version-1 way (`fn(buffer)`). The export is a class, so the call throws `TypeError: Class constructor PDFParse cannot be invoked without 'new'`, the catch swallows it, and an uploaded PDF is stored with no extracted text. Source ingestion uses the v2 API and extracts the same PDF. | confirmed (production-install smoke test; module probe) | `adminRoutes.ts:138` | An admin uploading a PDF gets no pre-filled text; nothing is lost and nothing wrong is stored. | Use `new PDFParse({ data }).getText()` as `sourceIngest/extract.ts` does, and report a failed extraction instead of swallowing it. |
 
 ## Detailed findings
 
@@ -862,6 +872,56 @@ Rate limiting alone does not fix it.
 
 There is no `engines` field; the production bundle booted on Node 24.15.
 
+**Resolution (Phase 26)** — resolved.
+
+- **The runtime set, taken from the build itself.** esbuild keeps every bare import external (`--packages=external`), so `dist/server.cjs` loads 15 packages at run time:
+  - `@google/genai`, `bcryptjs`, `dotenv`, `express`, `firebase-admin`, `nanoid`, `zod`;
+  - `domhandler`, `domutils`, `htmlparser2`, `sanitize-html` (HTML parsing and sanitising);
+  - `mammoth`, `multer`, `pdf-parse` (uploads and document extraction; `mammoth` and `pdf-parse` are also loaded by routes through `import()`);
+  - `vite`, imported at the top of `server.ts` and therefore loaded in production too.
+- **`package.json`.**
+  - **Moved to `dependencies`:** `multer` ^2.3.0, `mammoth` ^1.12.2 and `pdf-parse` ^2.4.5, at the versions already locked.
+  - **Added:** `nanoid` ^3.3.18, the version it already resolved to. It reached the server only through `postcss`, a dependency of `sanitize-html` and `vite` (and of the dev-only `autoprefixer`). A production install did have it, but by accident: the server would break as soon as neither package depended on `postcss` any more, or `postcss` moved to another `nanoid` major.
+  - **`engines.node` `>=22.12.0`:** the floor of the runtime packages. `firebase-admin` 14 needs Node 22, and `sanitize-html` 2.17.7 needs 22.12.
+  - **Not moved:** packages only the frontend bundle or the Vite config use — `react`, `lucide-react`, `motion`, `dompurify`, `canvas-confetti`, the Vite plugins and `@types/canvas-confetti`. They stay in `dependencies`: installed in production and unused there. That is harmless, and moving them would change how a platform that builds from a production install behaves.
+  - **No version was upgraded.**
+- **Lockfile.** `bun.lock` is the lockfile CI installs from (`bun install --frozen-lockfile`); `package-lock.json` is git-ignored.
+  - **Drift found before this phase.** `bun.lock` had no resolutions for `@types/react` and `@types/react-dom`. It left `htmlparser2`, `domhandler` and `domutils` out of its workspace lists, and carried a stray `vite` among its devDependencies.
+  - **Regenerated** with Bun 1.4.2, run through `npx` with the user's consent. The only new resolutions are `@types/react` 19.3.0, `@types/react-dom` 19.3.0 and `csstype` 3.2.3. Nothing was removed or re-versioned.
+  - **Install checks.** `bun install --frozen-lockfile` and `bun install --production --frozen-lockfile` pass on clean copies.
+  - **npm lock comparison.** The local npm lock resolves every runtime package to the same versions. It differs on three dev or frontend packages: `@types/react`, `@types/react-dom` and `dompurify`.
+- **Production install check.** `npm run verify:production-install` (`scripts/verifyProductionInstall.mjs`) was run with both installers, on Node 24.15, with nothing from the repository's `node_modules` on the resolution path:
+  1. Every package `dist/server.cjs` loads is in `dependencies`.
+  2. A fresh temp directory holds only `package.json`, the lockfile and `dist/`, and nothing resolves there before the install.
+  3. `npm ci --omit=dev`, or `bun install --production --frozen-lockfile`, installs every runtime package; `typescript` and `autoprefixer` are absent. The `esbuild`, `tailwindcss` and `@types/node` that are present come in as dependencies of `vite`, `@tailwindcss/vite` and `firebase-admin`.
+  4. **Production mode** (`NODE_ENV=production`, Firestore without credentials): the server boots, serves the built app shell, and answers `/api/health` with 503 JSON.
+  5. **The same bundle on local storage:**
+     - `/api/health` answers 200;
+     - sign-up, the session read back, and `/api/data`;
+     - staff sign-in;
+     - multipart uploads: HTML (stored and sanitised), DOCX (text extracted by `mammoth`) and PDF;
+     - DOCX and PDF source ingestion: extracted, chunked and readable;
+     - a stored file read back whole and by byte range.
+
+  Every step passes with both installers. The storage-backed paths run outside production mode, because production refuses local storage and no Firestore is available (H10).
+- **Regression test.** `tests/runtimeDependencies.test.ts`:
+  - takes the bundle's externals from esbuild, and requires each one in `dependencies` and none only in `devDependencies`;
+  - requires `bun.lock`'s workspace lists to equal `package.json`, with a resolution for every direct package;
+  - pins `engines`.
+- **CI.** The Security workflow now sets up Node 22.12 and runs the install check with Bun after the build. Its results could not be read here (`gh` is not authenticated), so the step has not been seen to run.
+- **Mutations.**
+  - **Unit level, all caught:** `multer` moved to devDependencies, `nanoid` undeclared, `bun.lock` workspace out of step, `engines` removed.
+  - **Install level** (the check run against a deliberately broken copy):
+    - `multer` moved to devDependencies: caught by the declared check; with that check skipped, caught by the installed-tree check.
+    - `mammoth` and `pdf-parse` moved to devDependencies, with the declared check skipped: caught by the installed-tree check.
+    - `nanoid` undeclared: caught by the declared check.
+    - `nanoid` undeclared, with the declared check skipped: **survives** the installed checks. `sanitize-html` and `vite` still bring it in through `postcss`, and an installed tree cannot tell an undeclared package from one that arrives transitively. That case is what the declared check and the unit test are for.
+- **Checks.** `tsc --noEmit` clean; full suite 720/720.
+- **Residual.**
+  - L15: the upload route's PDF text extraction has never worked with `pdf-parse` 2.x. The smoke test found it; H9 did not cause it.
+  - Packages only the build needs remain in `dependencies` (see above).
+  - The Node floor comes from the packages' declared `engines`. The verification ran on Node 24.15, not 22.12.
+
 ### H10 — Firestore production path largely unverified — High, unverified
 
 See the Firestore audit. In summary:
@@ -1207,7 +1267,7 @@ No new IELTS rules were introduced. Evidence is the existing tests unless stated
 | CORS | None configured; same-origin only. | safe default |
 | File paths | `data/` and `dist/` relative to the working directory; `adminStore` creates `data/private_uploads` at import even in production (needs a writable FS at boot). | deployment assumption |
 | Upload limits | JSON 16 MB global; admin upload 35 MB; source upload 60 MB, all in memory. | acceptable; review memory sizing |
-| Build / start | `npm run build` succeeds (Vite + esbuild CJS, 860 kB main chunk warning). `node dist/server.cjs` boots and serves `index.html`. devDependency runtime packages at risk (H9). | reproduced |
+| Build / start | `npm run build` succeeds (Vite + esbuild CJS, 860 kB main chunk warning). `node dist/server.cjs` boots and serves `index.html`. Since Phase 26 the bundle's runtime packages are dependencies, and the built server runs from a production install (H9 resolved). | reproduced; verified from a clean production install (Phase 26) |
 | Static assets | `express.static(dist)` plus catch-all `index.html`; no cache or security headers (M2, L3). | confirmed |
 | Secrets | `.env*` git-ignored (only `.env.example` tracked); tokens hashed at rest; the Gemini key stays server-side. | safe |
 | Missing deployment artefacts | No Dockerfile, platform descriptor, Firestore indexes/rules or runbook (M12). | gap |
@@ -1267,6 +1327,7 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
     - Safari/iOS.
     The server and client logic behind each is tested over HTTP and without a DOM (see the H8 resolution).
   - **Cleanup.** The server was stopped, `data/` restored from its backup, and the temporary launch configuration removed.
+- **Phase 26: no browser check, by design.** Declaring dependencies changes no visible behaviour. The runtime paths that depend on the corrected packages — multipart uploads, DOCX and PDF extraction, source ingestion, sign-in and assets — were exercised over HTTP from a clean production install (see the H9 resolution).
 
 ## Confirmed blockers
 
@@ -1282,7 +1343,7 @@ These Critical/High issues genuinely block production.
 7. ~~**H6** — exam Writing/Speaking lost at the deadline.~~ Resolved in Phase 24 (drafts at the deadline split out as M15).
 8. ~~**H7** — AI timeout, quota and error-mapping defects.~~ Resolved in Phase 24.
 9. ~~**H8** — Listening audio range support and once-only start on playback failure.~~ Resolved in Phase 25 on the server and learner path. Playback in a real browser (Chrome, Safari/iOS) is still unverified.
-10. **H9** — runtime dependencies misdeclared (blocker for any install that prunes devDependencies).
+10. ~~**H9** — runtime dependencies misdeclared.~~ Resolved in Phase 26: a clean production install boots the built server and serves its runtime paths.
 11. **H10** — Firestore production path `UNVERIFIED — real Firestore unavailable`. Adapter parity, race and outage tests pass on the in-memory Firestore (Phase 23).
 
 M1 (port), M3 (admin bootstrap) and the email configuration are deployment prerequisites rather than code defects, but a production launch cannot proceed without them.
@@ -1319,7 +1380,10 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
     - server timestamps.
 - **Real Cloud Storage:** upload, download and delete are stubbed in tests.
 - **Listening playback in a real browser** (H8). Phase 25's byte ranges and playback states are tested over HTTP and without a DOM. Neither Chrome nor Safari/iOS playback was run.
-- **Production install with pruned devDependencies** (H9).
+- **Production install on the target platform** (H9).
+  - Phase 26 verified `npm ci --omit=dev` and `bun install --production --frozen-lockfile` on Windows, with Node 24.15.
+  - The new CI step (Linux, Node 22.12) has not been seen to run.
+  - A Firestore-backed production boot beyond `/api/health` remains H10.
 - **Real Gemini behaviour.** Latency distribution, actual 503 frequency, output variance between calls, and calibration against human examiner scores.
 - **The anonymous public route under a real Firestore partial outage** (formerly the H1 hypothesis). Since Phase 20 it answers 503 through the error boundary when its query fails behind a working rate limiter — tested against the in-memory Firestore, not a real project (H10).
 - **Load:** Firestore read cost and latency per exam autosave and catalog load (M6).
@@ -1338,7 +1402,8 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - ~~**H4**~~ — done in Phase 21 (a changed published material is withdrawn to draft; revisioned saves; publish re-checks the row it gated).
 - ~~**H6 + H7**~~ — done in Phase 24: submission-time acceptance, bounded grading, one allowance unit per grading, 429 for quota. Still to do: decide M15 (drafts at the deadline), and run browser scenarios A–D with a signed-in session.
 - ~~**H8**~~ — done in Phase 25 on the server and learner path: byte ranges, and a part is heard only once playback started. Still to do: the browser check in Chrome (206 in the network panel, a failed play staying playable, no replay after a reload) and on a Safari/iOS device.
-- **H9, M1, M3** — dependency declarations, `PORT`, admin bootstrap for the target deployment.
+- ~~**H9**~~ — done in Phase 26: runtime dependencies declared, `engines` pinned, `bun.lock` in step, production install verified.
+- **M1, M3** — `PORT` and admin bootstrap for the target deployment.
 - **M2** — security headers.
 - **M11** — ensure no hosted environment runs with `EXPLICIT_DEV_AUTH`.
 - Short manual check of the first-click issue in a visible browser.

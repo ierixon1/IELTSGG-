@@ -33,6 +33,15 @@ jobs:
       - name: Build
         run: bun run build
 
+      # H9: the built server must run from a production install (dependencies only).
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12'
+
+      - name: Production install verification
+        run: node scripts/verifyProductionInstall.mjs --skip-build --installer=bun
+
       - name: Audit dependencies
         run: bun audit --audit-level=high
 
