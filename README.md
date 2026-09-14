@@ -93,10 +93,18 @@ runtime state and are git-ignored.
 
 ## Deployment
 
-Production runs the built server (`npm run build`, then `npm start`) from a
-production install (`npm ci --omit=dev`) with `NODE_ENV=production`. Before
-anything else loads, the server checks its configuration and refuses to start —
-listing every problem — unless all of these hold:
+Production runs the built server with `NODE_ENV=production`. The lockfile is
+`bun.lock` (`package-lock.json` is git-ignored), and the build needs the
+devDependencies (`esbuild`, `tailwindcss`), so build first, then install the
+runtime dependencies alone next to the build — the procedure CI verifies:
+
+1. `bun install --frozen-lockfile`, then `bun run build` (writes `dist/`);
+2. where the server will run, with `package.json`, `bun.lock` and `dist/`:
+   `bun install --production --frozen-lockfile`;
+3. `npm start` (`node dist/server.cjs`).
+
+Before anything else loads, the server checks its configuration and refuses to
+start — listing every problem — unless all of these hold:
 
 | Setting | Required |
 |---|---|

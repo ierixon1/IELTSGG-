@@ -43,7 +43,7 @@ No finding is open in code. Nothing below is marked verified unless it was run.
 | H6 | RESOLVED (Phase 24); VERIFIED in Chrome and Edge (Phase 29): Writing and Speaking submitted through the exam screens, stored, graded, and counted in the result | `tests/examGrading.test.ts`; `e2e:exam-acceptance` |
 | H7 | RESOLVED (Phase 24) | `tests/gradingPolicy.test.ts` |
 | H8 | RESOLVED (Phase 25); VERIFIED in Chrome and Edge (Phases 28 and 29); Safari/iOS ENVIRONMENT BLOCKED (no Apple browser or device) | `e2e:listening-audio`: Phase 29, 42/42 in Chrome 152 and 42/42 in Edge 153 |
-| H9 | RESOLVED (Phase 26); VERIFIED again in Phase 29 (clean `npm ci --omit=dev`) | `verify:production-install` |
+| H9 | RESOLVED (Phase 26). VERIFIED again in Phase 29 with `npm ci --omit=dev` against this machine's local, git-ignored `package-lock.json`; CI verifies the committed `bun.lock` with `bun install --production --frozen-lockfile` | `verify:production-install` |
 | H10 | UNVERIFIED / ENVIRONMENT BLOCKED: no Firestore credentials, project, emulator, `gcloud`, `java` or `docker` on this machine (checked again in Phase 29) | `verify:firestore`, extended in Phase 29 to 14 steps, passes on the in-memory Firestore (`tests/firestoreVerification.test.ts`) |
 | H11 | RESOLVED (Phase 19) | `tests/examOracle.test.ts`; browser acceptance: no key or mark in exam responses mid-exam |
 | M1 | RESOLVED (Phase 28) | `tests/startupConfig.test.ts` |
@@ -175,7 +175,7 @@ A hypothesis disproven and reverted: a suspected non-idempotent blocked-image pl
 | Changed-area suites | `finalHardening` 26/26, `serverHardening`, `serverStability`, `startupConfig`, `gradingPolicy`, `examGrading`, `adminBootstrap`, `firestoreVerification`, `authSignInPolicy`, `userRateLimits`: all pass |
 | Mutation checks | 41 mutations against the Phase 29 guarantees. Each was applied to the source bytes, its suites run, and the file restored byte-identical (checked). **40 caught.** **1 documented survivor, `L13-detached-signal`:** handing the operation a fresh, never-aborting signal instead of the attempt's own cannot be told apart without waiting out the fixed 45 s attempt timeout; `L13-no-signal` and `L13-chat-wiring` are caught. Not counted: one mutation built on a hypothesis that proved false (the blocked-image placeholder, above). `shutdown-timeout-exit` first hung instead of failing; the shutdown tests now clean up in `finally`, and both shutdown mutations were rerun and caught in under 30 s. |
 | `npm run build` | succeeds (the 875 kB main chunk warning is unchanged) |
-| `verify:production-install` (clean `npm ci --omit=dev`) | Every step passed on the final build: <br>• every runtime package declared, no dev tooling installed; <br>• production refuses to start without its configuration (6 problems named); <br>• production boot serves the shell with CSP, HSTS, frame denial and a request id; <br>• `/api/health` answers 503 without Firestore; <br>• on local storage: sign-up and sign-in, the `/api` 404, staff sign-in, HTML, DOCX and PDF uploads with extraction, DOCX and PDF source ingestion, and byte ranges. <br>SIGTERM skipped: Windows cannot deliver it to a child process; CI checks it on Linux. |
+| `verify:production-install` (`--installer=npm`: clean `npm ci --omit=dev` from the local, git-ignored `package-lock.json`; CI runs `--installer=bun` from the committed `bun.lock`) | Every step passed on the final build: <br>• every runtime package declared, no dev tooling installed; <br>• production refuses to start without its configuration (6 problems named); <br>• production boot serves the shell with CSP, HSTS, frame denial and a request id; <br>• `/api/health` answers 503 without Firestore; <br>• on local storage: sign-up and sign-in, the `/api` 404, staff sign-in, HTML, DOCX and PDF uploads with extraction, DOCX and PDF source ingestion, and byte ranges. <br>SIGTERM skipped: Windows cannot deliver it to a child process; CI checks it on Linux. |
 | `e2e:production-csp` | 5/5 in Chrome 152 and 5/5 in Edge 153 (first run: 4/5, the Zod eval probe; fixed) |
 | `e2e:listening-audio` | 42/42 in Chrome 152 and 42/42 in Edge 153; `data/` restored byte-identical |
 | `e2e:exam-acceptance` | 57/57 in Chrome 152 and 57/57 in Edge 153. The run covers: <br>• a real CDI page imported (38 questions read, all flagged for review) and refused publication; <br>• the admin CMS; <br>• learner security refusals; <br>• a full exam with a reload mid-section; <br>• Listening 38/40 = 8.5 and Reading 39/40 = 9.0, as the conversion tables give; <br>• Writing 6.5 and Speaking 7 from the grading runs; <br>• overall 8.0, stored and shown. <br>`data/` restored byte-identical. |
@@ -191,7 +191,12 @@ Before the first production deployment:
 2. **Deploy Firestore settings** to the production project: `firebase deploy --only firestore:rules,firestore:indexes`, and enable TTL on `rate_limits.expiresAt` and `auth_sessions.expireAt`.
 3. **Set the production environment:** `NODE_ENV=production`, `PORT`, `TRUST_PROXY` (1 behind Cloud Run or one load balancer), `STORAGE_BACKEND=gcs_firestore`, `GCS_BUCKET_NAME`, credentials, `RESEND_API_KEY`, `EMAIL_FROM`, an `https://` `APP_URL`, `GEMINI_API_KEY`. The server refuses to start while any of these is missing or wrong.
 4. **Service account roles:** Cloud Datastore User; Storage Object Admin on the bucket.
-5. **Build and start:** `npm ci --omit=dev`, then `npm run build`, then `npm start`. Confirm `/api/health` answers 200 and the response headers include the CSP.
+5. **Build and start**, as CI verifies it (see the README, Deployment):
+   - `bun install --frozen-lockfile`, then `bun run build`;
+   - where the server runs, with `package.json`, `bun.lock` and `dist/`: `bun install --production --frozen-lockfile`;
+   - `npm start`.
+
+   Confirm `/api/health` answers 200 and the response headers include the CSP. Do not use `npm ci`: `package-lock.json` is git-ignored, so `npm ci` fails on a clean checkout (`EUSAGE`). A production-only install also cannot build, because `esbuild` and `tailwindcss` are devDependencies.
 6. **First administrator:** register an account, then run `npm run admin:promote -- <username> admin`, or start once with `ADMIN_PROMOTE_USERNAME`.
 7. **Confirm on the deployment:**
    - a password-reset email arrives;
@@ -204,6 +209,46 @@ Before the first production deployment:
     - no edits to materials pinned by a live exam (M9);
     - rights to publish textbook-derived and CDI content recorded;
     - revisit the dependency advisories when upgrading `firebase-admin` or moving to Express 5.
+
+## Final release acceptance (on `ca7a415`)
+
+A check of the Phase 29 commit, with no new engineering. The one defect it found was in the deployment documentation, which is corrected in the commit that adds this section. No code changed.
+
+| Check | Result |
+|---|---|
+| Repository | `ca7a415` = `origin/main`; working tree clean apart from the untracked `data/private_uploads/`. No tracked secrets, private uploads, mutation artifacts, backups or temp files, in the tree or in the commit. |
+| `npm run build`, `tsc --noEmit` | both pass |
+| Full suite | First run: 806/807. `sourceIngest` "is reachable end to end through the admin API" failed once with `ECONNRESET`. It passed 29/29 on 5 isolated runs, and a second full run passed 807/807: an intermittent transport reset, the kind recorded under "Runtime / reliability audit", not reproducible, not a defect. |
+| `e2e:production-csp` (Chrome 152) | 5/5 |
+| `e2e:listening-audio` (Chrome 152) | 42/42 |
+| `e2e:exam-acceptance` (Chrome 152) | 57/57, covering:<br>• learner flow: full exam, reload, result, stored attempt against the scoring tables;<br>• admin flow: CMS, bundles, CDI import refused publication;<br>• boundaries: the admin API 403 to a learner, exam material refused for practice with no answers, no key or mark in exam responses mid-exam. |
+| `verify:production-install` | every step passed (SIGTERM skipped on Windows; checked on Linux CI) |
+| Package/lockfile consistency | `package.json` matches the committed `bun.lock` workspace entry and the local `package-lock.json` exactly; every direct dependency's locked version satisfies its range; no overrides |
+| Old mock/demo fallback | The mock-generation API is absent from the source and from `dist/server.cjs`. The built-in practice test is served only when a learner chooses it (`source.kind === 'builtin'` in `practiceMarking.ts`); the exam screen reads only published bundles, and no bundle or material path falls back to it. |
+| Real Gemini (`smoke:book-to-test`, one try) | `real_model_unavailable`, HTTP 503: EXTERNAL VERIFICATION |
+| Real Firestore | no credentials, ADC, `gcloud`, `firebase`, `java` or `docker`: H10 stays ENVIRONMENT BLOCKED |
+
+**Defect found and corrected (documentation only).** The README and the release checklist told a deployer to run `npm ci --omit=dev`, then `npm run build`.
+- On a clean checkout of `ca7a415` that fails: `npm ci` exits with `EUSAGE` because `package-lock.json` is git-ignored, and `bun.lock` is the project's lockfile.
+- A production-only install also cannot run the build: `esbuild` and `tailwindcss` are devDependencies.
+- Both now give the procedure CI verifies: `bun install --frozen-lockfile` and `bun run build`, then `bun install --production --frozen-lockfile` next to `dist/`, then `npm start`.
+- The H9 entries now say that this machine's npm run used a local lockfile.
+- It is not a code blocker: runtime behaviour is unchanged.
+
+**Remaining items, classified.**
+
+| Item | Classification |
+|---|---|
+| Real Firestore and Cloud Storage (H10): run `verify:firestore` against a dedicated project | EXTERNAL VERIFICATION |
+| Safari (macOS) and iOS Listening playback (H8) | EXTERNAL VERIFICATION |
+| Real Gemini: Book → Test smoke test and one real Writing and Speaking grade | EXTERNAL VERIFICATION |
+| First Linux CI run: full suite, `bun install --frozen-lockfile`, production install with SIGTERM | EXTERNAL VERIFICATION |
+| Target deployment: `TRUST_PROXY` behind the real proxy, Firestore rules, indexes and both TTL policies, first administrator, Resend delivery, audit log retention | EXTERNAL VERIFICATION |
+| M6, M8, M9, the M10 reconciliation residual, M12 (no data migration), M15 policy, the M16 residual, L6, L8, L12, L14; the built-in practice test | ACCEPTED PRODUCT DECISION |
+| `uuid` GHSA-w5hq-g745-h8pq via `firebase-admin`; `qs` GHSA-x5fp-wj9c-mxmx and GHSA-4mjr-xmp4-gh2g via `express`; the `L13-detached-signal` mutation survivor | ACCEPTED SECURITY/DEPENDENCY RISK |
+| Code blockers | none |
+
+**Decision: READY — NO KNOWN CODE BLOCKERS.**
 
 ## History of this audit (Phases 17–28)
 
