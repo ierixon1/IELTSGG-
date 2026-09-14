@@ -23,10 +23,10 @@ describe('security regressions', () => {
     expect(routes).toContain('const userId=requireUser(req,res)');
     expect(routes).not.toContain('req.body.userId');
   });
-  it('reserves mock generation quota before generation', async () => {
-    const service = await read('src/services/mockGenerator.ts');
-    expect(service).toContain('dataStore.reserveGeneration(userId,maxGenerations)');
-    expect(service).toContain("checkLimit(userId,'mock_generation')");
+  it('no longer carries the unused mock-generation API or its demo fallback (L7)', async () => {
+    const exists = (file: string) => readFile(file).then(() => true, () => false);
+    expect(await read('server.ts')).not.toContain('mockRouter');
+    for (const file of ['src/routes/mockRoutes.ts', 'src/services/mockGenerator.ts', 'src/schemas/mockGeneratorSchema.ts']) expect([file, await exists(file)]).toEqual([file, false]);
   });
   it('uses operation-specific AI quota guards', async () => {
     const retry = await read('prompts/geminiRetry.ts');
@@ -69,7 +69,7 @@ describe('security regressions', () => {
     expect(routes).not.toContain('req.headers.authorization');
     expect(middleware).toContain('Cross-site request blocked.');
     expect(middleware).toContain("'staff_api'");
-    expect(server).toContain("app.use('/api/admin',enforceAdminSecurity,adminRouter)");
+    expect(server).toContain("app.use('/api/admin',adminAuditTrail(),enforceAdminSecurity,staffSizedBody,adminRouter)");
   });
   it('does not pass or persist an admin session token in the login UI', async () => {
     const login = await read('src/components/admin/AdminLogin.tsx');
@@ -101,9 +101,13 @@ describe('security regressions', () => {
     expect(gate).toContain("code: 'component_archived'");
     expect(service).toContain('return refuse(learnerProblem(blockers));');
   });
-  it('fails closed for explicit dev impersonation in production', async () => {
+  it('fails closed for explicit dev impersonation outside development and test (M11)', async () => {
+    // Behaviour: tests/finalHardening.test.ts starts the real server.ts with NODE_ENV unset and the switch on.
     const middleware = await read('src/middleware/authMiddleware.ts');
-    expect(middleware).toContain("process.env.NODE_ENV!=='production'&&process.env.EXPLICIT_DEV_AUTH==='true'");
+    const devAuth = await read('src/config/devAuth.ts');
+    expect(middleware).toContain('isExplicitDevAuthEnabled=explicitDevAuthEnabled');
+    expect(devAuth).toContain("DEV_AUTH_ENVIRONMENTS = new Set(['development', 'test'])");
+    expect(middleware).not.toContain("NODE_ENV!=='production'");
   });
   it('serializes local quota writes', async () => {
     const store = await read('src/services/storage/LocalJsonDataStore.ts');
@@ -123,7 +127,8 @@ describe('security regressions', () => {
     const store = await read('src/services/adminStore.ts');
     // Materials are now validated against the canonical Zod schema on the
     // merged record, not by a hand-rolled check of four scalar fields.
-    expect(store).toContain('parseMaterialForWrite(section,candidate)');
+    // The rendered-HTML fields are sanitised on the merged record first, whichever route wrote it (M5).
+    expect(store).toContain('parseMaterialForWrite(section,sanitizeRenderedMaterialHtml(section,candidate))');
     expect(store).toContain('MaterialValidationError');
     const bundles = await read('src/routes/bundleRoutes.ts');
     expect(bundles).toContain('BundleDraftInputSchema.safeParse(req.body)');

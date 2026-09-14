@@ -24,21 +24,26 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The declared engine floor: the tests and the production-install check run on it.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12'
+
       - name: Typecheck
         run: bun run lint
 
       - name: Security regression tests
         run: bun run test:security
 
+      # Every behavioural suite, including those that start the real server.ts.
+      - name: Full test suite
+        run: npm test
+
       - name: Build
         run: bun run build
 
       # H9: the built server must run from a production install (dependencies only).
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.12'
-
       - name: Production install verification
         run: node scripts/verifyProductionInstall.mjs --skip-build --installer=bun
 

@@ -96,7 +96,7 @@ export const uz: Dictionary = {
     chooseTest: 'Qaysi testni topshirish',
     chooseTestHint: 'Admin paneldan chop etilgan testlar shu yerda, o‘rnatilgani yonida chiqadi.',
     incompleteTitle: 'Bu test toʻliq emas.',
-    incompleteBody: 'Unda {sections} boʻlimlari yoʻq, shuning uchun ular uchun oʻrnatilgan material koʻrsatiladi.',
+    incompleteBody: 'Unda {sections} boʻlimlari yoʻq, shuning uchun bu test bilan ularni mashq qilib boʻlmaydi.',
     builtInTest: 'O‘rnatilgan sinov test',
     listening: {
       meta: '~30 daqiqa · 4 qism',
@@ -516,6 +516,7 @@ export const uz: Dictionary = {
       submitTask: 'Topshiriqni yuborish',
       submitAnswer: 'Javobni yuborish',
       submitting: 'Yuborilmoqda…',
+      deadlineNotice: 'Faqat yuborilgan ish baholanadi. Boʻlim vaqti tugashidan oldin yuboring: shu paytgacha yuborilmagan ish baholanmaydi.',
       sectionAwaiting: 'Baholanmoqda',
       inProgress: '{item} topshirildi va saqlandi. Baholanmoqda…',
       done: '{item} topshirildi va baholandi.',

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { getFirestoreDb } from './firebaseAdmin';
+import { isJsonObject, readLocalJson } from './storage/localJson';
 
 /**
  * Request allowances: how many requests a key may make in a window that opens
@@ -111,11 +112,8 @@ class RequestRateLimitService {
   }
 
   private readLocal(): Record<string, Window & { expiresAt?: number }> {
-    try {
-      return JSON.parse(fs.readFileSync(LOCAL_FILE, 'utf8'));
-    } catch {
-      return {};
-    }
+    // A file that cannot be read throws rather than reading as no counts, which would lift every limit (M4).
+    return readLocalJson<Record<string, Window & { expiresAt?: number }>>(LOCAL_FILE, {}, isJsonObject);
   }
 
   private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {

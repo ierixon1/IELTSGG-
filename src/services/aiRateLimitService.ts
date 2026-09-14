@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import { getFirestoreDb } from './firebaseAdmin';
+import { isJsonArray, isJsonObject, readLocalJson } from './storage/localJson';
 
 export type AiOperationType = 'writing_grade' | 'speaking_grade' | 'mock_generation' | 'preppy_chat' | 'ai_request';
 export interface AiUsageRecord { id: string; userId: string; timestamp: string; operation: AiOperationType; model: string; wordCount?: number; durationMs?: number; success: boolean; notes?: string; }
@@ -26,8 +27,9 @@ class AiRateLimitService {
   constructor() { if (!useFirestore()) this.ensureLocalFiles(); }
   private ensureLocalFiles() { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); if (!fs.existsSync(LOCAL_LOG)) fs.writeFileSync(LOCAL_LOG, '[]', 'utf8'); if (!fs.existsSync(LOCAL_QUOTA)) fs.writeFileSync(LOCAL_QUOTA, '{}', 'utf8'); }
   private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> { const previous = this.locks.get(key) || Promise.resolve(); let release!: () => void; const current = new Promise<void>(r => { release = r; }); this.locks.set(key, current); await previous; try { return await fn(); } finally { release(); if (this.locks.get(key) === current) this.locks.delete(key); } }
-  private readLocal(): AiUsageRecord[] { try { const v = JSON.parse(fs.readFileSync(LOCAL_LOG, 'utf8')); return Array.isArray(v) ? v : []; } catch { return []; } }
-  private readLocalQuota(): Record<string, LocalQuotaEntry> { try { const v = JSON.parse(fs.readFileSync(LOCAL_QUOTA, 'utf8')); return v && typeof v === 'object' ? v : {}; } catch { return {}; } }
+  // A missing file is empty; a file that cannot be read throws instead of resetting quotas or the log (M4).
+  private readLocal(): AiUsageRecord[] { return readLocalJson<AiUsageRecord[]>(LOCAL_LOG, [], isJsonArray); }
+  private readLocalQuota(): Record<string, LocalQuotaEntry> { return readLocalJson<Record<string, LocalQuotaEntry>>(LOCAL_QUOTA, {}, isJsonObject); }
   private writeLocalQuota(value: Record<string, LocalQuotaEntry>) { const tmp = `${LOCAL_QUOTA}.tmp.${process.pid}.${Date.now()}.${nanoid(4)}`; fs.writeFileSync(tmp, JSON.stringify(value), 'utf8'); fs.renameSync(tmp, LOCAL_QUOTA); }
   private appendLocal(r: AiUsageRecord) { const logs = this.readLocal(); logs.push(r); if (logs.length > 5000) logs.splice(0, logs.length - 5000); const tmp = `${LOCAL_LOG}.tmp.${process.pid}.${Date.now()}.${nanoid(4)}`; fs.writeFileSync(tmp, JSON.stringify(logs), 'utf8'); fs.renameSync(tmp, LOCAL_LOG); }
   public async consume(userId: string, operation: AiOperationType) {
@@ -64,13 +66,6 @@ class AiRateLimitService {
   public async recordUsage(params: { userId: string; operation: AiOperationType; model: string; wordCount?: number; durationMs?: number; success: boolean; notes?: string }) {
     const record: AiUsageRecord = { id: `ai_${Date.now()}_${nanoid(6)}`, timestamp: new Date().toISOString(), ...params };
     if (useFirestore()) await getFirestoreDb().collection('ai_usage').doc(record.id).set(record); else await this.withLock('usage-log', async () => this.appendLocal(record));
-  }
-  public async getUsageLogs(options?: { userId?: string; operation?: AiOperationType; limit?: number }) {
-    if (!useFirestore()) { let logs = this.readLocal(); if (options?.userId) logs = logs.filter(x => x.userId === options.userId); if (options?.operation) logs = logs.filter(x => x.operation === options.operation); logs.sort((a,b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)); return { records: logs.slice(0, Math.min(Math.max(options?.limit || 100, 1), 500)), summary: {} as Record<string, number> }; }
-    let q: FirebaseFirestore.Query = getFirestoreDb().collection('ai_usage').orderBy('timestamp', 'desc');
-    if (options?.userId) q = q.where('userId', '==', options.userId); if (options?.operation) q = q.where('operation', '==', options.operation);
-    const snap = await q.limit(Math.min(Math.max(options?.limit || 100, 1), 500)).get();
-    return { records: snap.docs.map(d => d.data() as AiUsageRecord), summary: {} as Record<string, number> };
   }
 }
 export const aiRateLimitService = new AiRateLimitService();

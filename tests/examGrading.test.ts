@@ -421,7 +421,7 @@ describe('one submission, one grading at a time, never a second charge', () => {
       name: 'test',
       generate: async (request: GenerateContentParameters) => {
         providerModels.push(request.model);
-        return { text: JSON.stringify({ band_overall: 6.5, criteria: [], annotated_text: [], general_commentary: 'Fixture.' }) };
+        return { text: JSON.stringify({ band_overall: 6.5, criteria: [{ name: 'Task Achievement', band: 6.5, justification: 'Fixture.', improvement_tips: [] }], annotated_text: [], general_commentary: 'Fixture.' }) };
       },
     });
     try {

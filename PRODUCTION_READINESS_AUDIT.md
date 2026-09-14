@@ -1,12 +1,215 @@
-# Production Readiness Audit (Phase 17)
+# Production Readiness Audit — final state (Phase 29)
 
-Audited commit: `5ebe768 phase-16-ielts-fidelity-corrections`
+First audited commit: `5ebe768 phase-16-ielts-fidelity-corrections` (Phase 17, audit only). Final state after Phase 29, the last engineering phase. The Phase 17–28 record is kept below, under "History of this audit".
 
-Audit-only phase. No production code, tests, schemas or data were changed. Findings were reproduced with throwaway probes outside the repository (see "Method").
+## Final decision
 
-## Executive summary
+**CODE / TEST STATE: READY FOR FINAL ACCEPTANCE**
 
-**Overall status: NOT READY**
+**EXTERNAL VERIFICATION STILL REQUIRED:**
+1. Real Firestore and Cloud Storage (H10). Needs a dedicated project with credentials; run `npm run verify:firestore -- --confirm-dedicated-project`.
+2. Listening playback on Safari (macOS) and iOS (H8).
+3. The real Gemini model. The Book → Test smoke test answered `real_model_unavailable` (Gemini 503) on 3 separate tries during this phase; real grading latency and calibration are also unverified.
+4. The first CI run on Linux: the full suite, and the SIGTERM step of `verify:production-install`.
+5. The target deployment:
+   - `TRUST_PROXY` behind the real proxy;
+   - both Firestore TTL policies;
+   - rules and indexes deployed;
+   - first administrator promoted;
+   - Resend email delivery.
+
+No finding is open in code. Nothing below is marked verified unless it was run.
+
+## Status legend
+
+| Status | Meaning |
+|---|---|
+| RESOLVED | Fixed in code, with regression tests that were mutation-checked. |
+| VERIFIED | Run for real in this environment: the real `server.ts`, a clean production install, or real Chromium browsers. |
+| UNVERIFIED / ENVIRONMENT BLOCKED | Could not be run here: no credentials, service or device. The exact blocker is named. |
+| ACCEPTED PRODUCT DECISION | Deliberate behaviour or scope, with the reason recorded. |
+| ACCEPTED DEPENDENCY RISK | A known advisory in a dependency, traced to the code that runs, and not reachable. |
+
+## Every finding, final status
+
+| ID | Final status | Evidence |
+|---|---|---|
+| C1 | RESOLVED (Phase 18); VERIFIED in a browser (Phase 18) | `tests/practiceEligibility.test.ts`; Phase 29 browser acceptance: practice marking of an exam material refused with no answers |
+| H1 | RESOLVED (Phase 20) | `tests/serverStability.test.ts`, `tests/errorBoundary.test.ts` |
+| H2 | RESOLVED (Phase 27); real proxy UNVERIFIED | `tests/userRateLimits.test.ts`, `tests/rateLimitStorage.test.ts`, `tests/authSignInPolicy.test.ts` |
+| H3 | RESOLVED (Phase 22); VERIFIED in Chromium (Phases 28–29) | `tests/assetAccess.test.ts`; `e2e:listening-audio` part D |
+| H4 | RESOLVED (Phase 21) | `tests/publishedMaterialProtection.test.ts` |
+| H5 | RESOLVED on the in-memory Firestore (Phase 23); real Firestore → H10 | `tests/firestoreStaleFields.test.ts`, `tests/storageParity.test.ts` |
+| H6 | RESOLVED (Phase 24); VERIFIED in Chrome and Edge (Phase 29): Writing and Speaking submitted through the exam screens, stored, graded, and counted in the result | `tests/examGrading.test.ts`; `e2e:exam-acceptance` |
+| H7 | RESOLVED (Phase 24) | `tests/gradingPolicy.test.ts` |
+| H8 | RESOLVED (Phase 25); VERIFIED in Chrome and Edge (Phases 28 and 29); Safari/iOS ENVIRONMENT BLOCKED (no Apple browser or device) | `e2e:listening-audio`: Phase 29, 42/42 in Chrome 152 and 42/42 in Edge 153 |
+| H9 | RESOLVED (Phase 26); VERIFIED again in Phase 29 (clean `npm ci --omit=dev`) | `verify:production-install` |
+| H10 | UNVERIFIED / ENVIRONMENT BLOCKED: no Firestore credentials, project, emulator, `gcloud`, `java` or `docker` on this machine (checked again in Phase 29) | `verify:firestore`, extended in Phase 29 to 14 steps, passes on the in-memory Firestore (`tests/firestoreVerification.test.ts`) |
+| H11 | RESOLVED (Phase 19) | `tests/examOracle.test.ts`; browser acceptance: no key or mark in exam responses mid-exam |
+| M1 | RESOLVED (Phase 28) | `tests/startupConfig.test.ts` |
+| M2 | RESOLVED (Phase 29); VERIFIED in Chrome and Edge | `src/http/securityHeaders.ts`; `tests/finalHardening.test.ts`, `tests/serverHardening.test.ts`; `verify:production-install`; `e2e:production-csp` 5/5 in each browser |
+| M3 | RESOLVED (Phase 28); real Firestore → H10 | `tests/adminBootstrap.test.ts` |
+| M4 | RESOLVED (Phase 29) | `src/services/storage/localJson.ts`; `tests/finalHardening.test.ts` (M4) |
+| M5 | RESOLVED (Phase 29) | `sanitizeRenderedMaterialHtml` in `adminStore.finalise`; `tests/finalHardening.test.ts` (M5) |
+| M6 | ACCEPTED PRODUCT DECISION: performance not measured; measure Firestore reads per autosave under load before scaling beyond a pilot | code paths listed in the risk register |
+| M7 | RESOLVED (Phase 29): request ids, an admin audit trail, error log lines with the request id; storage-aware health since Phase 20; exam grading records store the model since Phase 24 | `src/http/requestId.ts`, `src/http/adminAudit.ts`; `tests/serverHardening.test.ts` |
+| M8 | ACCEPTED PRODUCT DECISION: attempts pin material id and content hash, with no content snapshot; reconstructing an attempt after an edit is out of scope | `attemptVerification.ts` |
+| M9 | ACCEPTED PRODUCT DECISION: an edit to a pinned material stops live sittings by design; operational rule, no edits during live exam windows | `tests/examSession.test.ts` |
+| M10 | RESOLVED (Phase 29) for batch limits; multi-step asset reconciliation ACCEPTED (it reconciles on the next save, and failures are logged) | `tests/finalHardening.test.ts` (M10); `verify:firestore` 450-document steps |
+| M11 | RESOLVED (Phase 29) | `src/config/devAuth.ts`; `tests/startupConfig.test.ts`, `tests/finalHardening.test.ts` (M11) |
+| M12 | RESOLVED in part (Phase 29): `firestore.rules`, `firestore.indexes.json`, deployment runbook in the README. ACCEPTED PRODUCT DECISION: no local → Firestore data migration; production content is authored in production | repository files; README "Deployment" |
+| M13 | RESOLVED (Phase 29) | `tests/finalHardening.test.ts` (M13) |
+| M14 | RESOLVED (Phase 29): the inline routes and middleware order are tested over the real `server.ts` | `tests/serverHardening.test.ts` |
+| M15 | ACCEPTED PRODUCT DECISION: only submitted work is graded. RESOLVED (Phase 29): the rule is shown on the exam Writing and Speaking screens | render test; browser acceptance |
+| M16 | RESOLVED (Phase 28). Residual ACCEPTED: 20 failed sign-ins from one address refuse that address until the window closes | `tests/authSignInPolicy.test.ts` |
+| L1 | RESOLVED (Phase 29) | `tests/finalHardening.test.ts` (L1) |
+| L2 | RESOLVED (Phase 28) | `tests/uploadPdfText.test.ts` |
+| L3 | RESOLVED: JSON errors (Phase 20); unknown `/api` paths answer a JSON 404 (Phase 29) | `tests/serverHardening.test.ts`; browser acceptance |
+| L4 | RESOLVED (Phase 29) | copy in en/ru/uz; `tests/finalHardening.test.ts` |
+| L5 | RESOLVED (Phase 29) | README |
+| L6 | ACCEPTED PRODUCT DECISION: practice bands are self-reported and affect only the learner's own plan; exam attempts are server-recorded | `userDataRoutes.ts` |
+| L7 | RESOLVED (Phase 29): the mock-generation API, its demo generator and prompts removed | `tests/security.test.ts`, `tests/finalHardening.test.ts` |
+| L8 | ACCEPTED PRODUCT DECISION: per-user dev data tracked intentionally (commit `fb82b24`) | `git ls-files data` |
+| L9 | RESOLVED (Phase 29): sessions carry `expireAt`, and both TTL fields are declared. Enabling the policies is a deployment step | `tests/finalHardening.test.ts` (L9) |
+| L10 | RESOLVED (Phase 29) | `tests/finalHardening.test.ts` (L10) |
+| L11 | RESOLVED (Phase 29) | `tests/serverHardening.test.ts` |
+| L12 | ACCEPTED PRODUCT DECISION: local storage is development only; production refuses it at start | `tests/startupConfig.test.ts` |
+| L13 | RESOLVED (Phase 29). One documented mutation survivor: see Mutation checks | `tests/finalHardening.test.ts` (L13) |
+| L14 | ACCEPTED PRODUCT DECISION: a byte range is sliced from the whole object; a cost, not a correctness issue | `sendAsset.ts` |
+| L15 | RESOLVED (Phase 28) | `tests/uploadPdfText.test.ts` |
+| L16 | RESOLVED (Phase 29) | `tests/finalHardening.test.ts` (L16), `tests/adminBootstrap.test.ts` |
+
+## Phase 29: fixed code defects
+
+From the open findings:
+- **M2:** security headers on every response. Production adds HSTS and a CSP (`'self'` scripts, no framing, no plugins, no eval); no `X-Powered-By`.
+- **M4:** a local JSON file that cannot be read or has the wrong shape answers 503 `storage_unavailable` and is never overwritten. A missing file still reads as empty.
+- **M5:** `adminStore` sanitises every field a learner screen renders as HTML, on every write: `htmlContent`, `passageHtml`, a Reading passage's `text` and a Writing `prompt` when they hold markup. Plain text is kept verbatim. `namespaceCdiId` is idempotent, so saving an unchanged published material stays unchanged.
+- **M7:** a server-generated `X-Request-Id`, never taken from the client; an `admin_audit` JSON line for every state-changing admin request, refused ones included, with no body or password; the request id on the error boundary's log line. The dead `auditLogService` was removed.
+- **M10:** session invalidation and source deletion commit at most 400 deletes at a time.
+- **M11:** `EXPLICIT_DEV_AUTH` takes effect only with `NODE_ENV` set to `development` or `test`; any other value, unset included, stops the start.
+- **M13:** bcrypt hashing and comparison are asynchronous. The local store reads again after the await, so concurrent failed sign-ins all count and a password changed mid-compare is not accepted.
+- **M14:** behavioural tests over the real `server.ts`: its inline AI routes, body limits, headers, 404s and audit trail.
+- **M15:** the submission rule is shown on the exam Writing and Speaking screens.
+- **L1:** download filenames keep only word characters, dots, spaces and hyphens.
+- **L3:** unknown `/api` paths answer a JSON 404.
+- **L4, L5:** misleading copy and README text corrected.
+- **L7:** the unused mock-generation API removed.
+- **L9:** sessions carry `expireAt`; `firestore.indexes.json` declares both TTL fields.
+- **L10:** Writing needs a valid half-band for every listed criterion; Speaking for each of its four named criteria.
+- **L11:** sign-in, sign-up and anonymous admin requests read at most 64 kB; learner API bodies are read only after sign-in.
+- **L13:** each attempt's abort signal reaches the mentor-chat SDK call.
+- **L16:** a staff sign-in refused for its role creates no session and is not counted as a failed guess.
+
+Found during Phase 29:
+- **The query string was parsed by `qs` with `allowPrototypes`**, so `?status[toString]=x` made staff routes answer 500. Express now uses its `simple` parser (see Dependency advisories).
+- **Zod probed `new Function("")` in the browser**, which the production CSP reported as a violation on every load. It was found by the new `e2e:production-csp` run. The browser bundle now sets Zod's `jitless` (`src/zodBrowserConfig.ts`, imported first by `main.tsx`).
+- **A regression introduced and caught within the phase:** the first version of the L10 check required every assessment's criteria to be an array. Speaking names its four criteria in an object, so every real Speaking grade would have been refused. Caught in review before commit; both shapes are now tested and mutation-checked.
+
+Deployment and operations:
+- `firestore.rules` (deny all client access);
+- `firestore.indexes.json` (TTL fields);
+- graceful shutdown on SIGTERM/SIGINT;
+- a warning when `NODE_ENV` is unset;
+- the full test suite in CI;
+- `verify:firestore` extended with `expireAt`, the L16 refusal, chunked session and source deletes, and both TTL policies;
+- `verify:production-install` extended with the production headers, the `/api` 404 and (on Linux) SIGTERM.
+
+Test quality:
+- the graceful-shutdown tests release their connections in `finally`, so a failing assertion fails instead of hanging;
+- the grading fixture can answer Writing and Speaking in one run (`byKind`).
+
+A hypothesis disproven and reverted: a suspected non-idempotent blocked-image placeholder. `sanitize-html` 2.17.7 applies the `'*'` transform to the tag an `img` transform produces, so the placeholder was already stable; the mutation check exposed this and the change was reverted.
+
+## Dependency advisories (Phase 29)
+
+`npm audit --omit=dev` on the committed lockfile reports 8 moderate advisories in two chains. There are no low, high or critical findings. Each chain was traced to the code that runs, not only to the version ranges.
+
+### `uuid` — GHSA-w5hq-g745-h8pq (CVE-2026-41907, CVE-2026-41988)
+
+- **What it is.** In `uuid` < 11.1.1, `v3()`, `v5()` and `v6()` do not bounds-check a caller-supplied output buffer (`buf`, `offset`), so they can write partially into it. `v1()`, `v4()` and `v7()` do check. CVSS 3.1: `AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N`.
+- **How it reaches the tree.** `firebase-admin@14.3.0` → optional `@google-cloud/storage@7.22.0` → `gaxios@6.7.1` and `teeny-request@9.0.0` (plus `retry-request@7.0.2`, which depends on `teeny-request`) → `uuid@9.0.1`. That accounts for 6 of the 8 audit entries: `uuid`, `gaxios`, `teeny-request`, `retry-request`, `@google-cloud/storage`, `firebase-admin`. `uuid@9.0.1` is the only copy installed.
+- **Exploitability in this application: not reachable.**
+  - The application never imports `uuid`.
+  - The two runtime callers are `gaxios/build/src/gaxios.js:417` (`(0, uuid_1.v4)()`) and `teeny-request/build/src/index.js:135` (`uuid.v4()`). Both call `v4()`, with no buffer, to make a multipart boundary.
+  - The vulnerable functions are never called, and no request data reaches a `buf` or `offset` argument.
+- **Compatible update.** `npm audit fix` (without `--force`) moves `firebase-admin` 14.3.0 → 14.4.0, which is inside the declared `^14.3.0`. It was simulated on a copy of the lockfile with `--package-lock-only`. It changes 78 lockfile entries:
+  - `@google-cloud/firestore` 8.7.1 → **9.1.0**;
+  - `@google-cloud/storage` 7.22.0 → **8.1.0**;
+  - `google-gax` 5.0.8 → **6.3.0**;
+  - `google-auth-library` (under `google-gax`) 10 → **11**;
+  - `retry-request` 7 → 9 and `teeny-request` 9 → 11;
+  - removal of `uuid`.
+- **Why it is not applied.** It replaces the Firestore and Cloud Storage client libraries with new major versions, the layer every production write goes through. Their behaviour against a real project cannot be verified here: real Firestore and Cloud Storage are unavailable (H10, `ENVIRONMENT BLOCKED`), and the in-memory Firestore would not show a client-library change. CI also installs from `bun.lock`, and bun is not available on this machine to regenerate it.
+  - An `overrides` pin of `uuid` ≥ 11.1.1 would put `uuid` outside the range `gaxios@6` and `teeny-request@9` declare, for a function they never call.
+  - Both routes trade a reachable stability risk for an unreachable advisory.
+- **Status: ACCEPTED DEPENDENCY RISK (not reachable).**
+  - **Revisit** when the Firestore path can be verified against a real project. Then upgrade `firebase-admin` to ≥ 14.4.0 together with `verify:firestore`, `verify:production-install` and the full suite.
+  - **Re-check** if a future change calls `uuid` `v3`/`v5`/`v6` with a buffer.
+
+### `qs` — GHSA-x5fp-wj9c-mxmx (CVE-2026-82562) and GHSA-4mjr-xmp4-gh2g (CVE-2026-82417)
+
+- **What they are.** Both are fixed in `qs` 6.16.0.
+  - **GHSA-x5fp:** `qs.parse` with `comma: true` lets a bracket key (`a[]=1,2,…`) bypass `arrayLimit`, so one parameter can allocate a very large array. CVSS 3.1: `AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L`.
+  - **GHSA-4mjr:** `qs.stringify` calls `obj.constructor.isBuffer` without checking that it is callable. `qs.parse` with `allowPrototypes: true` or `plainObjects: true` can produce such an object from a query string, so a parse → stringify round-trip throws. CVSS 3.1: `AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L`.
+- **How it reaches the tree.** The remaining 2 audit entries: `express@4.22.2` → `qs@6.15.3`. (`body-parser@1.20.8` already has `qs@6.16.0`.) `express@4.22.2` is the newest Express 4 release, and it declares `qs: ~6.15.1`, so no compatible Express 4 update reaches 6.16.0.
+- **Exploitability before Phase 29.**
+  - The only runtime callers of `qs` were Express's default (`extended`) query parser, `qs.parse(str, { allowPrototypes: true, arrayLimit: 1000 })` in `express/lib/utils.js:288`, and `body-parser`'s `urlencoded`, which the application never mounts.
+  - Nothing calls `qs.stringify`, and no caller passes `comma: true`. So neither advisory's condition was met.
+  - The same parser did cause a real defect: `allowPrototypes: true` built objects from bracket keys, so `?status[toString]=x` made a staff route's `String(req.query.status)` throw, and the request answered 500.
+- **Fix (code, no dependency change).** `server.ts` sets `app.set('query parser','simple')`, Node's `querystring`.
+  - Every query parameter the API reads is a flat value (`status`, `section`, `q`, `limit`, `offset`).
+  - `qs` is no longer called on any request: `body-parser`'s `urlencoded` is not mounted, and nothing else in the runtime tree requires `qs`.
+  - Bracket keys no longer build objects, which removes the 500 above.
+  - **Tested** over the real `server.ts` in `tests/serverHardening.test.ts` ("the query string"), with bracket, prototype-key, repeated-key and 2 000-comma queries.
+  - **Mutation:** restoring the `qs` parser fails that test.
+- **Why the version is not also bumped.** `qs@6.16.0` can only be forced with an `overrides` entry. That needs `bun.lock` regenerated for CI, which cannot be done or checked here, and once `qs` is off the request path it would not change runtime behaviour.
+- **Status.** The query-parser defect is a **FIXED CODE DEFECT**. `qs@6.15.3` stays installed, reported by `npm audit`, as an **ACCEPTED DEPENDENCY RISK (not reachable)**. **Revisit** with the Express 5 migration, or if `express.urlencoded` or `qs.stringify` is ever introduced.
+
+## Verification run in Phase 29
+
+| Check | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| Full suite | 806/806 on 3 consecutive runs, then 807/807 on the final run after the last change (the Zod browser setting and its test). One run was cut short by the machine going to sleep (07:44–08:50); it was discarded and repeated. |
+| Changed-area suites | `finalHardening` 26/26, `serverHardening`, `serverStability`, `startupConfig`, `gradingPolicy`, `examGrading`, `adminBootstrap`, `firestoreVerification`, `authSignInPolicy`, `userRateLimits`: all pass |
+| Mutation checks | 41 mutations against the Phase 29 guarantees. Each was applied to the source bytes, its suites run, and the file restored byte-identical (checked). **40 caught.** **1 documented survivor, `L13-detached-signal`:** handing the operation a fresh, never-aborting signal instead of the attempt's own cannot be told apart without waiting out the fixed 45 s attempt timeout; `L13-no-signal` and `L13-chat-wiring` are caught. Not counted: one mutation built on a hypothesis that proved false (the blocked-image placeholder, above). `shutdown-timeout-exit` first hung instead of failing; the shutdown tests now clean up in `finally`, and both shutdown mutations were rerun and caught in under 30 s. |
+| `npm run build` | succeeds (the 875 kB main chunk warning is unchanged) |
+| `verify:production-install` (clean `npm ci --omit=dev`) | Every step passed on the final build: <br>• every runtime package declared, no dev tooling installed; <br>• production refuses to start without its configuration (6 problems named); <br>• production boot serves the shell with CSP, HSTS, frame denial and a request id; <br>• `/api/health` answers 503 without Firestore; <br>• on local storage: sign-up and sign-in, the `/api` 404, staff sign-in, HTML, DOCX and PDF uploads with extraction, DOCX and PDF source ingestion, and byte ranges. <br>SIGTERM skipped: Windows cannot deliver it to a child process; CI checks it on Linux. |
+| `e2e:production-csp` | 5/5 in Chrome 152 and 5/5 in Edge 153 (first run: 4/5, the Zod eval probe; fixed) |
+| `e2e:listening-audio` | 42/42 in Chrome 152 and 42/42 in Edge 153; `data/` restored byte-identical |
+| `e2e:exam-acceptance` | 57/57 in Chrome 152 and 57/57 in Edge 153. The run covers: <br>• a real CDI page imported (38 questions read, all flagged for review) and refused publication; <br>• the admin CMS; <br>• learner security refusals; <br>• a full exam with a reload mid-section; <br>• Listening 38/40 = 8.5 and Reading 39/40 = 9.0, as the conversion tables give; <br>• Writing 6.5 and Speaking 7 from the grading runs; <br>• overall 8.0, stored and shown. <br>`data/` restored byte-identical. |
+| `smoke:book-to-test` (real Gemini) | `real_model_unavailable` (HTTP 503 after 2 attempts) on 3 separate tries: nothing verified, exit 75 |
+| `npm audit --omit=dev` | 8 moderate, 0 high, 0 critical; traced and not reachable (see Dependency advisories) |
+| Repository health | no TODO/FIXME/HACK markers; no new `any`; no tracked secrets |
+
+## Release checklist
+
+Before the first production deployment:
+
+1. **Firestore (H10).** Create a dedicated verification project and supply credentials. Run `STORAGE_BACKEND=gcs_firestore FIRESTORE_VERIFY_PROJECT=<id> npm run verify:firestore -- --confirm-dedicated-project`. All 14 steps must pass, including both TTL policies.
+2. **Deploy Firestore settings** to the production project: `firebase deploy --only firestore:rules,firestore:indexes`, and enable TTL on `rate_limits.expiresAt` and `auth_sessions.expireAt`.
+3. **Set the production environment:** `NODE_ENV=production`, `PORT`, `TRUST_PROXY` (1 behind Cloud Run or one load balancer), `STORAGE_BACKEND=gcs_firestore`, `GCS_BUCKET_NAME`, credentials, `RESEND_API_KEY`, `EMAIL_FROM`, an `https://` `APP_URL`, `GEMINI_API_KEY`. The server refuses to start while any of these is missing or wrong.
+4. **Service account roles:** Cloud Datastore User; Storage Object Admin on the bucket.
+5. **Build and start:** `npm ci --omit=dev`, then `npm run build`, then `npm start`. Confirm `/api/health` answers 200 and the response headers include the CSP.
+6. **First administrator:** register an account, then run `npm run admin:promote -- <username> admin`, or start once with `ADMIN_PROMOTE_USERNAME`.
+7. **Confirm on the deployment:**
+   - a password-reset email arrives;
+   - a learner's API allowance is per account behind the real proxy;
+   - `admin_audit` lines reach the log store.
+8. **Browsers:** run `npm run e2e:listening-audio` and `npm run e2e:exam-acceptance` in CI or on a workstation; check Listening playback by hand on Safari (macOS) and on an iOS device.
+9. **Real model:** run `npm run smoke:book-to-test` until it reports `real_model_passed`, and grade one Writing and one Speaking answer in a real exam.
+10. **CI:** confirm the Linux workflow (`.github/workflows/security.yml`) passes: typecheck, full suite, build, production install with the SIGTERM check, audit.
+11. **Operations:**
+    - no edits to materials pinned by a live exam (M9);
+    - rights to publish textbook-derived and CDI content recorded;
+    - revisit the dependency advisories when upgrading `firebase-admin` or moving to Express 5.
+
+## History of this audit (Phases 17–28)
+
+The sections below are the record as it stood at the end of Phase 28. Where it says "open", "NOT READY" or lists work to do, the final status table above supersedes it.
+
+**Status at Phase 17: NOT READY**
 
 > **Update after Phase 18.**
 > - **C1 is resolved.** Exam content (any material a published bundle pins, and a published bundle itself) is no longer practice content, and the server refuses to open or mark it. See the C1 resolution.
@@ -158,6 +361,8 @@ Finding count: 1 Critical (resolved in Phase 18), 11 High (H11 added in Phase 18
 The repository's `data/` directory was not touched. `dist/` was rebuilt; it is git-ignored.
 
 ## Risk register
+
+Historical: each row's status is as recorded through Phase 28. The final status of every finding is in "Every finding, final status" at the top of this document.
 
 | ID | Severity | Area | Finding | Status | Evidence | Production impact | Recommendation |
 |---|---|---|---|---|---|---|---|
@@ -1578,8 +1783,24 @@ Inventory: 28 test files; 555 tests, all passing; no `skip`, `only` or `todo`.
     - `TRUST_PROXY=true`.
   - **Not verified in a browser.** How the exam screen shows a `429` save error, and a real proxy deployment.
 - **Phase 26: no browser check, by design.** Declaring dependencies changes no visible behaviour. The runtime paths that depend on the corrected packages — multipart uploads, DOCX and PDF extraction, source ingestion, sign-in and assets — were exercised over HTTP from a clean production install (see the H9 resolution).
+- **Phase 29: real Chromium browsers, headless, throwaway profiles.**
+  - **How it signs in:** accounts exist only in the temporary store each run creates. Their session cookies are set in the throwaway profile; no password was typed into a browser.
+  - **`e2e:production-csp`** (the built `dist/server.cjs` in production mode): 5/5 in Chrome 152 and in Edge 153. The first run found the Zod `new Function` probe as a CSP violation; fixed.
+  - **`e2e:listening-audio`:** 42/42 in Chrome 152 and in Edge 153.
+  - **`e2e:exam-acceptance`:** 57/57 in Chrome 152 and in Edge 153:
+    - staff content published through the gates;
+    - a real CDI page imported and refused publication;
+    - the admin CMS catalogue and bundles in the browser;
+    - learner security refusals from the page;
+    - a full exam: Listening, Reading with a reload mid-section, Writing, Speaking;
+    - the result screen, and the stored attempt checked against the scoring tables.
+
+    The first runs failed only on harness mistakes (element ids, a response field name, an auto-advancing Speaking screen), each corrected in the script; no application defect was found by it.
+  - **Not verified:** Safari/iOS; audible playback; real Gemini grading. The run uses a fixture model, and only the model request is replaced.
 
 ## Confirmed blockers
+
+Historical (through Phase 28). After Phase 29, no Critical or High finding is open in code; H10 is ENVIRONMENT BLOCKED. See "Final decision" and "Release checklist" at the top.
 
 These Critical/High issues genuinely block production.
 
@@ -1663,8 +1884,13 @@ From `IELTS_CORRECTNESS_AUDIT.md` (Phases 15/16) and product policy:
 - **Load:** Firestore read cost and latency per exam autosave and catalog load (M6).
 - **Intermittent `fetch failed`** in tests, and the first click after reload (unreproduced).
 - **Linux CI run** of the test suite.
+- **Phase 29 additions.**
+  - **Real Gemini:** `smoke:book-to-test` answered `real_model_unavailable` (HTTP 503, two attempts each) on 3 separate tries. Nothing about the real model was verified this phase.
+  - **Dependency advisories:** `uuid` via `firebase-admin` and `qs` via `express` are traced and not reachable (see "Dependency advisories"). Their upgrade is deferred until real Firestore can be verified.
 
 ## Recommended order
+
+Historical (through Phase 28). Superseded by the "Release checklist" at the top.
 
 ### Before beta
 

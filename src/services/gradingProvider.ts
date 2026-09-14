@@ -40,7 +40,16 @@ interface FixtureStep {
   delayMs?: number;
   text?: string;
   response?: unknown;
+  /** One response per kind of grading, for a script that grades both: Writing and Speaking answer in different shapes. */
+  byKind?: { writing?: unknown; speaking?: unknown };
   error?: { status?: number; message?: string };
+}
+
+/** Which grading a request is: Speaking's response schema carries a transcript, Writing's does not. */
+function gradingKindOf(request: GenerateContentParameters): 'writing' | 'speaking' {
+  const schema: unknown = request.config?.responseSchema;
+  const properties = schema !== null && typeof schema === 'object' ? (schema as { properties?: unknown }).properties : undefined;
+  return properties !== null && typeof properties === 'object' && 'transcript' in properties ? 'speaking' : 'writing';
 }
 
 function scriptSteps(content: string): FixtureStep[] | null {
@@ -81,7 +90,8 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
  * The file is either the model's raw text, or a script in the format Book → Test's
  * fixture model reads — `{"fixtureScript": 1, "steps": [...]}` — whose steps are
  * played one per call within a grading run, the last repeating:
- * `{"error": {"status": 503}}`, `{"delayMs": 20000, "response": {...}}`, `{"text": "..."}`.
+ * `{"error": {"status": 503}}`, `{"delayMs": 20000, "response": {...}}`, `{"text": "..."}`, and
+ * `{"byKind": {"writing": {...}, "speaking": {...}}}` for a run that grades both.
  * That is how a slow, overloaded or rate-limited model is shown flowing through the
  * real exam session and UI, which the real model cannot be made to do on demand.
  *
@@ -110,7 +120,12 @@ class FixtureGradingProvider implements GradingProvider {
     }
     if (typeof step.text === 'string') return { text: step.text };
     if (step.response !== undefined) return { text: JSON.stringify(step.response) };
-    throw new Error('A fixture step needs "text", "response" or "error".');
+    if (step.byKind !== undefined) {
+      const kind = gradingKindOf(request);
+      if (step.byKind[kind] === undefined) throw new Error(`The fixture step has no ${kind} response.`);
+      return { text: JSON.stringify(step.byKind[kind]) };
+    }
+    throw new Error('A fixture step needs "text", "response", "byKind" or "error".');
   }
 }
 

@@ -3,6 +3,7 @@ import multer from 'multer';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { isStorageUnavailableError } from '../services/storage/availability';
 import { ClientRequestError } from './errors';
+import { requestIdOf } from './requestId';
 
 /**
  * The one place a failed API request is answered.
@@ -76,13 +77,16 @@ export function apiErrorBoundary(error: unknown, req: Request, res: Response, ne
   const adminId = (req as Request & { adminUser?: { id?: string } }).adminUser?.id;
   const actor = userId ? ` (user ${userId})` : adminId ? ` (admin ${adminId})` : '';
   const where = `${req.method} ${req.baseUrl}${req.path}${actor}`;
+  // The id the client received in X-Request-Id, so a reported failure can be found in the log (M7).
+  const requestId = requestIdOf(req);
+  const tag = requestId ? ` [request ${requestId}]` : '';
   if (res.headersSent) {
     // Part of the answer is already on the wire; Express closes the connection.
-    console.error(`[HTTP] ${where} failed after its response had started:`, error);
+    console.error(`[HTTP] ${where} failed after its response had started${tag}:`, error);
     next(error);
     return;
   }
-  if (failure.status >= 500) console.error(`[HTTP] ${where} -> ${failure.status} ${failure.code}:`, error);
-  else console.warn(`[HTTP] ${where} -> ${failure.status} ${failure.code}: ${failure.message}`);
+  if (failure.status >= 500) console.error(`[HTTP] ${where} -> ${failure.status} ${failure.code}${tag}:`, error);
+  else console.warn(`[HTTP] ${where} -> ${failure.status} ${failure.code}: ${failure.message}${tag}`);
   res.status(failure.status).json({ error: failure.message, code: failure.code });
 }

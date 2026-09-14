@@ -6,6 +6,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { AdminSpeakingMaterial, AdminReadingMaterial, AdminListeningMaterial, AdminWritingMaterial, AdminMaterial, AdminStats, MaterialLifecycleStatus } from '../types/admin';
 import { bundleStore } from './bundleStore';
 import { parseMaterialForWrite, migrateStoredMaterial } from '../schemas/material';
+import { sanitizeRenderedMaterialHtml } from './htmlSanitizer';
+import { isJsonArray, readLocalJson } from './storage/localJson';
 import type { StoredGenerationReview } from '../schemas/material';
 import { publishBlockers } from './publishGate';
 import type { PublishBlocker, PublishGateContext } from './publishGate';
@@ -97,7 +99,8 @@ const assertMaterialEnvelope=(section:SectionType,value:unknown)=>{assertObject(
 
 class AdminStore {
   private getFilePath(collection:string){return path.join(DATA_DIR,`${collection}.json`);}
-  private readCollection<T>(collection:string):T[]{const filePath=this.getFilePath(collection);try{if(!fs.existsSync(filePath)){fs.writeFileSync(filePath,'[]','utf-8');return [];}const value=JSON.parse(fs.readFileSync(filePath,'utf-8'));return Array.isArray(value)?value as T[]:[];}catch{return [];}}
+  // A file that cannot be read throws rather than reading as an empty section: the next save would erase every material in it (M4).
+  private readCollection<T>(collection:string):T[]{const filePath=this.getFilePath(collection);if(!fs.existsSync(filePath)){fs.writeFileSync(filePath,'[]','utf-8');return [];}return readLocalJson<T[]>(filePath,[],isJsonArray);}
   private writeCollection<T>(collection:string,items:T[]):void{const filePath=this.getFilePath(collection),tmp=`${filePath}.tmp.${process.pid}.${Date.now()}.${nanoid(4)}`;fs.writeFileSync(tmp,JSON.stringify(items,null,2),'utf-8');fs.renameSync(tmp,filePath);}
   private async firestoreList<T>(section:string,statusFilter?:MaterialStatusFilter):Promise<T[]>{let q:any=getFirestoreDb().collection('admin_content').doc(section).collection('items');if(statusFilter&&statusFilter!=='all')q=q.where('status','==',statusFilter);const s=await q.get();return s.docs.map((d:any)=>d.data() as T);}
   /**
@@ -279,7 +282,9 @@ class AdminStore {
       const {generationReviews:_discarded,...rest}=contentForReviews;
       candidate.content=previousContent?.generationReviews?{...rest,generationReviews:previousContent.generationReviews}:rest;
     }
-    const parsed=parseMaterialForWrite(section,candidate);
+    // Every field a learner screen renders as HTML is sanitised here, on every write,
+    // whichever route or pipeline wrote the material — not only by the admin routes (M5).
+    const parsed=parseMaterialForWrite(section,sanitizeRenderedMaterialHtml(section,candidate));
     if(!parsed.ok)throw new MaterialValidationError(parsed.issues);
     return parsed.material as unknown as AdminMaterial;
   }

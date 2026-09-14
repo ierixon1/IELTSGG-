@@ -20,6 +20,8 @@
     "verify:production-install": "node scripts/verifyProductionInstall.mjs",
     "admin:promote": "tsx scripts/promoteAccount.ts",
     "e2e:listening-audio": "tsx scripts/e2eListeningAudio.ts",
+    "e2e:exam-acceptance": "tsx scripts/e2eExamAcceptance.ts",
+    "e2e:production-csp": "tsx scripts/e2eProductionCsp.ts",
     "verify:firestore": "tsx scripts/verifyFirestore.ts"
   },
   "dependencies": {

@@ -6,6 +6,7 @@ import { getFirestoreDb } from './firebaseAdmin';
 import { storageProvider } from './storage';
 import { adminStore, PRIVATE_UPLOADS_DIR } from './adminStore';
 import type { Asset, AssetKind, AssetSourceType, AssetState } from '../types/asset';
+import { isJsonArray, readLocalJson } from './storage/localJson';
 
 /**
  * Storage for uploaded files, addressed by id.
@@ -51,16 +52,12 @@ export interface CreateAssetInput {
 class AssetStore {
   private readAll(): Asset[] {
     ensureLocalDirs();
-    try {
-      if (!fs.existsSync(ASSETS_FILE)) {
-        fs.writeFileSync(ASSETS_FILE, '[]', 'utf-8');
-        return [];
-      }
-      const value = JSON.parse(fs.readFileSync(ASSETS_FILE, 'utf-8'));
-      return Array.isArray(value) ? (value as Asset[]) : [];
-    } catch {
+    if (!fs.existsSync(ASSETS_FILE)) {
+      fs.writeFileSync(ASSETS_FILE, '[]', 'utf-8');
       return [];
     }
+    // A file that cannot be read throws rather than reading as no assets: the next write would forget every file (M4).
+    return readLocalJson<Asset[]>(ASSETS_FILE, [], isJsonArray);
   }
 
   private writeAll(assets: Asset[]): void {

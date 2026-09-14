@@ -36,7 +36,6 @@ const express = (await import('express')).default;
 const { adminRouter } = await import('../src/routes/adminRoutes');
 const { learnerContentRouter } = await import('../src/routes/learnerContentRoutes');
 const { examSessionRouter } = await import('../src/routes/examSessionRoutes');
-const { mockRouter } = await import('../src/routes/mockRoutes');
 const { authRouter } = await import('../src/routes/authRoutes');
 const { authenticateRequest } = await import('../src/middleware/authMiddleware');
 const { assetStore } = await import('../src/services/assetStore');
@@ -133,7 +132,6 @@ before(async () => {
   app.use('/api', authenticateRequest);
   app.use('/api', learnerContentRouter);
   app.use('/api', examSessionRouter);
-  app.use('/api', mockRouter);
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });
@@ -338,38 +336,6 @@ describe('when no published bundle names a material any more', () => {
 });
 
 describe('no other learner route gives the key back', () => {
-  it('mocks: history and a stored mock are sent without keys, and an exam material is not a mock', async () => {
-    await dataStore.recordGeneratedTest(learnerId, {
-      id: 'mock_eligibility_1',
-      userId: learnerId,
-      timestamp: new Date().toISOString(),
-      module: 'academic',
-      section: 'reading',
-      targetBand: '7',
-      theme: 'Energy',
-      contentHash: 'x',
-      title: 'Generated reading',
-      questionTypes: ['short_answer'],
-      data: { passages: [{ content: 'A passage.', questions: [{ id: 'g1', prompt: 'Which fuel?', correctAnswer: 'GENERATED-KEY', explanation: 'Line 2.' }] }] },
-    });
-    const history = await (await learner('/api/mocks/history')).text();
-    expect(history.includes('mock_eligibility_1')).toBe(true);
-    expect(history.includes('GENERATED-KEY')).toBe(false);
-    const stored = await (await learner('/api/mocks/mock_eligibility_1')).text();
-    expect(stored.includes('Which fuel?')).toBe(true);
-    for (const leaked of ['GENERATED-KEY', 'Line 2.', '"correctAnswer"', '"explanation"']) expect(stored.includes(leaked)).toBe(false);
-
-    for (const slot of ALL_SLOTS) {
-      const response = await learner(`/api/mocks/${exam[slot]}`);
-      expect([slot, response.status]).toEqual([slot, 404]);
-      expectNoAnswerData(await response.text());
-    }
-    // Generating needs the model; without it nothing is generated and nothing is sent.
-    const generated = await learner('/api/mocks/generate', post({ module: 'academic', section: 'reading', targetBand: '7', theme: 'Energy' }));
-    expect(generated.status >= 400).toBe(true);
-    expectNoAnswerData(await generated.text());
-  });
-
   it('the exam itself: opening the published bundle sends the paper without a key, transcript or bundle list key', async () => {
     const opened = await learner('/api/learner/exams', post({ bundleId: bundleA }));
     const text = await opened.text();

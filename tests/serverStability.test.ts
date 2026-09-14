@@ -125,8 +125,8 @@ describe('the real server.ts on local storage', () => {
   it('logs each failure with its method, path, who asked and the status', () => {
     const log = server.output();
     expect(log).toMatch(/\[HTTP\] GET \/api\/admin\/materials\/reading\/\S+ \(admin usr_admin_[\w-]+\) -> 400 invalid_id/);
-    // A body that is not JSON is refused before anyone is authenticated.
-    expect(log).toContain('[HTTP] POST /api/data/sync -> 400 invalid_json');
+    // A learner route reads its body only once the request is signed in (L11), so the refusal names the learner.
+    expect(log).toMatch(/\[HTTP\] POST \/api\/data\/sync \(user usr_[\w-]+\) -> 400 invalid_json/);
   });
 
   it('reports the local backend as healthy', async () => {

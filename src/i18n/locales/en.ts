@@ -99,7 +99,7 @@ export const en: Dictionary = {
     chooseTest: 'Which test to sit',
     chooseTestHint: 'Tests published from the admin CMS appear here alongside the built-in one.',
     incompleteTitle: 'This test is incomplete.',
-    incompleteBody: 'It does not supply {sections}, so the built-in material is shown for those sections instead.',
+    incompleteBody: 'It does not supply {sections}, so those sections cannot be practised with it.',
     builtInTest: 'Built-in practice test',
     listening: {
       meta: '~30 min · 4 parts',
@@ -581,6 +581,7 @@ export const en: Dictionary = {
       submitTask: 'Submit task',
       submitAnswer: 'Submit answer',
       submitting: 'Submitting…',
+      deadlineNotice: 'Only work you submit is graded. Submit before this section’s time runs out: anything not submitted by then is not scored.',
       sectionAwaiting: 'Being graded',
       inProgress: '{item} is submitted and kept. Grading…',
       done: '{item} is submitted and graded.',

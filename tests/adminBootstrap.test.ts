@@ -85,8 +85,8 @@ describe('the first administrator on Firestore', () => {
     expect((await post('/api/admin/login', { username: 'first_admin', password: PASSWORD })).status).toBe(403);
 
     const sessionsOf = (userId: string) => [...fake.documents.entries()].filter(([documentPath, data]) => documentPath.startsWith('auth_sessions/') && data.userId === userId).length;
-    // Registration's session, and one left by the refused staff sign-in above (it signs in, then answers 403).
-    expect(sessionsOf(account.id)).toBe(2);
+    // Registration's session only: the refused staff sign-in above is refused before a session is created (L16).
+    expect(sessionsOf(account.id)).toBe(1);
     expect(await authService.promoteAccount('  First_Admin ', 'admin')).toEqual({ outcome: 'promoted', userId: account.id });
     const stored = fake.documents.get(`auth_users/${account.id}`) ?? {};
     expect([stored.role, stored.sessionVersion]).toEqual(['admin', 1]);

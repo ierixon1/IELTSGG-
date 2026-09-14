@@ -296,7 +296,7 @@ export async function callWithRetryPolicy<T>(
  */
 export const EXECUTE_ATTEMPT_TIMEOUT_MS = 45_000;
 export const EXECUTE_TOTAL_TIMEOUT_MS = 100_000;
-export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request', quotaAlreadyChecked = false, activeModelForLog = 'gemini-3.8-flash'): Promise<T> {
+export async function executeGeminiWithRetry<T>(operation: (signal: AbortSignal) => Promise<T>, maxRetries = 3, initialDelayMs = 1500, quotaOperation: AiOperationType = 'ai_request', quotaAlreadyChecked = false, activeModelForLog = 'gemini-3.8-flash'): Promise<T> {
   const userId = requestContext.getStore()?.userId;
   if (userId && !quotaAlreadyChecked) {
     const guard = await aiRateLimitService.checkLimit(userId, quotaOperation);
@@ -313,7 +313,8 @@ export async function executeGeminiWithRetry<T>(operation: () => Promise<T>, max
   };
 
   try {
-    const { value, report } = await callWithRetryPolicy(() => operation(), {
+    // Each attempt's signal is handed to the operation, so an attempt abandoned at its timeout can cancel its request (L13).
+    const { value, report } = await callWithRetryPolicy((signal) => operation(signal), {
       maxAttempts: maxRetries + 1,
       initialDelayMs,
       maxDelayMs: 30_000,

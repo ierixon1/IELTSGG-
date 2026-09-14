@@ -1,3 +1,5 @@
+import { LocalStoreCorruptError } from './localJson';
+
 /**
  * Whether an error means the data backend cannot be used at all, as opposed to a
  * request being wrong or code being broken. Those are answered 503: the server
@@ -35,6 +37,8 @@ const CREDENTIAL_FAILURE_PREFIXES = [
 
 export function isStorageUnavailableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
+  // A local store file that cannot be read (M4): the data is there but unusable, and nothing may overwrite it.
+  if (error instanceof LocalStoreCorruptError) return true;
   const { code, details } = error as Error & { code?: unknown; details?: unknown };
   if (typeof code === 'number' && typeof details === 'string' && UNAVAILABLE_GRPC_CODES.has(code)) return true;
   return CREDENTIAL_FAILURE_PREFIXES.some((prefix) => error.message.startsWith(prefix));

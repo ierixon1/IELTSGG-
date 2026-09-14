@@ -146,6 +146,14 @@ async function boot(installDir, env, label) {
       pass(`${label}: server booted`, `pid ${child.pid}`);
       return {
         output: () => output,
+        /** SIGTERM, then wait for the process to exit by itself; how it exited, or null if it did not. */
+        async terminate() {
+          if (!exited) child.kill('SIGTERM');
+          for (let i = 0; i < 150 && !exited; i++) await sleep(100);
+          if (!exited) child.kill('SIGKILL');
+          for (let i = 0; i < 50 && (await portInUse(PORT)); i++) await sleep(100);
+          return exited;
+        },
         async stop() {
           if (!exited) {
             child.kill();
@@ -349,6 +357,20 @@ async function productionModeChecks(installDir) {
     if (!(shell.headers.get('content-type') ?? '').includes('text/html') || !shell.text.includes('id="root"')) fail(`production mode: / did not serve the built index.html:\n${shell.text.slice(0, 300)}`);
     pass('production mode: app shell served from dist', `${shell.buffer.length} bytes`);
 
+    // M2 and M7: the production headers, as the built bundle sends them.
+    const csp = shell.headers.get('content-security-policy') ?? '';
+    const headersOk =
+      csp.includes("script-src 'self'") &&
+      csp.includes("frame-ancestors 'none'") &&
+      !csp.includes('unsafe-eval') &&
+      (shell.headers.get('strict-transport-security') ?? '').startsWith('max-age=') &&
+      shell.headers.get('x-frame-options') === 'DENY' &&
+      shell.headers.get('x-content-type-options') === 'nosniff' &&
+      shell.headers.get('x-powered-by') === null &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(shell.headers.get('x-request-id') ?? '');
+    if (!headersOk) fail(`production mode: the app shell lacks its security headers: ${JSON.stringify(Object.fromEntries(shell.headers))}`);
+    pass('production mode: CSP, HSTS, frame denial and a request id sent; no X-Powered-By');
+
     const health = await call('GET', '/api/health');
     if (health.status !== 503 || health.body?.status !== 'unavailable' || health.body?.storage?.backend !== 'gcs_firestore') {
       fail(`production mode: /api/health should answer 503 without Firestore credentials, got ${health.status}: ${health.text.slice(0, 300)}`);
@@ -367,6 +389,7 @@ async function runtimePathChecks(installDir) {
     { NODE_ENV: 'development', PORT: String(PORT), STORAGE_BACKEND: 'local', SEED_DEFAULT_ACCOUNTS: 'true', ADMIN_USER: adminUser, ADMIN_PASSWORD: password },
     'local storage',
   );
+  let completed = false;
   try {
     const health = await call('GET', '/api/health');
     expectStatus('local storage: /api/health', health, 200);
@@ -382,6 +405,10 @@ async function runtimePathChecks(installDir) {
     const data = await call('GET', '/api/data', { cookie: registered.cookie });
     expectStatus('learner data', data, 200);
     pass('auth: learner signed up, session read back, /api/data served');
+
+    const unknown = await call('GET', '/api/no-such-route', { cookie: registered.cookie });
+    if (unknown.status !== 404 || unknown.body?.code !== 'not_found') fail(`unknown API path: expected a JSON 404, got ${unknown.status}: ${unknown.text.slice(0, 200)}`);
+    pass('an unknown /api path answers a JSON 404, not the app shell');
 
     const login = await call('POST', '/api/admin/login', { json: { username: adminUser, password } });
     expectStatus('auth: staff sign-in', login, 200);
@@ -428,12 +455,22 @@ async function runtimePathChecks(installDir) {
     const ranged = await call('GET', `/api/admin/assets/${audio.body.file.assetId}`, { cookie: admin, headers: { Range: 'bytes=0-9' } });
     if (ranged.status !== 206 || ranged.buffer.length !== 10 || !(ranged.headers.get('content-range') ?? '').startsWith('bytes 0-9/')) fail(`assets: byte range not served: ${ranged.status} ${ranged.headers.get('content-range')}`);
     pass('assets: stored files read back whole and by byte range');
+    completed = true;
   } catch (error) {
     if (error instanceof VerificationFailure) error.message += `\n--- server output ---\n${tail(server.output())}`;
     throw error;
   } finally {
-    await server.stop();
+    if (!completed || process.platform === 'win32') await server.stop();
   }
+  if (process.platform === 'win32') {
+    log('SKIP  graceful shutdown on SIGTERM: Windows cannot deliver SIGTERM to a child process (checked where the CI runs, on Linux)');
+    return;
+  }
+  const ended = await server.terminate();
+  if (ended?.code !== 0 || !server.output().includes('[Process] Every request finished; exiting.')) {
+    fail(`graceful shutdown: SIGTERM should end the server with exit code 0, got ${JSON.stringify(ended)}:\n${tail(server.output())}`);
+  }
+  pass('graceful shutdown: SIGTERM ends the server cleanly, exit code 0');
 }
 
 async function main() {

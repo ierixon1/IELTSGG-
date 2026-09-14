@@ -15,13 +15,16 @@
  * guard against running this against the wrong project by accident.
  *
  * Checked (scripts/firestoreVerification.ts): a read; register, sign-in and
- * session validation; a profile written and read back; a transactional promotion
- * ending the account's sessions; concurrent requests on one rate-limit key never
- * exceeding the allowance, with any transaction that fails under contention
- * classified as storage unavailable (503); attempts given back concurrently; and
- * `expiresAt` on rate-limit documents. The TTL policy on `rate_limits.expiresAt` is
- * read through the Firestore Admin API, which needs the Cloud Datastore Index
- * Admin role (or Owner) for these credentials.
+ * session validation; `expireAt` on sessions; a learner refused at staff sign-in
+ * before any session is created; a profile written and read back; a transactional
+ * promotion ending all of an account's sessions, 450 extra included, in chunked
+ * commits; a source with 450 chunks deleted in chunked commits; concurrent requests
+ * on one rate-limit key never exceeding the allowance, with any transaction that
+ * fails under contention classified as storage unavailable (503); attempts given
+ * back concurrently; and `expiresAt` on rate-limit documents. The TTL policies on
+ * `rate_limits.expiresAt` and `auth_sessions.expireAt` are read through the
+ * Firestore Admin API, which needs the Cloud Datastore Index Admin role (or Owner)
+ * for these credentials. The run also writes `admin_content/sources`.
  *
  * Not exercised against the real project: an outage and recovery — cutting a real
  * project off safely is not something a script can do. Block the host's access to
@@ -48,17 +51,17 @@ if (confirmed !== project) refuse(`FIRESTORE_VERIFY_PROJECT must repeat the proj
 
 const { runFirestoreVerification } = await import('./firestoreVerification');
 
-async function checkTtl(): Promise<{ ok: boolean; detail: string }> {
+async function checkTtl(collectionGroup: string, fieldPath: string): Promise<{ ok: boolean; detail: string }> {
   const { v1 } = await import('@google-cloud/firestore');
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
   const client = new v1.FirestoreAdminClient(clientEmail && privateKey ? { projectId: project, credentials: { client_email: clientEmail, private_key: privateKey } } : { projectId: project });
   try {
-    const [field] = await client.getField({ name: `projects/${project}/databases/(default)/collectionGroups/rate_limits/fields/expiresAt` });
+    const [field] = await client.getField({ name: `projects/${project}/databases/(default)/collectionGroups/${collectionGroup}/fields/${fieldPath}` });
     const state = field.ttlConfig?.state;
     // The generated client types the enum as its name; over gRPC it can also arrive as its number (ACTIVE = 2).
     const active = String(state) === 'ACTIVE' || Number(state) === 2;
-    return { ok: active, detail: field.ttlConfig ? `ttlConfig.state ${String(state)}` : 'no TTL policy on rate_limits.expiresAt — see README, Deployment' };
+    return { ok: active, detail: field.ttlConfig ? `ttlConfig.state ${String(state)}` : `no TTL policy on ${collectionGroup}.${fieldPath} — see README, Deployment` };
   } finally {
     await client.close();
   }

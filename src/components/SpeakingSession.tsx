@@ -791,6 +791,13 @@ export const SpeakingSession: React.FC<SpeakingSessionProps> = (props) => {
                   </div>
                 )}
 
+                {exam && (
+                  // M15: only submitted work is graded, and only work submitted before the section's time runs out.
+                  <p id="speaking-deadline-notice" className="text-xs text-ink-500">
+                    {t('grading.exam.deadlineNotice')}
+                  </p>
+                )}
+
                 <div className="flex flex-wrap justify-end gap-3">
                   <Button
                     id="btn-submit-speaking-grade"

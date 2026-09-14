@@ -38,14 +38,17 @@ describe('the Firestore verification scenarios, on the in-memory Firestore', () 
     const before = new Set(fake.documents.keys());
     const steps = await runFirestoreVerification({ runId: 'suite_run_01', checkTtl: async () => ({ ok: true, detail: 'not applicable to the in-memory Firestore' }) });
     for (const step of steps) expect([step.name, step.ok, step.detail]).toEqual([step.name, true, step.detail]);
-    expect(steps.length).toBe(10);
+    expect(steps.length).toBe(14);
     const left = [...fake.documents.keys()].filter((key) => !before.has(key));
     expect(left).toEqual([]);
   });
 
-  it('without Admin API access the TTL step fails as not checked, rather than passing', async () => {
+  it('asks for both TTL policies, and without Admin API access both fail as not checked, rather than passing', async () => {
+    const asked: string[] = [];
+    await runFirestoreVerification({ runId: 'suite_run_03', checkTtl: async (collectionGroup, field) => (asked.push(`${collectionGroup}.${field}`), { ok: true, detail: 'recorded' }) });
+    expect(asked).toEqual(['rate_limits.expiresAt', 'auth_sessions.expireAt']);
     const steps = await runFirestoreVerification({ runId: 'suite_run_02' });
-    const ttl = steps.find((step) => step.name.includes('TTL'));
-    expect([ttl?.ok, ttl?.detail.startsWith('not checked')]).toEqual([false, true]);
+    const ttl = steps.filter((step) => step.name.startsWith('a TTL policy is active on'));
+    expect(ttl.map((step) => [step.ok, step.detail.startsWith('not checked')])).toEqual([[false, true], [false, true]]);
   });
 });

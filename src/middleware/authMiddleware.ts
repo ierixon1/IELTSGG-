@@ -3,10 +3,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { authService, UserRole } from '../services/authService';
 import { accountKey, admitRequest } from '../http/rateLimit';
 import { clientAddressKey } from '../http/clientAddress';
+import { explicitDevAuthEnabled } from '../config/devAuth';
 
 export interface AuthenticatedRequest extends Request { userId?: string; userEmail?: string; userRole?: UserRole; userName?: string; }
 export const requestContext = new AsyncLocalStorage<{ userId: string }>();
-const isExplicitDevAuthEnabled=()=>process.env.NODE_ENV!=='production'&&process.env.EXPLICIT_DEV_AUTH==='true';
+// Only with NODE_ENV explicitly development or test — never merely "not production" (M11, src/config/devAuth.ts).
+const isExplicitDevAuthEnabled=explicitDevAuthEnabled;
 const readCookie=(req:Request,name:string)=>{const header=req.headers.cookie||'';for(const part of header.split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return '';};
 export const AUTH_COOKIE='prep_auth';
 

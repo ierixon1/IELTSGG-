@@ -12,6 +12,9 @@ function loadStartupConfig(): StartupConfig {
     for (const problem of problems) console.error(`[Config] ${problem}`);
     process.exit(1);
   }
+  if (!process.env.NODE_ENV) {
+    console.warn('[Config] NODE_ENV is not set: running in development mode (Vite dev server, cookies without Secure). A deployment must set NODE_ENV=production.');
+  }
   return config;
 }
 

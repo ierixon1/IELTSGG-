@@ -504,6 +504,13 @@ ${activeTaskData.prompt}`,
               </div>
             )}
 
+            {examMode && (
+              // M15: only submitted work is graded, and only work submitted before the section's time runs out.
+              <p id="writing-deadline-notice" className="text-xs text-ink-500">
+                {t('grading.exam.deadlineNotice')}
+              </p>
+            )}
+
             <div className="flex items-center justify-between pt-1">
               <Button
                 id="btn-clear-essay"

@@ -10,7 +10,8 @@
  */
 import { createHash } from 'node:crypto';
 import { getFirestoreDb } from '../src/services/firebaseAdmin';
-import { authService } from '../src/services/authService';
+import { authService, SignInRoleRefusedError } from '../src/services/authService';
+import { sourceStore } from '../src/services/sourceStore';
 import { FirestoreDataStore } from '../src/services/storage/FirestoreDataStore';
 import { RATE_LIMITS, requestRateLimitService } from '../src/services/requestRateLimitService';
 import { isStorageUnavailableError } from '../src/services/storage/availability';
@@ -26,9 +27,12 @@ export interface VerificationOptions {
   runId: string;
   /** How many requests race for one rate-limit key. */
   concurrency?: number;
-  /** Reads the TTL policy on `rate_limits.expiresAt`; without it that step is reported as not checked. */
-  checkTtl?: () => Promise<{ ok: boolean; detail: string }>;
+  /** Reads the TTL policy on a collection group's field; without it those steps are reported as not checked. */
+  checkTtl?: (collectionGroup: string, field: string) => Promise<{ ok: boolean; detail: string }>;
 }
+
+/** More than the 400 deletes the stores put in one commit, so a chunked delete is exercised (M10). */
+const MANY = 450;
 
 const keyHash = (operation: string, key: string) => createHash('sha256').update(`${operation}:${key}`).digest('hex');
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -78,6 +82,26 @@ export async function runFirestoreVerification(options: VerificationOptions): Pr
       return { ok: session?.userId === userId, detail: `user ${userId}, session ${session ? 'valid' : 'missing'}` };
     });
 
+    const sessionsOfUser = async () => (await db.collection('auth_sessions').where('userId', '==', userId).get()).docs;
+
+    await step('sessions carry expireAt, a timestamp exactly when they expire, for the auth_sessions TTL policy (L9)', async () => {
+      const sessions = await sessionsOfUser();
+      const mismatched = sessions.filter((doc) => millisOf(doc.data().expireAt).millis !== Number(doc.data().expiresAt));
+      return { ok: sessions.length > 0 && mismatched.length === 0, detail: `${sessions.length} session(s); ${mismatched.length} without a matching expireAt${sessions[0] ? ` (first: ${millisOf(sessions[0].data().expireAt).type})` : ''}` };
+    });
+
+    await step('a learner with the right password at staff sign-in is refused before any session is created (L16)', async () => {
+      const before = (await sessionsOfUser()).length;
+      let refusal: unknown = null;
+      try {
+        await authService.login(username, password, { allowedRoles: ['admin', 'examiner'] });
+      } catch (error) {
+        refusal = error;
+      }
+      const after = (await sessionsOfUser()).length;
+      return { ok: refusal instanceof SignInRoleRefusedError && after === before, detail: `${refusal instanceof Error ? refusal.name : 'not refused'}; sessions ${before} → ${after}` };
+    });
+
     await step('a learner profile is written and read back', async () => {
       const profile = { id: userId, targetBand: 7.5, currentLevel: 6, hoursPerWeek: 9, weakSection: 'reading' as const, isOnboarded: true };
       await store.saveUserProfile(userId, profile);
@@ -85,11 +109,35 @@ export async function runFirestoreVerification(options: VerificationOptions): Pr
       return { ok: JSON.stringify(read) === JSON.stringify(profile), detail: JSON.stringify(read) };
     });
 
-    await step('a promotion changes the stored role in a transaction and ends the account’s sessions', async () => {
+    await step(`a promotion changes the stored role in a transaction and ends every session of the account, ${MANY} extra included, in chunked commits (M10)`, async () => {
+      const expiresAt = Date.now() + 60 * 60 * 1000;
+      for (let index = 0; index < MANY; index += 400) {
+        const batch = db.batch();
+        for (let offset = index; offset < Math.min(index + 400, MANY); offset += 1) {
+          batch.set(db.collection('auth_sessions').doc(`verify-${options.runId}-session-${offset}`), { userId, username, role: 'student', createdAt: Date.now(), expiresAt, expireAt: new Date(expiresAt), sessionVersion: 0 });
+        }
+        await batch.commit();
+      }
+      const before = (await sessionsOfUser()).length;
       const result = await authService.promoteAccount(username, 'examiner');
       const stored = (await db.collection('auth_users').doc(userId).get()).data();
       const session = await authService.validateSession(token);
-      return { ok: result.outcome === 'promoted' && stored?.role === 'examiner' && session === null, detail: `${result.outcome}; role ${stored?.role}; old session ${session ? 'still valid' : 'ended'}` };
+      const left = (await sessionsOfUser()).length;
+      return { ok: result.outcome === 'promoted' && stored?.role === 'examiner' && session === null && before > MANY && left === 0, detail: `${result.outcome}; role ${stored?.role}; old session ${session ? 'still valid' : 'ended'}; sessions ${before} → ${left}` };
+    });
+
+    await step(`deleting a source with ${MANY} chunks removes every chunk and the source, in chunked commits (M10)`, async () => {
+      const source = db.collection('admin_content').doc('sources').collection('items').doc(`verify-${options.runId}-source`);
+      await source.set({ id: `verify-${options.runId}-source`, title: 'Firestore verification source', status: 'ready' });
+      for (let index = 0; index < MANY; index += 400) {
+        const batch = db.batch();
+        for (let offset = index; offset < Math.min(index + 400, MANY); offset += 1) batch.set(source.collection('chunks').doc(`chunk-${offset}`), { id: `chunk-${offset}`, ordinal: offset, text: 'verification' });
+        await batch.commit();
+      }
+      const deleted = await sourceStore.delete(`verify-${options.runId}-source`);
+      const chunksLeft = (await source.collection('chunks').get()).size;
+      const sourceLeft = (await source.get()).exists;
+      return { ok: deleted && chunksLeft === 0 && !sourceLeft, detail: `deleted ${deleted}; ${chunksLeft} chunk(s) and ${sourceLeft ? 'the' : 'no'} source document left` };
     });
 
     const { max, windowMs } = RATE_LIMITS.login;
@@ -129,7 +177,9 @@ export async function runFirestoreVerification(options: VerificationOptions): Pr
       return { ok: Number.isFinite(millis) && millis === Number(data.windowStart) + windowMs, detail: `expiresAt ${type} ${Number.isFinite(millis) ? new Date(millis).toISOString() : 'missing'}; windowStart ${data.windowStart}` };
     });
 
-    await step('a TTL policy is active on rate_limits.expiresAt', async () => (options.checkTtl ? options.checkTtl() : { ok: false, detail: 'not checked: no Firestore Admin API access was given' }));
+    for (const [collectionGroup, field] of [['rate_limits', 'expiresAt'], ['auth_sessions', 'expireAt']] as const) {
+      await step(`a TTL policy is active on ${collectionGroup}.${field}`, async () => (options.checkTtl ? options.checkTtl(collectionGroup, field) : { ok: false, detail: 'not checked: no Firestore Admin API access was given' }));
+    }
   } finally {
     await step('everything the run wrote is removed', async () => {
       const refs = [
@@ -143,6 +193,8 @@ export async function runFirestoreVerification(options: VerificationOptions): Pr
         const sessions = await db.collection('auth_sessions').where('userId', '==', userId).get();
         refs.push(...sessions.docs.map((doc) => doc.ref));
       }
+      const source = db.collection('admin_content').doc('sources').collection('items').doc(`verify-${options.runId}-source`);
+      refs.push(...(await source.collection('chunks').get()).docs.map((doc) => doc.ref), source);
       for (const ref of refs) await ref.delete();
       return { ok: true, detail: `${refs.length} document(s) deleted` };
     });

@@ -20,5 +20,9 @@ export function namespaceCdiId(value: string): string {
     .replace(/[^A-Za-z0-9_:.-]/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 120);
-  return clean ? CDI_ID_PREFIX + clean : '';
+  // Idempotent: an id already namespaced is returned as it is. Stored markup is
+  // sanitised again whenever a material is saved, and prefixing it again would turn
+  // an unchanged save into a change (and withdraw a published material).
+  if (!clean) return '';
+  return clean.startsWith(CDI_ID_PREFIX) ? clean : CDI_ID_PREFIX + clean;
 }

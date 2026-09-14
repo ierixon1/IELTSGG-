@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// Ever Study reaches Firestore only from its server, through the Firebase Admin
+// SDK, which security rules do not apply to. No browser or mobile client uses the
+// Firestore client SDK, so every client read and write is refused. Deploy with:
+//   firebase deploy --only firestore:rules --project <project>
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

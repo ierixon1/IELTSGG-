@@ -63,6 +63,14 @@ export function checkStartupConfig(env: Env): { config: StartupConfig | null; pr
     );
   }
 
+  // M11: the impersonation switch needs NODE_ENV to say development or test, not merely "not production".
+  const nodeEnv = read(env, 'NODE_ENV');
+  if (!production && read(env, 'EXPLICIT_DEV_AUTH') === 'true' && nodeEnv !== 'development' && nodeEnv !== 'test') {
+    problems.push(
+      `EXPLICIT_DEV_AUTH=true lets any request act as any account; it is allowed only with NODE_ENV=development or test, and NODE_ENV is ${nodeEnv ? `"${nodeEnv.slice(0, 32)}"` : 'unset'}.`,
+    );
+  }
+
   if (read(env, 'ADMIN_PROMOTE_USERNAME')) {
     const role = (read(env, 'ADMIN_PROMOTE_ROLE') || 'admin').toLowerCase();
     if (role !== 'admin' && role !== 'examiner') problems.push(`ADMIN_PROMOTE_ROLE must be admin or examiner; got "${role.slice(0, 32)}".`);

@@ -3,6 +3,7 @@ import path from 'path';
 import { nanoid } from 'nanoid';
 import { getFirestoreDb } from './firebaseAdmin';
 import type { SourceChunk, StoredSource, StoredSourceSummary } from '../types/source';
+import { isJsonArray, readLocalJson } from './storage/localJson';
 
 /**
  * Where ingested sources and their chunks live.
@@ -31,15 +32,9 @@ class SourceStore {
   }
 
   private read<T>(name: string): T[] {
-    const filePath = this.file(name);
-    try {
-      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-      if (!fs.existsSync(filePath)) return [];
-      const value = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      return Array.isArray(value) ? (value as T[]) : [];
-    } catch {
-      return [];
-    }
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    // A missing file is empty; a file that cannot be read throws rather than reading as no sources (M4).
+    return readLocalJson<T[]>(this.file(name), [], isJsonArray);
   }
 
   private write<T>(name: string, items: T[]): void {
@@ -100,10 +95,15 @@ class SourceStore {
       const reference = this.collection().doc(id);
       if (!(await reference.get()).exists) return false;
       const chunks = await reference.collection('chunks').get();
-      const batch = getFirestoreDb().batch();
-      chunks.docs.forEach((doc) => batch.delete(doc.ref));
-      batch.delete(reference);
-      await batch.commit();
+      // In batches of at most 400 deletes (M10): a book is thousands of chunks, more
+      // than one commit should carry. The source document goes last, so a failure
+      // part-way leaves the source listed, and deleting it again finishes the job.
+      for (let index = 0; index < chunks.docs.length; index += 400) {
+        const batch = getFirestoreDb().batch();
+        chunks.docs.slice(index, index + 400).forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+      await reference.delete();
       return true;
     }
     const items = this.read<StoredSource>('sources');

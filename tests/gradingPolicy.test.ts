@@ -66,7 +66,9 @@ const hang = (request: GenerateContentParameters) =>
   });
 /** A request that ignores its abort signal and never settles. */
 const never = () => new Promise<{ text: string }>(() => undefined);
-const assessment = (band: unknown) => JSON.stringify({ band_overall: band, criteria: [], annotated_text: [], general_commentary: 'Fixture.' });
+/** A band for every Writing criterion: an assessment without them is refused (L10). */
+const CRITERIA = ['Task Achievement', 'Coherence and Cohesion', 'Lexical Resource', 'Grammatical Range and Accuracy'].map((name) => ({ name, band: 6, justification: 'Fixture.', improvement_tips: [] }));
+const assessment = (band: unknown) => JSON.stringify({ band_overall: band, criteria: CRITERIA, annotated_text: [], general_commentary: 'Fixture.' });
 
 const ESSAY =
   'Energy use rose steadily across the period shown in the chart, with coal falling from almost half of all supply to under a fifth, while wind rose sharply after 2010 and overtook gas by the final year, so the overall mix became far cleaner than it had been at the start.';
@@ -269,11 +271,28 @@ describe('the other grading-class calls, and the shared entry point', () => {
 });
 
 describe('the fixture model stands in for the provider request only', () => {
+  it('answers Writing and Speaking from one script, each in the shape its schema asks for', async () => {
+    const script = path.join(tempRoot, 'grading-by-kind.json');
+    const named = (band: number) => ({ name: 'Criterion', band, justification: 'By kind.', improvement_tips: [] });
+    const speaking = { band_overall: 7, transcript: 'I live near the river.', criteria: { fluency_coherence: named(7), lexical_resource: named(7), grammatical_range: named(7), pronunciation: named(7) }, objective_metrics: { durationSeconds: 30, wordsPerMinute: 120, pausesCount: 1, totalPauseDurationSeconds: 1, fillerWords: [] }, actionable_drills: [] };
+    writeFileSync(script, JSON.stringify({ fixtureScript: 1, steps: [{ byKind: { writing: { band_overall: 6.5, criteria: CRITERIA, annotated_text: [], general_commentary: 'By kind.' }, speaking } }] }), 'utf8');
+    grading.setGradingProvider(null);
+    process.env.GRADING_FIXTURE_RESPONSE = script;
+    try {
+      const written = await grading.gradeWritingSubmission(writing, context());
+      const spoken = await grading.gradeSpeakingSubmission({ partNumber: 1, topic: 'Home', transcriptProvided: 'I live in a small flat near the river, and I like the quiet evenings there most of all.' }, context());
+      expect([written.ok && written.result.band_overall, spoken.ok && spoken.result.band_overall]).toEqual([6.5, 7]);
+    } finally {
+      delete process.env.GRADING_FIXTURE_RESPONSE;
+      grading.setGradingProvider(testProvider);
+    }
+  });
+
   it('replays a scripted 503 then an answer through the real policy, and is refused in production', async () => {
     const script = path.join(tempRoot, 'grading-script.json');
     writeFileSync(
       script,
-      JSON.stringify({ fixtureScript: 1, steps: [{ error: { status: 503 } }, { response: { band_overall: 6, criteria: [], annotated_text: [], general_commentary: 'Scripted.' } }] }),
+      JSON.stringify({ fixtureScript: 1, steps: [{ error: { status: 503 } }, { response: { band_overall: 6, criteria: CRITERIA, annotated_text: [], general_commentary: 'Scripted.' } }] }),
       'utf8',
     );
     grading.setGradingProvider(null);

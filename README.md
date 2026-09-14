@@ -24,9 +24,9 @@ GEMINI_API_KEY="your key"
 STORAGE_BACKEND=local
 ```
 
-Without the key the app still runs: grading endpoints return a fixed sample
-response so the interface can be exercised, but the bands are not real
-assessments.
+Without the key the app still runs, but AI grading, paragraph rewriting,
+handwriting transcription and the mentor chat answer `503` (`ai_not_configured`).
+No band is ever invented in its place.
 
 `npm run lint` type-checks the project. `npm run build` produces `dist/`.
 
@@ -84,7 +84,8 @@ Production must keep `EXPLICIT_DEV_AUTH=false` and `SEED_DEFAULT_ACCOUNTS=false`
 unless a controlled bootstrap is explicitly required, must supply valid
 Google/Firebase credentials, and must use `STORAGE_BACKEND=gcs_firestore`.
 `EXPLICIT_DEV_AUTH=true` is for local testing only and must never be enabled on
-a public deployment.
+a public deployment. It takes effect only when `NODE_ENV` is `development` or
+`test`; with `NODE_ENV` unset or anything else the server refuses to start.
 
 Never commit `.env` files, service-account keys, API keys or administrator
 credentials. `data/users.json`, `data/sessions.json` and `data/db.json` are
@@ -115,6 +116,17 @@ Once per Firestore project:
 
   ```
   gcloud firestore fields ttls update expiresAt --collection-group=rate_limits --enable-ttl --project=<project>
+  gcloud firestore fields ttls update expireAt --collection-group=auth_sessions --enable-ttl --project=<project>
+  ```
+
+  Sessions carry `expireAt` (a timestamp) for the second policy; an expired
+  session is refused whether or not it has been deleted yet.
+- Deploy the rules and field settings in this repository, which deny every
+  client SDK read and write (the server uses the Admin SDK, which rules do not
+  apply to) and declare both TTL fields:
+
+  ```
+  firebase deploy --only firestore:rules,firestore:indexes --project <project>
   ```
 
 - The service account the server runs as needs Firestore read and write (Cloud
@@ -133,7 +145,33 @@ The first administrator is an account that registered normally, then promoted:
 
 The account's sessions end, and it signs in again with the new role.
 `npm run verify:production-install` checks that a clean production install boots
-and serves its runtime paths.
+and serves its runtime paths. Two headless-browser checks need an installed
+Chrome or Edge (`-- --browser=chrome|edge`):
+
+- `npm run build && npm run e2e:production-csp` checks that the built app runs
+  under the production Content Security Policy;
+- `npm run e2e:exam-acceptance` has staff content imported and published, then
+  a learner sits a whole exam through the exam screens, graded by a fixture
+  model, with the stored result checked against the scoring tables.
+
+What operators see at run time:
+
+- Every response carries `X-Content-Type-Options`, `X-Frame-Options: DENY`,
+  `Referrer-Policy`, `Cross-Origin-Opener-Policy` and `Permissions-Policy`; in
+  production also `Strict-Transport-Security` and a Content Security Policy that
+  allows only the app's own scripts.
+- Every response carries an `X-Request-Id` the server generated. The error log
+  line for a failed request ends with `[request <id>]`.
+- Every state-changing admin request — sign-in, saves, publishing, deletions,
+  refused ones included — writes one JSON line to stdout:
+  `{"type":"admin_audit","at","requestId","actor":{"userId","role"}|null,"method","route","params","status"}`
+  (staff sign-in adds the username tried; no body or password is logged). Keep
+  these lines in the platform's log retention.
+- On `SIGTERM` or `SIGINT` the server stops accepting connections, lets
+  requests in flight finish, and exits 0 — or exits 1 after 10 seconds.
+- Request bodies: sign-in, sign-up and recovery take up to 64 kB; the admin API
+  takes up to 16 MB from a signed-in staff member and 64 kB otherwise; the other
+  API routes read a body (up to 16 MB) only after the request is signed in.
 
 ## API
 
@@ -142,7 +180,6 @@ and serves its runtime paths.
 - `GET /api/quotas` — the caller's remaining daily generation and upload quota.
 - `GET|PUT|POST /api/data*` — the caller's own profile, plan, checklist and
   attempts.
-- `POST /api/mocks/generate`, `GET /api/mocks/history`, `GET /api/mocks/:id`.
 - `POST /api/grade/writing` — band 0–9 across the four criteria with inline
   annotations.
 - `POST /api/grade/speaking` — multimodal evaluation of a recorded answer.

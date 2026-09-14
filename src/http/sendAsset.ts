@@ -47,7 +47,8 @@ export function requestedRange(req: Request, size: number): ByteRange | 'unsatis
 
 export function sendAsset(req: Request, res: Response, asset: SendableAsset, data: Buffer) {
   const inline = INLINE_MEDIA_TYPES.has(asset.mimeType);
-  const filename = asset.originalName.replace(/[^w. -]/g, '_').slice(0, 120) || 'download';
+  // Word characters, dots, spaces and hyphens only: nothing that could end the quoted header value (L1).
+  const filename = asset.originalName.replace(/[^\w. -]/g, '_').slice(0, 120) || 'download';
   res.setHeader('Content-Type', inline ? asset.mimeType : 'application/octet-stream');
   res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${filename}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');

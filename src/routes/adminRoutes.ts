@@ -4,10 +4,8 @@ import path from 'path';
 import fs from 'fs';
 import {nanoid} from 'nanoid';
 import mammoth from 'mammoth';
-import sanitizeHtml from 'sanitize-html';
 import {adminStore,PRIVATE_UPLOADS_DIR} from '../services/adminStore';
 import {toPublicMaterialSummary} from '../services/publicMaterialView';
-import {namespaceCdiId} from '../utils/cdiIds';
 import {describeQuestionIssue} from '../schemas/question';
 import {importCdiHtml} from '../services/cdiImport';
 import {toDraftMaterial} from '../services/cdiImport/toMaterial';
@@ -17,7 +15,7 @@ import type {MaterialLifecycleStatus} from '../types/admin';
 import {MaterialValidationError} from '../services/adminStore';
 import {validateUpload,EXTENSION_EXPECTATIONS} from '../services/fileTypeSniffer';
 import type {UploadedAssetSummary} from '../types/asset';
-import {authService} from '../services/authService';
+import {authService,SignInRoleRefusedError} from '../services/authService';
 import {storageProvider} from '../services/storage';
 import {sourceRouter} from './sourceRoutes';
 import {createBundleRouter} from './bundleRoutes';
@@ -38,23 +36,9 @@ type AdminRequest=Request&{adminUser?:{id:string;username:string;displayName:str
 const isSection=(v:unknown):v is 'speaking'|'reading'|'listening'|'writing'=>['speaking','reading','listening','writing'].includes(String(v));
 const BINARY_MAGIC_SIGNATURES=[[0x4d,0x5a],[0x7f,0x45,0x4c,0x46],[0xfe,0xed,0xfa,0xce],[0xfe,0xed,0xfa,0xcf],[0xca,0xfe,0xba,0xbe],[0x50,0x4b,0x03,0x04],[0x25,0x50,0x44,0x46],[0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a],[0xff,0xd8,0xff],[0x47,0x49,0x46,0x38],[0x52,0x49,0x46,0x46],[0x1f,0x8b],[0x37,0x7a,0xbc,0xaf,0x27,0x1c],[0x52,0x61,0x72,0x21],[0xfd,0x37,0x7a,0x58,0x5a,0x00],[0x42,0x5a,0x68]];
 export function validateHtmlFileBuffer(buffer:Buffer){if(!buffer?.length)return{valid:false,error:'File is empty.'};if(buffer.length>5*1024*1024)return{valid:false,error:'HTML file exceeds the 5MB size limit.'};for(const sig of BINARY_MAGIC_SIGNATURES)if(buffer.length>=sig.length&&sig.every((b,i)=>buffer[i]===b))return{valid:false,error:'Disguised binary file detected.'};if(buffer.includes(0))return{valid:false,error:'Binary null bytes detected.'};for(let i=0;i<Math.min(buffer.length,8192);i++){const b=buffer[i];if(b<9||b===11||b===12||(b>=14&&b<=31)||b===127)return{valid:false,error:'Unprintable binary control bytes detected.'};}try{const text=new TextDecoder('utf-8',{fatal:true}).decode(buffer);if(!/<(!DOCTYPE|html|head|body|p|div|table|h[1-6]|span|section|article|main|ul|ol|b|strong|em|i)\b/i.test(text))return{valid:false,error:'No recognized HTML structure found.'};}catch{return{valid:false,error:'Invalid UTF-8 byte sequence.'}}return{valid:true};}
-const SAFE_CLASS_PATTERNS=[/^cdi-[\w-]+$/,/^text-(left|right|center|justify|xs|sm|base|lg|slate|gray|neutral|zinc|black|red|emerald|amber|indigo)$/,/^font-(serif|sans|mono|bold|semibold|normal|medium)$/,/^(italic|underline|line-through)$/,/^p[xytb]?-[0-8]$/,/^m[xytb]?-[0-8]$/,/^border(?:-[a-z0-9-]+)?$/,/^bg-[a-z0-9-]+$/,/^(table|table-[a-z]+|w-full|h-auto|max-w-[a-z0-9]+)$/,/^list-[a-z]+$/,/^space-[xy]-[0-8]$/];
-const SAFE_STYLE_RULES:Record<string,RegExp[]>={
- 'text-align':[/^(left|right|center|justify)$/i],'vertical-align':[/^(top|middle|bottom|baseline)$/i],'font-weight':[/^(bold|normal|[1-9]00)$/i],'font-style':[/^(italic|normal)$/i],'text-decoration':[/^(underline|line-through|none)$/i],
- 'width':[/^\d+(?:\.\d+)?(?:px|%|em|rem|ch)$/i],'max-width':[/^\d+(?:\.\d+)?(?:px|%|em|rem|ch)$/i],'min-width':[/^\d+(?:\.\d+)?(?:px|%|em|rem|ch)$/i],'height':[/^\d+(?:\.\d+)?(?:px|%|em|rem|ch)$/i],
- 'padding':[/^[0-9.]+(?:px|%|em|rem)(?:\s+[0-9.]+(?:px|%|em|rem))*$/i],'padding-left':[/^[0-9.]+(?:px|%|em|rem)$/i],'padding-right':[/^[0-9.]+(?:px|%|em|rem)$/i],'padding-top':[/^[0-9.]+(?:px|%|em|rem)$/i],'padding-bottom':[/^[0-9.]+(?:px|%|em|rem)$/i],
- 'margin':[/^(auto|[0-9.]+(?:px|%|em|rem)(?:\s+[0-9.]+(?:px|%|em|rem))*)$/i],'margin-left':[/^(auto|[0-9.]+(?:px|%|em|rem))$/i],'margin-right':[/^(auto|[0-9.]+(?:px|%|em|rem))$/i],'margin-top':[/^(auto|[0-9.]+(?:px|%|em|rem))$/i],'margin-bottom':[/^(auto|[0-9.]+(?:px|%|em|rem))$/i],
- 'border':[/^[0-9a-zA-Z\s#(),.-]+$/i],'border-top':[/^[0-9a-zA-Z\s#(),.-]+$/i],'border-bottom':[/^[0-9a-zA-Z\s#(),.-]+$/i],'border-left':[/^[0-9a-zA-Z\s#(),.-]+$/i],'border-right':[/^[0-9a-zA-Z\s#(),.-]+$/i],'border-collapse':[/^(collapse|separate)$/i],'border-spacing':[/^[0-9px\s]+$/i],
- 'color':[/^(#[0-9a-fA-F]{3,8}|rgb\([0-9\s,]+\)|rgba\([0-9\s,.]+\)|[a-zA-Z]+)$/i],'background-color':[/^(#[0-9a-fA-F]{3,8}|rgb\([0-9\s,]+\)|rgba\([0-9\s,.]+\)|transparent|[a-zA-Z]+)$/i]
-};
-// Imported markup must not be able to shadow the app's own elements: a node
-// with id="root" or id="btn-recalculate-plan" wins document.getElementById and
-// window named access. Every id is namespaced, and same-document links are
-// rewritten to match so a CDI page's internal anchors still resolve.
-const sanitizeClass=(value:string)=>value.split(/\s+/).filter(v=>SAFE_CLASS_PATTERNS.some(p=>p.test(v))).join(' ');
-const sanitizeStyle=(value:string)=>value.split(';').map(part=>{const [key,...rest]=part.split(':');const prop=key?.trim().toLowerCase();const val=rest.join(':').trim();return prop&&val&&SAFE_STYLE_RULES[prop]?.some(r=>r.test(val))&&!/[()@]|url|expression|javascript/i.test(val)?`${prop}:${val}`:''}).filter(Boolean).join(';');
-export const sanitizeHtmlServer=(rawHtml:string)=>sanitizeHtml(typeof rawHtml==='string'?rawHtml:'',{allowedTags:['h1','h2','h3','h4','h5','h6','p','br','hr','strong','b','em','i','u','s','del','mark','small','sub','sup','span','div','blockquote','q','pre','code','ul','ol','li','dl','dt','dd','table','thead','tbody','tfoot','tr','th','td','caption','col','colgroup','img','a','figure','figcaption','section','article','aside','header','footer','nav','main','details','summary'],allowedAttributes:{'*':['class','id','style','title','lang','dir'],img:['src','alt','width','height','loading'],a:['href','target','rel'],th:['colspan','rowspan','headers','scope'],td:['colspan','rowspan','headers','scope']},allowedStyles:{'*':SAFE_STYLE_RULES},allowedSchemes:['http','https','mailto'],allowedSchemesByTag:{img:['data']},allowProtocolRelative:false,transformTags:{img:(tagName,attribs)=>{const src=(attribs.src||'').trim();const local=src.startsWith('/api/assets/ast_');const inline=/^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(src);if(!local&&!inline)return{tagName:'span',attribs:{class:'cdi-blocked-img text-ink-400 italic text-xs block my-2 p-2 border border-dashed border-ink-300 rounded bg-ink-50'},text:'[External image blocked]'};return{tagName,attribs};},a:(tagName,attribs)=>{const href=String(attribs.href||'').trim();if(href.startsWith('#')){const id=namespaceCdiId(href.slice(1));const out:Record<string,string>={...attribs};if(id)out.href='#'+id;else delete out.href;return{tagName,attribs:out};}return{tagName,attribs:{...attribs,target:'_blank',rel:'noopener noreferrer nofollow'}};},'*':(tagName,attribs)=>{if(typeof attribs.class==='string')attribs.class=sanitizeClass(attribs.class);if(typeof attribs.style==='string')attribs.style=sanitizeStyle(attribs.style);if(typeof attribs.id==='string'){const id=namespaceCdiId(attribs.id);if(id)attribs.id=id;else delete attribs.id;}return{tagName,attribs};}},disallowedTagsMode:'discard'});
-export function deepSanitizeHtml(obj:any):any{if(!obj||typeof obj!=='object')return obj;if(Array.isArray(obj))return obj.map(deepSanitizeHtml);const out:any={};for(const[k,v]of Object.entries(obj))out[k]=(k==='htmlContent'||k==='passageHtml')&&typeof v==='string'?sanitizeHtmlServer(v):v&&typeof v==='object'?deepSanitizeHtml(v):v;return out;}
+// The sanitiser lives in src/services/htmlSanitizer.ts (M5); re-exported for its existing importers.
+export {sanitizeHtmlServer,deepSanitizeHtml} from '../services/htmlSanitizer';
+import {deepSanitizeHtml,sanitizeHtmlServer} from '../services/htmlSanitizer';
 export async function requireAdminAuth(req:AdminRequest,res:Response,next:NextFunction){try{
   // The same lookup the admin security middleware made to count this request (staffSession.ts).
   const session=await staffSessionOf(req);
@@ -79,7 +63,9 @@ const fileFilter:multer.Options['fileFilter']=(_r,file,cb)=>{
 };
 const upload=multer({storage:multer.memoryStorage(),fileFilter,limits:{fileSize:35*1024*1024,files:1,fields:20,fieldNameSize:100,fieldSize:256*1024,parts:22}});
 // Staff sign-in is counted like learner sign-in (authRoutes, countSignIn), apart from it.
-adminRouter.post('/login',async(req,res,next)=>{try{const username=String(req.body?.username||'');const counted=await countSignIn(res,`staff:${clientAddressKey(req)}`,username);if(!counted)return;const r=await authService.login(username,String(req.body?.password||''));await releaseSignIn(counted);if(r.user.role!=='admin'&&r.user.role!=='examiner')return res.status(403).json({error:'Forbidden.'});res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch(error){if(isStorageUnavailableError(error))return next(error);return res.status(401).json({error:'Invalid credentials.'});}});
+// An account that proves its password but is not staff is refused inside login, before a session exists (L16).
+const STAFF_ROLES=['admin','examiner'] as const;
+adminRouter.post('/login',async(req,res,next)=>{let counted:Awaited<ReturnType<typeof countSignIn>>|undefined;try{const username=String(req.body?.username||'');counted=await countSignIn(res,`staff:${clientAddressKey(req)}`,username);if(!counted)return;const r=await authService.login(username,String(req.body?.password||''),{allowedRoles:STAFF_ROLES});await releaseSignIn(counted);res.cookie(ADMIN_AUTH_COOKIE,r.token,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin',maxAge:24*60*60*1000});return res.json({success:true,admin:{id:r.user.id,username:r.user.username,name:r.user.name,role:r.user.role}});}catch(error){if(isStorageUnavailableError(error))return next(error);if(error instanceof SignInRoleRefusedError){/* The password was right: not a failed attempt. */if(counted)await releaseSignIn(counted);return res.status(403).json({error:'Forbidden.'});}return res.status(401).json({error:'Invalid credentials.'});}});
 adminRouter.get('/me',requireAdminAuth,(req:AdminRequest,res)=>res.json({admin:req.adminUser}));
 adminRouter.post('/logout',requireAdminAuth,async(req:AdminRequest,res)=>{try{await authService.logout(req.adminSessionToken||'');}catch{}res.clearCookie(ADMIN_AUTH_COOKIE,{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/api/admin'});return res.json({success:true});});
 // Staff reads go through the same policy as a learner's (`authorizeAssetRead`): an

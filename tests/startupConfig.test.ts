@@ -86,6 +86,15 @@ describe('the startup configuration check', () => {
     expectProblem('EXPLICIT_DEV_AUTH', { ...PRODUCTION, EXPLICIT_DEV_AUTH: 'true' }, 'EXPLICIT_DEV_AUTH=true');
     expectProblem('SEED_DEFAULT_ACCOUNTS', { ...PRODUCTION, SEED_DEFAULT_ACCOUNTS: 'true' }, 'SEED_DEFAULT_ACCOUNTS');
   });
+
+  it('outside production the impersonation switch needs NODE_ENV to be development or test — an unset NODE_ENV is refused (M11)', () => {
+    for (const nodeEnv of [undefined, '', 'staging', 'prod']) {
+      expectProblem(`NODE_ENV=${String(nodeEnv)}`, { NODE_ENV: nodeEnv, EXPLICIT_DEV_AUTH: 'true' }, 'EXPLICIT_DEV_AUTH=true lets any request act as any account');
+    }
+    expect(problemsOf({ EXPLICIT_DEV_AUTH: 'true' }).join(' ')).toContain('NODE_ENV is unset');
+    for (const nodeEnv of ['development', 'test']) expect([nodeEnv, problemsOf({ NODE_ENV: nodeEnv, EXPLICIT_DEV_AUTH: 'true' })]).toEqual([nodeEnv, []]);
+    expect([problemsOf({ EXPLICIT_DEV_AUTH: 'false' }), problemsOf({})]).toEqual([[], []]);
+  });
 });
 
 describe('the real server.ts at start', () => {
@@ -118,6 +127,33 @@ describe('the real server.ts at start', () => {
     expect(failure).toContain('exited ({"code":1');
     expect(failure).toContain('[Config] PORT must be a whole number');
     expect([failure.includes('TypeError'), /\n\s+at \S/.test(failure)]).toEqual([false, false]);
+  });
+
+  it('EXPLICIT_DEV_AUTH with NODE_ENV unset stops the server; with NODE_ENV=development the x-user-id header works (M11)', async () => {
+    let failure = '';
+    try {
+      const started = await startServer({ STORAGE_BACKEND: 'local', EXPLICIT_DEV_AUTH: 'true' }, 90_000);
+      await started.stop();
+      failure = 'the server started';
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    expect(failure).toContain('exited ({"code":1');
+    expect(failure).toContain('EXPLICIT_DEV_AUTH=true lets any request act as any account');
+    expect(failure).toContain('NODE_ENV is unset');
+
+    const development = await startServer({ STORAGE_BACKEND: 'local', NODE_ENV: 'development', EXPLICIT_DEV_AUTH: 'true' }, 120_000);
+    try {
+      const registered = await fetch(`${development.origin}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'dev_header_user', email: 'dev_header@example.com', password: 'Dev-Header-Passw0rd' }) });
+      const { user } = (await registered.json()) as { user: { id: string } };
+      const impersonated = await fetch(`${development.origin}/api/auth/me`, { headers: { 'x-user-id': user.id } });
+      // /api/auth/me reads only the cookie; the learner API is where the header applies.
+      expect(impersonated.status).toBe(401);
+      const data = await fetch(`${development.origin}/api/quotas`, { headers: { 'x-user-id': user.id } });
+      expect(data.status).toBe(200);
+    } finally {
+      await development.stop();
+    }
   });
 
   it('a complete production configuration starts; with no Firestore credentials the health check answers 503', async () => {

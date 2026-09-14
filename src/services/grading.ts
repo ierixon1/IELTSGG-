@@ -306,10 +306,22 @@ const speakingSchema = {
   required: ['band_overall', 'transcript', 'criteria', 'objective_metrics', 'actionable_drills'],
 };
 
-const isBand = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 9;
+/** A band as IELTS reports one: 0 to 9, in half bands. */
+const isBand = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 9 && Number.isInteger(value * 2);
 
-/** The model's JSON, when it is an object carrying a band; null for anything else. */
-function parseAssessment(text: string): Record<string, unknown> | null {
+const SPEAKING_CRITERIA = ['fluency_coherence', 'lexical_resource', 'grammatical_range', 'pronunciation'] as const;
+const hasBand = (criterion: unknown) => typeof criterion === 'object' && criterion !== null && isBand((criterion as { band?: unknown }).band);
+
+/**
+ * The model's JSON, when it is an object carrying an overall band and a band for
+ * every criterion; null for anything else (L10). Writing lists its criteria — a
+ * non-empty array, as `writingSchema` asks — and Speaking names its four in an
+ * object, as `speakingSchema` asks. A criterion band out of range or between half
+ * bands is an unusable answer, answered 502 like any other — never shown, and
+ * never a band an exam records.
+ */
+function parseAssessment(text: string, criteriaShape: 'listed' | 'named'): Record<string, unknown> | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text || '{}');
@@ -318,7 +330,13 @@ function parseAssessment(text: string): Record<string, unknown> | null {
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
   const assessment = parsed as Record<string, unknown>;
-  return isBand(assessment.band_overall) ? assessment : null;
+  if (!isBand(assessment.band_overall)) return null;
+  const criteria = assessment.criteria;
+  const banded =
+    criteriaShape === 'listed'
+      ? Array.isArray(criteria) && criteria.length > 0 && criteria.every(hasBand)
+      : typeof criteria === 'object' && criteria !== null && !Array.isArray(criteria) && SPEAKING_CRITERIA.every((name) => hasBand((criteria as Record<string, unknown>)[name]));
+  return banded ? assessment : null;
 }
 
 const recordedModel = (providerName: string, model: string) => (providerName === 'gemini' ? model : `${providerName}/${model}`);
@@ -374,7 +392,7 @@ export async function gradeWritingSubmission(input: WritingSubmission, context: 
       'writing_grade',
       context,
     );
-    const assessment = parseAssessment(output.text);
+    const assessment = parseAssessment(output.text, 'listed');
     if (!assessment) return refuse(502, { error: 'The grading model returned no usable assessment.', code: 'invalid_model_response' }, 'invalid_response');
     const parsed = assessment as unknown as WritingGradingResult;
     return {
@@ -408,7 +426,7 @@ export async function gradeSpeakingSubmission(input: SpeakingSubmission, context
       'speaking_grade',
       context,
     );
-    const assessment = parseAssessment(output.text);
+    const assessment = parseAssessment(output.text, 'named');
     if (!assessment) return refuse(502, { error: 'The grading model returned no usable assessment.', code: 'invalid_model_response' }, 'invalid_response');
     return { ok: true, result: assessment as unknown as SpeakingGradingResult, model: recordedModel(provider.name, output.model) };
   } catch (error) {
